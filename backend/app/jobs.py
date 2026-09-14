@@ -14,6 +14,7 @@ from .domain import (
     utcnow,
     validate_service_settings,
 )
+from .job_queue import LeaseHeartbeat, claim_job, clear_job_lease
 from .models import (
     AgentMessage,
     AgentProposal,
@@ -37,6 +38,8 @@ def job_dict(job: AsyncJob) -> dict[str, Any]:
         "id": job.id,
         "kind": job.kind,
         "status": job.status,
+        "queue_name": job.queue_name,
+        "priority": job.priority,
         "payload": job.payload,
         "result": job.result,
         "error": job.error,
@@ -45,8 +48,14 @@ def job_dict(job: AsyncJob) -> dict[str, Any]:
         "idempotency_key": job.idempotency_key,
         "created_by": job.created_by,
         "created_at": job.created_at,
+        "available_at": job.available_at,
         "started_at": job.started_at,
         "completed_at": job.completed_at,
+        "lease_owner": job.lease_owner,
+        "lease_expires_at": job.lease_expires_at,
+        "heartbeat_at": job.heartbeat_at,
+        "recovery_count": job.recovery_count,
+        "cancel_requested_at": job.cancel_requested_at,
     }
 
 
@@ -57,6 +66,8 @@ def enqueue_job(
     payload: dict[str, Any],
     idempotency_key: str | None,
     max_attempts: int = 3,
+    *,
+    commit: bool = True,
 ) -> tuple[AsyncJob, bool]:
     if idempotency_key:
         existing = db.scalar(
@@ -72,6 +83,8 @@ def enqueue_job(
         tenant_id=context.tenant_id,
         kind=kind,
         status="queued",
+        queue_name="default",
+        priority=100,
         payload=payload,
         idempotency_key=idempotency_key,
         max_attempts=max_attempts,
@@ -89,8 +102,9 @@ def enqueue_job(
             detail={"kind": kind, "idempotency_key": idempotency_key},
         )
     )
-    db.commit()
-    db.refresh(job)
+    if commit:
+        db.commit()
+        db.refresh(job)
     return job, True
 
 
@@ -263,30 +277,60 @@ JOB_HANDLERS = {
 }
 
 
-def execute_job(session_factory: sessionmaker, job_id: str) -> None:
-    with session_factory() as db:
-        job = db.get(AsyncJob, job_id)
-        if not job or job.status != "queued":
-            return
-        job.status = "running"
-        job.attempt += 1
-        job.started_at = utcnow()
-        db.commit()
+def execute_claimed_job(session_factory: sessionmaker, job_id: str, worker_id: str) -> str | None:
+    """Execute a job only while the caller owns its active lease."""
 
+    with LeaseHeartbeat(session_factory, job_id, worker_id), session_factory() as db:
+        job = db.scalar(
+            select(AsyncJob).where(
+                AsyncJob.id == job_id,
+                AsyncJob.status == "running",
+                AsyncJob.lease_owner == worker_id,
+            )
+        )
+        if not job:
+            return None
+        claimed_attempt = job.attempt
         try:
             handler = JOB_HANDLERS.get(job.kind)
             if not handler:
                 raise ValueError(f"未知作业类型：{job.kind}")
             result = handler(db, job)
             db.expire(job)
-            if job.status == "cancelled":
-                db.rollback()
-                return
-            job = db.get(AsyncJob, job_id)
+            job = db.scalar(
+                select(AsyncJob).where(
+                    AsyncJob.id == job_id,
+                    AsyncJob.status == "running",
+                    AsyncJob.lease_owner == worker_id,
+                    AsyncJob.lease_expires_at > utcnow(),
+                    AsyncJob.attempt == claimed_attempt,
+                )
+            )
+            if not job:
+                return "lease_lost"
+            if job.cancel_requested_at:
+                job.status = "cancelled"
+                job.result = None
+                job.error = "作业在当前安全边界完成后取消"
+                job.completed_at = utcnow()
+                clear_job_lease(job)
+                db.add(
+                    AuditEvent(
+                        tenant_id=job.tenant_id,
+                        actor_id=job.created_by,
+                        action="job.cancelled",
+                        resource_type="async_job",
+                        resource_id=job.id,
+                        detail={"kind": job.kind, "attempt": job.attempt, "mode": "cooperative"},
+                    )
+                )
+                db.commit()
+                return job.status
             job.status = "succeeded"
             job.result = result
             job.error = None
             job.completed_at = utcnow()
+            clear_job_lease(job)
             db.add(
                 AuditEvent(
                     tenant_id=job.tenant_id,
@@ -294,21 +338,34 @@ def execute_job(session_factory: sessionmaker, job_id: str) -> None:
                     action="job.succeeded",
                     resource_type="async_job",
                     resource_id=job.id,
-                    detail={"kind": job.kind, "attempt": job.attempt},
+                    detail={"kind": job.kind, "attempt": job.attempt, "worker_id": worker_id},
                 )
             )
             db.commit()
+            return job.status
         # This is the durable job boundary: every handler failure must be
         # persisted as a failed job and, when applicable, a failed AgentRun.
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            job = db.get(AsyncJob, job_id)
+            job = db.scalar(
+                select(AsyncJob).where(
+                    AsyncJob.id == job_id,
+                    AsyncJob.status == "running",
+                    AsyncJob.lease_owner == worker_id,
+                    AsyncJob.lease_expires_at > utcnow(),
+                    AsyncJob.attempt == claimed_attempt,
+                )
+            )
+            if not job:
+                return "lease_lost"
             message = exc.detail if isinstance(exc, HTTPException) else str(exc)
-            job.status = "failed"
-            job.error = str(message)[:2000]
+            cancelled = bool(job.cancel_requested_at)
+            job.status = "cancelled" if cancelled else "failed"
+            job.error = "作业执行期间收到取消请求" if cancelled else str(message)[:2000]
             job.completed_at = utcnow()
-            run = db.scalar(select(AgentRun).where(AgentRun.job_id == job.id))
-            if run and run.status == "running":
+            clear_job_lease(job)
+            run = db.scalar(select(AgentRun).where(AgentRun.job_id == job.id, AgentRun.status == "running"))
+            if run:
                 run.status = "failed"
                 run.error = job.error
                 run.completed_at = job.completed_at
@@ -316,10 +373,20 @@ def execute_job(session_factory: sessionmaker, job_id: str) -> None:
                 AuditEvent(
                     tenant_id=job.tenant_id,
                     actor_id=job.created_by,
-                    action="job.failed",
+                    action="job.cancelled" if cancelled else "job.failed",
                     resource_type="async_job",
                     resource_id=job.id,
-                    detail={"kind": job.kind, "attempt": job.attempt, "error": job.error},
+                    detail={"kind": job.kind, "attempt": job.attempt, "error": job.error, "worker_id": worker_id},
                 )
             )
             db.commit()
+            return job.status
+
+
+def execute_job(session_factory: sessionmaker, job_id: str) -> None:
+    """Backward-compatible inline dispatcher used by local development/tests."""
+
+    worker_id = f"api-inline:{job_id}"
+    claimed_id = claim_job(session_factory, worker_id, job_id=job_id)
+    if claimed_id:
+        execute_claimed_job(session_factory, claimed_id, worker_id)

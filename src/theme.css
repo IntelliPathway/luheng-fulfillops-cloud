@@ -81,6 +81,7 @@
 .overview-data-table .row-actions .icon-btn{width:29px;height:29px;border:1px solid var(--border);background:var(--bg)}.overview-data-table .row-actions .icon-btn:hover{background:var(--hover);border-color:#d3d3d6}
 .overview-data-table tr:hover td{background:#f8f8f9}.overview-data-table tr.selected td{background:var(--tint)}[data-theme=dark] .overview-data-table tr:hover td{background:var(--hover)}
 .badge{border:1px solid transparent;font-weight:500}.badge.running,.badge.completed{border-color:#bdeba04d}.badge.blocked,.badge.paused{border-color:#efd8ad66}
+.warning-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);display:inline-block;box-shadow:0 0 0 4px var(--amber-bg);flex-shrink:0}
 .segmented{border:1px solid #00000005}.segmented button{min-width:32px}.segmented button.active{box-shadow:0 1px 3px #17171714}
 .btn,.icon-btn,.sidebar-search,.agent-brief,.kpi-tile,.dashboard-card,.overview-data-table tr{transition:background .15s,border-color .15s,color .15s,transform .15s,box-shadow .15s}
 @media(max-width:1180px){.overview-grid-top{grid-template-columns:285px minmax(0,1fr)}.notification-pop{right:-80px}}

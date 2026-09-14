@@ -75,3 +75,11 @@ final result: passed
 - `npm test` passed 12 domain/API-contract tests and 4 Sites packaging tests; `npm run build` produced the required client, server and hosting artifacts.
 - Backend coverage passed 23 tests across MCP discovery/call framing, scoped Runtime JWT, tenant isolation, SDK job projection, process reuse, restart replay and failed-run persistence.
 - No real DeepSeek credential was available in this environment, so this QA cycle intentionally made no provider call. The approved page structure did not change; existing screenshot evidence remains the visual baseline.
+
+## v0.5 durable Worker verification · 2026-09-14
+
+- The integration header now distinguishes API connectivity from job execution health: inline development, healthy external Worker, or degraded external Worker with jobs retained in the database.
+- The sidebar status uses the same queue source and does not imply that a queued job is executing when no Worker heartbeat is available.
+- Existing compact BoardUI density, light/dark Agent themes and responsive layout were preserved; no structural visual redesign was introduced.
+- Automated verification covers external enqueueing, concurrent claim exclusivity, lease heartbeat, stale recovery, bounded attempts, lease fencing and cooperative cancellation. Backend 30, frontend/API 12 and Sites 4 checks passed; both the production build and standalone export completed successfully.
+- The cloud browser again rejected the loopback preview with `ERR_BLOCKED_BY_CLIENT`. The UI delta is limited to queue-health text and status color, so the approved screenshots remain the visual baseline; current output was verified through production compilation, HTTP rendering and both inline/external-process smoke tests.

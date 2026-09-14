@@ -135,6 +135,10 @@ export const authApi = {
   session: tenant => request('/auth/session', tenant),
 };
 
+export const jobApi = {
+  queueHealth: tenant => request('/jobs/queue/health', tenant),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   createSession: (tenant, scope = {}) => request('/agents/sessions', tenant, {

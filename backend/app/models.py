@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -175,12 +176,18 @@ class AuditEvent(Base):
 
 class AsyncJob(Base):
     __tablename__ = "async_jobs"
-    __table_args__ = (UniqueConstraint("tenant_id", "kind", "idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "kind", "idempotency_key"),
+        Index("ix_async_jobs_queue_claim", "queue_name", "status", "available_at", "priority", "created_at"),
+        Index("ix_async_jobs_lease_expiry", "status", "lease_expires_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("JOB"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
     status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    queue_name: Mapped[str] = mapped_column(String(40), default="default", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -189,8 +196,31 @@ class AsyncJob(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_by: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    available_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recovery_count: Mapped[int] = mapped_column(Integer, default=0)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class JobWorker(Base):
+    __tablename__ = "job_workers"
+    __table_args__ = (Index("ix_job_workers_heartbeat", "status", "heartbeat_at"),)
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
+    queues: Mapped[list[str]] = mapped_column(JSON, default=list)
+    current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    version: Mapped[str] = mapped_column(String(24), default="0.5.0")
+    processed_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AgentSession(Base):

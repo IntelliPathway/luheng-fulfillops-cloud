@@ -1,6 +1,6 @@
 # 履衡 AI · FulfillOps Cloud 全栈开发版
 
-当前版本：`v0.4.0`。本版本把 DeepSeek Harness 从安全适配契约 PoC 升级为可显式启用的官方 SDK/JSON-RPC Runtime：默认 Shell 被禁用，8 个业务工具经租户级 MCP 与短时 Runtime JWT 回到确定性 API。前端会自动连接 API；API 不可用时明确降级为本地演示。
+当前版本：`v0.5.0`。本版本在 v0.4 DeepSeek Harness SDK/MCP 安全 Runtime 之上增加可独立部署的持久任务 Worker。API 负责幂等入队，Worker 通过数据库租约认领任务、续租心跳并恢复崩溃作业；前端会明确展示内联/外部执行与 Worker 健康状态。API 不可用时仍明确降级为本地演示。
 
 已选方向：第 1 版浅色 SaaS 工作空间 + 第 3 版 Agent 运行详情，支持全局深浅主题。
 
@@ -22,8 +22,9 @@
 8. 在单个活动内通过服务端持久会话解释等待条件、重规划或发起暂停/恢复提案；确认时服务端重新校验成员角色与活动状态，再同步更新运行状态和审计证据。
 9. 在「AI 与渠道」分别配置 Hermes、DeepSeek Harness、LangGraph 或自研 Agent Runtime，以及模型、语音与 SIP 电话服务，完成单项连接测试、五项全链路沙箱自测和管理员启用确认。
 10. DeepSeek Harness 采用 `fulfillops-safe` Patch：对话结果展示 Provider Session、Turn、事件 Cursor、已核验工具数，以及“进程内续接/检查点重放”的真实恢复方式。
-11. 在异常中心处理异议、停止联系、金额冲突、授权缺失和委托到期；委托后尾期只核对被动到账，禁止主动触达。
-12. 切换组织以查看租户隔离；组织设置中可还原整个演示。
+11. Compose 环境由独立 Worker 消费持久作业；页面显示 Worker 健康、排队数量和活动作业。Worker 异常退出后，过期租约会在尝试预算内自动重新排队。
+12. 在异常中心处理异议、停止联系、金额冲突、授权缺失和委托到期；委托后尾期只核对被动到账，禁止主动触达。
+13. 切换组织以查看租户隔离；组织设置中可还原整个演示。
 
 支持活动搜索、按名称排序、紧凑行高、分页、批量暂停/恢复、资产包筛选、案件搜索、侧边栏快速搜索（⌘/Ctrl+K）、通知中心、键盘关闭弹窗与深浅主题。
 
@@ -41,6 +42,6 @@ Hermes、模型、语音和电话 Provider 当前仍返回确定性的沙箱适�
 
 使用原稿中提取的品牌资产；图标使用 Phosphor 图标库。经营首页进一步对齐 BoardUI 的侧边栏搜索、紧凑工具栏、柔和卡片、带坐标轴图表与高密度数据表，并保留 AI 经营建议、保护暂停和可追溯 Agent 运行语义。「AI 与渠道」页面由四张入口卡承载 Agent Runtime、模型、语音和电话，并增加接入进度、五项自测、启用门禁和最近报告。`design-qa.md` 记录浏览器验证、视觉对比与已知限制，`qa/` 保存截图证据。
 
-本项目保留 Vite 与 Sites 兼容构建。`v0.4.0` 已通过 23 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 39 项；覆盖身份、Bearer、Gateway、MCP 工具、Runtime JWT、Agent 作业、失败 Run、进程内续接与进程重启检查点重放。后续需要完成真实 DeepSeek 模型回放、企业 IdP、正式 KMS、独立任务 Worker/Broker、支付回执和佣金账簿。
+本项目保留 Vite 与 Sites 兼容构建。`v0.5.0` 已通过 30 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 46 项；覆盖身份、Bearer、Gateway、MCP 工具、Runtime JWT、Worker 唯一认领、心跳续租、崩溃恢复、租约 fencing、协作式取消、失败 Run、进程内续接与检查点重放。后续需要完成真实 DeepSeek 模型回放、企业 IdP、正式 KMS、Redis/Kafka Broker 适配、支付回执和佣金账簿。
 
 重新导出独立 HTML：先执行 `npm run build`，再运行 `python3 scripts/export-standalone.py`，结果位于 `export/LuhengAI_FulfillOps_Interactive.html`。

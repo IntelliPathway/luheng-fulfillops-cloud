@@ -166,6 +166,8 @@ class JobOut(BaseModel):
     id: str
     kind: str
     status: JobStatus
+    queue_name: str
+    priority: int
     payload: dict[str, Any]
     result: dict[str, Any] | None
     error: str | None
@@ -174,8 +176,25 @@ class JobOut(BaseModel):
     idempotency_key: str | None
     created_by: str
     created_at: datetime
+    available_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+    heartbeat_at: datetime | None
+    recovery_count: int
+    cancel_requested_at: datetime | None
+
+
+class QueueHealthOut(BaseModel):
+    mode: Literal["inline", "external"]
+    status: Literal["inline", "healthy", "degraded"]
+    active_workers: int
+    queued_jobs: int
+    running_jobs: int
+    stale_jobs: int
+    latest_heartbeat_at: datetime | None
+    lease_seconds: int
 
 
 class AsyncTestRequest(BaseModel):

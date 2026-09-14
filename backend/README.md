@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.4.0` 后端基线，提供数据库成员权限、JWT/OIDC、持久异步作业、统一 Agent Gateway、Provider-neutral Runtime Adapter、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点与行动提案，以及多租户接入门禁和活动预检。
+`v0.5.0` 后端基线，提供数据库成员权限、JWT/OIDC、带租约的持久异步作业、独立 Worker、统一 Agent Gateway、Provider-neutral Runtime Adapter、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点与行动提案，以及多租户接入门禁和活动预检。
 
 ## 本地运行
 
@@ -13,6 +13,15 @@ DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvicorn app.main:app --reload -
 接口文档：`http://127.0.0.1:8000/api/docs`。
 
 前端开发服务器通过 `/api` 代理到 `127.0.0.1:8000`。也可以从项目根目录运行 `docker compose up --build`，同时启动 PostgreSQL、API 和前端。
+
+默认 `JOB_EXECUTION_MODE=inline`，适合本地零依赖开发。独立进程验证可分别启动：
+
+```bash
+JOB_EXECUTION_MODE=external DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvicorn app.main:app --port 8000
+JOB_EXECUTION_MODE=external DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/python -m app.worker
+```
+
+Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default` 队列。现有 PostgreSQL 数据卷启动 API 时会按 `migrations/` 自动执行尚未登记的事务迁移。
 
 ## 请求上下文
 
@@ -32,6 +41,9 @@ DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvicorn app.main:app --reload -
 - `GET /api/v1/agents/sessions/{id}/runtime`：读取 Provider Session、事件游标、Turn 数和最近 Run，用于重启后恢复与运维核查。
 - `POST /api/v1/agents/proposals/{id}/confirm`：对暂停/恢复提案做结构化确认，服务端再次校验角色、租户和状态。
 - `GET /api/v1/jobs/{id}`：恢复连接测试、自测或 Agent 运行进度；失败作业可重试，排队/运行作业可取消。
+- `GET /api/v1/jobs/queue/health`：读取当前租户排队/运行/陈旧任务，以及全局可用 Worker 数。
+
+每个运行作业都记录 `lease_owner`、`lease_expires_at` 与 `heartbeat_at`。Worker 定期续租；租约过期时，其他 Worker 会关闭遗留的运行记录，并在 `max_attempts` 预算内重新排队。PostgreSQL 使用 `FOR UPDATE SKIP LOCKED`，SQLite 开发路径使用带状态条件的原子更新。运行中取消为协作式：先写入 `cancel_requested_at`，再由持有租约的 Worker 在当前处理器安全边界收口。
 
 连接测试和五项沙箱自测的新接口以 `/jobs` 结尾并返回 `202`。旧同步接口暂时保留，便于 v0.2 客户端平滑迁移。
 
@@ -55,4 +67,4 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 .venv/bin/python -m pytest
 ```
 
-当前基线为 23 项后端测试，包含 MCP 协议、Runtime JWT、完整异步 Agent 作业、进程内续接、进程重启检查点重放和失败 Run 持久化。
+当前基线为 30 项后端测试，包含 MCP 协议、Runtime JWT、完整异步 Agent 作业、并发 Worker 唯一认领、心跳续租、崩溃恢复、尝试预算、租约 fencing、协作式取消、进程内续接、检查点重放和失败 Run 持久化。

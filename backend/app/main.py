@@ -35,7 +35,9 @@ from .domain import (
     validate_service_settings,
 )
 from .harness_runtime import close_harness_runtimes
+from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
+from .migrations import run_postgres_migrations
 from .models import (
     Activity,
     AgentMessage,
@@ -75,6 +77,7 @@ from .schemas import (
     JobOut,
     ProposalDecisionRequest,
     ProposalOut,
+    QueueHealthOut,
     SelfTestItem,
     SelfTestReportOut,
     ServiceConfigOut,
@@ -170,10 +173,15 @@ def audit(db: Session, context: RequestContext, action: str, resource_type: str,
     )
 
 
+def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_id: str) -> None:
+    if should_execute_inline():
+        background_tasks.add_task(execute_job, session_factory, job_id)
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.4.0",
+        version="0.5.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -189,13 +197,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
     engine = build_engine(url)
     app.state.engine = engine
     app.state.Session = build_session_factory(engine)
+    run_postgres_migrations(engine)
     Base.metadata.create_all(engine)
     with app.state.Session() as db:
         seed_demo_data(db)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.4.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.5.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -316,7 +325,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             payload.idempotency_key,
         )
         if created:
-            background_tasks.add_task(execute_job, app.state.Session, job.id)
+            dispatch_inline_job(background_tasks, app.state.Session, job.id)
         return JobOut.model_validate(job)
 
     @app.post("/api/v1/integrations/self-test", response_model=SelfTestReportOut, tags=["integrations"])
@@ -369,7 +378,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             payload.idempotency_key,
         )
         if created:
-            background_tasks.add_task(execute_job, app.state.Session, job.id)
+            dispatch_inline_job(background_tasks, app.state.Session, job.id)
         return JobOut.model_validate(job)
 
     @app.post("/api/v1/integrations/enable", response_model=IntegrationOverviewOut, tags=["integrations"])
@@ -407,6 +416,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         rows = db.scalars(statement.order_by(AsyncJob.created_at.desc()).limit(limit))
         return [JobOut.model_validate(row) for row in rows]
 
+    @app.get("/api/v1/jobs/queue/health", response_model=QueueHealthOut, tags=["jobs"])
+    def get_queue_health(context: Context, db: Database) -> QueueHealthOut:
+        return QueueHealthOut(**queue_health(db, context.tenant_id))
+
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, context: Context, db: Database) -> JobOut:
         job = db.scalar(select(AsyncJob).where(AsyncJob.id == job_id, AsyncJob.tenant_id == context.tenant_id))
@@ -422,9 +435,24 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="作业不存在")
         if job.status in TERMINAL_JOB_STATUSES:
             return JobOut.model_validate(job)
-        job.status = "cancelled"
-        job.completed_at = utcnow()
-        audit(db, context, "job.cancelled", "async_job", job.id, {"kind": job.kind})
+        now = utcnow()
+        lease_expired = bool(job.status == "running" and job.lease_expires_at and job.lease_expires_at <= now)
+        if job.status == "queued" or lease_expired:
+            job.status = "cancelled"
+            job.completed_at = now
+            job.cancel_requested_at = now
+            clear_job_lease(job)
+            audit(db, context, "job.cancelled", "async_job", job.id, {"kind": job.kind, "immediate": True})
+        else:
+            job.cancel_requested_at = now
+            audit(
+                db,
+                context,
+                "job.cancel_requested",
+                "async_job",
+                job.id,
+                {"kind": job.kind, "lease_owner": job.lease_owner},
+            )
         db.commit()
         return JobOut.model_validate(job)
 
@@ -440,11 +468,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="作业已达到最大重试次数")
         job.status = "queued"
         job.error = None
+        job.result = None
+        job.available_at = utcnow()
         job.started_at = None
         job.completed_at = None
+        job.heartbeat_at = None
+        job.cancel_requested_at = None
+        clear_job_lease(job)
         audit(db, context, "job.retried", "async_job", job.id, {"kind": job.kind, "next_attempt": job.attempt + 1})
         db.commit()
-        background_tasks.add_task(execute_job, app.state.Session, job.id)
+        dispatch_inline_job(background_tasks, app.state.Session, job.id)
         return JobOut.model_validate(job)
 
     @app.get("/api/v1/agents/gateway", response_model=AgentGatewayOut, tags=["agents"])
@@ -586,6 +619,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "agent.turn",
             {"session_id": session.id, "content": payload.content},
             payload.idempotency_key,
+            commit=False,
         )
         if created:
             db.add(
@@ -598,7 +632,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 )
             )
             db.commit()
-            background_tasks.add_task(execute_job, app.state.Session, job.id)
+            dispatch_inline_job(background_tasks, app.state.Session, job.id)
         return JobOut.model_validate(job)
 
     @app.post("/api/v1/agents/proposals/{proposal_id}/confirm", response_model=ProposalOut, tags=["agents"])

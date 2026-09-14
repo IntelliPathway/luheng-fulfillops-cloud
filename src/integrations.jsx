@@ -1,6 +1,6 @@
 import React,{useMemo,useState} from 'react';
 import {
- ArrowRight,Check,CheckCircle,Cpu,Clock,CloudCheck,Flask,Info,
+ ArrowRight,Check,CheckCircle,Cpu,Clock,CloudCheck,Flask,HardDrives,Info,
  LockKey,PhoneCall,Play,Robot,ShieldCheck,SpinnerGap,WarningCircle,Waveform
 } from '@phosphor-icons/react';
 import {useApp} from './context';
@@ -31,6 +31,7 @@ const serviceMeta={
 };
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const jobStatusLabel=job=>job.cancel_requested_at?'取消中':({queued:'排队中',running:'运行中',succeeded:'已完成',failed:'失败',cancelled:'已取消'}[job.status]||job.status);
 
 function connectionLabel(config){
  if(config.tested)return {label:'连接通过',tone:'ready'};
@@ -175,7 +176,7 @@ export function Integrations(){
  const enable=async()=>{try{await a.enableIntegration();setConfirmEnable(false);a.notify('AI 与渠道已启用到后续新建活动')}catch(reason){a.notify(`启用失败：${reason.message||'门禁未通过'}`)}};
  const lastRun=a.integrationState.lastRun;
  return <div className="integrations-page">
-  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.4.0 已连接':'本地演示降级'}</span>{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {a.activeJob.status==='succeeded'?'已完成':a.activeJob.status==='running'?'运行中':'排队中'}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
+  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.5.0 已连接':'本地演示降级'}</span>{a.backendStatus==='connected'&&<span className={`environment-chip ${a.queueHealth.status!=='degraded'?'enabled':''}`}><HardDrives size={14}/>{a.queueHealth.mode==='external'?(a.queueHealth.status==='healthy'?`${a.queueHealth.active_workers} 个 Worker`:'Worker 待恢复'):'内联作业'} · 排队 {a.queueHealth.queued_jobs}</span>}{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {jobStatusLabel(a.activeJob)}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
 
   <section className="gateway-runtime-strip" aria-label="Agent Gateway 状态">
    <span className="gateway-runtime-icon"><Robot size={21}/></span>

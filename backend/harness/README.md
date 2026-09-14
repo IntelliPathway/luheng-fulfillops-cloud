@@ -3,6 +3,8 @@
 v0.4 同时提供零外部调用的 `sandbox-contract` 和可显式启用的 `python-sdk`。两种模式共享
 `fulfillops-safe.contract.json`，但连接状态与运行元数据不会混用。
 
+从 v0.5 起，Compose 中的真实 Runtime 由独立 Worker 启动。Worker 回调 API 时使用服务名地址 `http://api:8000`；本机内联模式仍可使用 `http://127.0.0.1:8000`。
+
 ## 安全组成
 
 - `fulfillops-safe.patch.yml` 覆盖官方 `sdk-minimal` Profile，首先禁用默认的 `persistent-bash` 和 `persistent-pwsh`。
