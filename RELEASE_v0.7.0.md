@@ -20,7 +20,7 @@
 
 ## 验证口径
 
-- 后端：本地 47 项通过、1 项 PostgreSQL 专项按环境跳过；CI 应执行完整 48 项。
+- 后端：本地 47 项通过、1 项 PostgreSQL 专项按环境跳过；[GitHub Actions #4](https://github.com/IntelliPathway/luheng-fulfillops-cloud/actions/runs/34876163686) 已在 PostgreSQL 17 下执行完整 48 项并通过。
 - 前端领域/API：13 项；Sites：4 项。
 - 发布基线：共 65 项自动化测试及生产构建。
 - AWS 测试使用内存 Fake Client，不访问真实 AWS、不读取账号凭证、不产生费用。
