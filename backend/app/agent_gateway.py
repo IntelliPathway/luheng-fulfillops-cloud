@@ -7,8 +7,13 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import Activity, AssetPackage, BusinessMetricSnapshot, CaseRecord, ServiceConfig
-
+from .models import (
+    Activity,
+    AssetPackage,
+    BusinessMetricSnapshot,
+    CaseRecord,
+    ServiceConfig,
+)
 
 SUPPORTED_RUNTIMES = ["Hermes Agent", "DeepSeek Harness", "LangGraph Runtime", "自研 Agent Gateway"]
 TOOL_CATALOG = [

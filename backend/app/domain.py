@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -8,8 +8,14 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Activity, AssetPackage, CaseRecord, IntegrationState, SelfTestReport, ServiceConfig
-
+from .models import (
+    Activity,
+    AssetPackage,
+    CaseRecord,
+    IntegrationState,
+    SelfTestReport,
+    ServiceConfig,
+)
 
 SERVICE_TYPES = ("agent", "model", "voice", "phone")
 REQUIRED_SETTINGS = {

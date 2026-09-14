@@ -1,0 +1,37 @@
+# FulfillOps overlay for the shipped sdk-minimal profile.
+# The base profile contains a danger-full-access persistent shell. Both
+# platform variants are disabled before the allowlisted MCP tool bridge is
+# inserted. Stdout remains reserved for the Harness SDK JSON-RPC protocol.
+
+- id: persistent-bash
+  disabled: true
+
+- id: persistent-pwsh
+  disabled: true
+
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    personaPrefix: !!js process.env.DSH_SYSTEM_PROMPT
+
+- insert:
+    - id: fulfillops-safe-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: fulfillops
+        transport: stdio
+        command: !!js process.env.FULFILLOPS_MCP_PYTHON
+        args: ['-m', 'app.harness_mcp']
+        cwd: !!js process.env.FULFILLOPS_MCP_CWD
+        env:
+          PYTHONPATH: !!js process.env.FULFILLOPS_MCP_PYTHONPATH
+          FULFILLOPS_MCP_BASE_URL: !!js process.env.FULFILLOPS_MCP_BASE_URL
+          FULFILLOPS_MCP_TOKEN: !!js process.env.FULFILLOPS_MCP_TOKEN
+        toolCallTimeoutMs: 30000
+        failOnStartupError: true
+        reconnect:
+          enabled: true
+          initialDelayMs: 500
+          maxDelayMs: 5000
+          maxAttempts: 3

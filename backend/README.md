@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.3.1` 后端基线，提供数据库成员权限、JWT/OIDC、持久异步作业、统一 Agent Gateway、Provider-neutral Runtime Adapter、Agent 会话检查点与行动提案，以及多租户接入门禁和活动预检。
+`v0.4.0` 后端基线，提供数据库成员权限、JWT/OIDC、持久异步作业、统一 Agent Gateway、Provider-neutral Runtime Adapter、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点与行动提案，以及多租户接入门禁和活动预检。
 
 ## 本地运行
 
@@ -45,10 +45,14 @@ DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvicorn app.main:app --reload -
 
 当前密钥托管、Provider 连接与沙箱回执仍为适配器模拟；`secret_ref` 采用 KMS URI 形式，为后续接入 Vault、云 KMS 或企业密钥平台保留契约。生产环境必须关闭开发头认证与开发令牌入口，并配置企业 OIDC issuer、audience 和 JWKS。
 
-DeepSeek Harness 当前仅实现 `sandbox-contract`。它验证 8 个受控业务工具、7 类危险工具阻断、会话检查点与恢复语义，但不会启动外部 SDK。官方 Python SDK/JSON-RPC 接入必须先实现并验收 `backend/harness/fulfillops-safe.contract.json` 对应的专用插件，禁止使用含 shell/文件系统能力的默认 Profile 直接接触业务数据。
+DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`。真实模式用 `fulfillops-safe.patch.yml` 禁用官方 `sdk-minimal` 的默认 Shell，仅通过独立 MCP 子进程暴露 8 个受控业务工具；工具回调使用租户与会话绑定的短时 Runtime JWT。安装、环境变量、恢复语义和验收口径见 `harness/README.md`。
+
+真实模式不会从数据库中的 KMS URI 或凭证末四位还原密钥。部署端必须安装 `requirements-harness.txt`、设置 `FULFILLOPS_ENABLE_DSH_RUNTIME=1`，并从 KMS/Secret Manager 注入 `DEEPSEEK_API_KEY` 和独立的 `RUNTIME_JWT_SECRET`。未满足条件时连接作业失败且不会标记 Provider 已连接。
 
 ## 测试
 
 ```bash
 .venv/bin/python -m pytest
 ```
+
+当前基线为 23 项后端测试，包含 MCP 协议、Runtime JWT、完整异步 Agent 作业、进程内续接、进程重启检查点重放和失败 Run 持久化。

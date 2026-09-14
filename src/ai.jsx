@@ -117,7 +117,7 @@ function AssistantAnswer({answer}){
     <p>{answer.body}</p>
     {answer.facts&&<div className="assistant-facts">{answer.facts.map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>}
     <SourceChips sources={answer.sources}/>
-    {answer.runtime&&<div className="assistant-runtime"><Robot size={13}/><span>{answer.runtime.adapter} · {answer.runtime.resumed?'已恢复会话':'新会话'} · Turn {answer.runtime.turn_count} · Cursor {answer.runtime.event_cursor}</span></div>}
+    {answer.runtime&&<div className="assistant-runtime"><Robot size={13}/><span>{answer.runtime.adapter} · {answer.runtime.resume_mode==='checkpoint-replay'?'检查点重放':answer.runtime.resume_mode==='in-process'?'进程内续接':answer.runtime.resumed?'已恢复会话':'新会话'} · Turn {answer.runtime.turn_count} · Cursor {answer.runtime.event_cursor}{Number.isInteger(answer.runtime.verified_tool_count)?` · 已核验工具 ${answer.runtime.verified_tool_count}`:''}</span></div>}
     {answer.action&&<button className="text-link assistant-action" onClick={answer.action.run}>{answer.action.label}<ArrowRight size={14}/></button>}
   </div>;
 }
@@ -218,7 +218,7 @@ export function AgentCommand({activity}){
     <p>用自然语言补充目标或要求解释。涉及触达、预算、策略和状态变更时，先生成行动草案。</p>
     <div className="agent-command-suggestions">{suggestions.map(item=><button key={item} onClick={()=>submit(item)}>{item}</button>)}</div>
     {running&&<div className="command-proposal running"><div><span>持久作业运行中</span><b>{a.activeJob?.id||'正在创建作业'}</b><small>查询、工具轨迹和证据将在完成后写入会话。</small></div><Robot size={21}/></div>}
-    {proposal&&!running&&<div className="command-proposal"><div><span>{proposal.highImpact?'行动草案 · 待确认':'查询结果'}{proposal.runId?` · ${proposal.runId}`:''}</span><b>{proposal.command}</b><small>{proposal.body}</small>{proposal.runtime&&<small className="runtime-resume-state">{proposal.runtime.adapter} · {proposal.runtime.resumed?'检查点已恢复':'新建检查点'} · Turn {proposal.runtime.turn_count} · Cursor {proposal.runtime.event_cursor}</small>}</div>{proposal.highImpact?<Button onClick={confirmProposal}>确认草案</Button>:<CheckCircle size={21}/>}</div>}
+    {proposal&&!running&&<div className="command-proposal"><div><span>{proposal.highImpact?'行动草案 · 待确认':'查询结果'}{proposal.runId?` · ${proposal.runId}`:''}</span><b>{proposal.command}</b><small>{proposal.body}</small>{proposal.runtime&&<small className="runtime-resume-state">{proposal.runtime.adapter} · {proposal.runtime.resume_mode==='checkpoint-replay'?'检查点重放':proposal.runtime.resume_mode==='in-process'?'进程内续接':proposal.runtime.resumed?'检查点已恢复':'新建检查点'} · Turn {proposal.runtime.turn_count} · Cursor {proposal.runtime.event_cursor}</small>}</div>{proposal.highImpact?<Button onClick={confirmProposal}>确认草案</Button>:<CheckCircle size={21}/>}</div>}
     <div className="agent-command-input"><input value={value} disabled={running} onChange={event=>setValue(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')submit()}} placeholder={`向 ${activity.name} Agent 提问或下达目标…`}/><button onClick={()=>submit()} disabled={running||!value.trim()} aria-label="发送 Agent 指令"><PaperPlaneRight size={17}/></button></div>
   </section>;
 }

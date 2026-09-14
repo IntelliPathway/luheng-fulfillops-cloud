@@ -17,6 +17,7 @@ script = script.replace('/assets/brand.png?v=2', brand).replace('</script', '<\\
 html = re.sub(r'<script type="module" crossorigin src="[^"]+"></script>', '', html)
 html = re.sub(r'<link rel="stylesheet" crossorigin href="[^"]+">', lambda _: '<style>' + style + '</style>', html)
 html = html.replace('</body>', '<script type="module">' + script + '</script></body>')
+html = '\n'.join(line.rstrip() for line in html.splitlines()) + '\n'
 path = output / 'LuhengAI_FulfillOps_Interactive.html'
 path.write_text(html)
 print(path)

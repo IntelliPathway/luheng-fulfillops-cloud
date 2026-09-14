@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 ServiceType = Literal["agent", "model", "voice", "phone"]
 ActivityGoal = Literal["已签协议履约", "首次联络与意愿确认", "回款自动核对"]
 
@@ -207,6 +206,10 @@ class AgentRuntimeOut(BaseModel):
     last_run_id: str | None
     runtime_metadata: dict[str, Any]
     updated_at: datetime | None
+
+
+class AgentToolRequest(BaseModel):
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentSessionCreate(BaseModel):

@@ -1,6 +1,6 @@
 # 履衡 AI · FulfillOps Cloud 全栈开发版
 
-当前版本：`v0.3.1`。本版本在 v0.3 全栈基线上加入 Provider-neutral Runtime Adapter、DeepSeek Harness 安全适配契约、持久 Runtime 检查点、会话恢复和危险工具阻断。前端会自动连接 API；API 不可用时明确降级为本地演示。
+当前版本：`v0.4.0`。本版本把 DeepSeek Harness 从安全适配契约 PoC 升级为可显式启用的官方 SDK/JSON-RPC Runtime：默认 Shell 被禁用，8 个业务工具经租户级 MCP 与短时 Runtime JWT 回到确定性 API。前端会自动连接 API；API 不可用时明确降级为本地演示。
 
 已选方向：第 1 版浅色 SaaS 工作空间 + 第 3 版 Agent 运行详情，支持全局深浅主题。
 
@@ -21,7 +21,7 @@
 7. 使用全局「履衡 AI」查询案件、策略、任务、运营指标与钱指标；包含执行意图的问题先生成可审阅的结构化草案。
 8. 在单个活动内通过服务端持久会话解释等待条件、重规划或发起暂停/恢复提案；确认时服务端重新校验成员角色与活动状态，再同步更新运行状态和审计证据。
 9. 在「AI 与渠道」分别配置 Hermes、DeepSeek Harness、LangGraph 或自研 Agent Runtime，以及模型、语音与 SIP 电话服务，完成单项连接测试、五项全链路沙箱自测和管理员启用确认。
-10. DeepSeek Harness 采用 `fulfillops-safe` Profile 契约：对话结果展示 Provider Session、Turn 与事件 Cursor；重复对话从服务端检查点恢复。
+10. DeepSeek Harness 采用 `fulfillops-safe` Patch：对话结果展示 Provider Session、Turn、事件 Cursor、已核验工具数，以及“进程内续接/检查点重放”的真实恢复方式。
 11. 在异常中心处理异议、停止联系、金额冲突、授权缺失和委托到期；委托后尾期只核对被动到账，禁止主动触达。
 12. 切换组织以查看租户隔离；组织设置中可还原整个演示。
 
@@ -31,7 +31,7 @@
 
 这是可联调的全栈开发版，使用此前生成的 AMC 虚构样本。API 连接时，AI 与渠道配置、连接测试、自测报告、启用状态、活动快照和审计事件按租户入库；无 API 时才使用浏览器脱敏缓存。任何配置变更都会撤销旧报告与启用。
 
-Agent、模型、语音和电话 Provider 当前仍返回确定性的沙箱适配器结果，不执行真实外呼、扣费、支付、邮件或生产系统写入。DeepSeek Harness 的 `sandbox-contract` 也不启动官方 SDK 进程；真实 `python-sdk` 模式在 SDK 或专用安全插件未就绪时会明确失败。`credential` 只生成密钥托管引用和末四位，明文不会写入业务数据库或 API 响应。Agent 查询、行动提案和 Runtime 检查点已由服务端持久化处理。
+Hermes、模型、语音和电话 Provider 当前仍返回确定性的沙箱适配器结果，不执行真实外呼、扣费、支付、邮件或生产系统写入。DeepSeek Harness 的 `sandbox-contract` 不启动官方 SDK；`python-sdk` 已具备真实进程、MCP 工具与检查点恢复路径，但只有部署端安装 SDK、显式启用并注入模型凭证后才会连接。`credential` 只生成密钥托管引用和末四位，明文不会写入业务数据库或 API 响应。
 
 租户 A 初始确认净回款 ¥19,920、计佣回款 ¥18,420、应计佣金 ¥2,778、实际收佣 ¥0。C002 模拟补款后分别为 ¥20,936、¥19,436、¥2,930.40、¥0；C002 第二期完成，后续分期仍未到期。租户 B 始终为 8 个案件、净回款 ¥800、应计佣金 ¥160。
 
@@ -41,6 +41,6 @@ Agent、模型、语音和电话 Provider 当前仍返回确定性的沙箱适�
 
 使用原稿中提取的品牌资产；图标使用 Phosphor 图标库。经营首页进一步对齐 BoardUI 的侧边栏搜索、紧凑工具栏、柔和卡片、带坐标轴图表与高密度数据表，并保留 AI 经营建议、保护暂停和可追溯 Agent 运行语义。「AI 与渠道」页面由四张入口卡承载 Agent Runtime、模型、语音和电话，并增加接入进度、五项自测、启用门禁和最近报告。`design-qa.md` 记录浏览器验证、视觉对比与已知限制，`qa/` 保存截图证据。
 
-本项目保留 Vite 与 Sites 兼容构建。`v0.3.1` 已通过 16 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 32 项；HTTP 冒烟覆盖身份、Bearer、Gateway、Agent 会话、Runtime 检查点、异步作业和 ChatBI 回答。后续需要实现 DeepSeek Harness 专用业务工具插件、企业 IdP、正式 KMS、独立任务 Worker、支付回执和佣金账簿。
+本项目保留 Vite 与 Sites 兼容构建。`v0.4.0` 已通过 23 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 39 项；覆盖身份、Bearer、Gateway、MCP 工具、Runtime JWT、Agent 作业、失败 Run、进程内续接与进程重启检查点重放。后续需要完成真实 DeepSeek 模型回放、企业 IdP、正式 KMS、独立任务 Worker/Broker、支付回执和佣金账簿。
 
 重新导出独立 HTML：先执行 `npm run build`，再运行 `python3 scripts/export-standalone.py`，结果位于 `export/LuhengAI_FulfillOps_Interactive.html`。

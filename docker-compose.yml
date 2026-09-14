@@ -16,7 +16,10 @@ services:
       - luheng_pg:/var/lib/postgresql/data
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        INSTALL_HARNESS: ${INSTALL_HARNESS:-false}
     environment:
       DATABASE_URL: postgresql+psycopg://luheng:luheng-dev-only@postgres:5432/luheng
       CORS_ORIGINS: http://localhost:4177
@@ -25,6 +28,10 @@ services:
       AUTH_JWT_SECRET: luheng-compose-development-secret-change-me
       OIDC_ISSUER: luheng-local
       OIDC_AUDIENCE: luheng-fulfillops
+      RUNTIME_JWT_SECRET: luheng-compose-runtime-secret-change-me
+      FULFILLOPS_ENABLE_DSH_RUNTIME: ${FULFILLOPS_ENABLE_DSH_RUNTIME:-false}
+      FULFILLOPS_INTERNAL_URL: http://127.0.0.1:8000
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

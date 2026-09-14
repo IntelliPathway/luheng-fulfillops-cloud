@@ -11,7 +11,6 @@ from sqlalchemy import select
 
 from .models import Tenant, TenantMembership, User
 
-
 ROLES = {"viewer", "operator", "admin"}
 ROLE_RANK = {"viewer": 10, "operator": 20, "admin": 30}
 
@@ -24,6 +23,14 @@ class RequestContext:
     display_name: str
     email: str
     auth_mode: str
+
+
+@dataclass(frozen=True)
+class RuntimeGrant:
+    tenant_id: str
+    session_id: str
+    scope_type: str
+    scope_id: str | None
 
 
 def _truthy(value: str | None, default: bool = False) -> bool:
@@ -65,6 +72,61 @@ def issue_dev_token(actor_id: str, expires_minutes: int = 60) -> str:
         "aud": os.getenv("OIDC_AUDIENCE", "luheng-fulfillops"),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _runtime_secret() -> str:
+    secret = os.getenv("RUNTIME_JWT_SECRET") or os.getenv("AUTH_JWT_SECRET")
+    if secret:
+        return secret
+    if _truthy(os.getenv("ALLOW_DEV_TOKEN"), True):
+        return "luheng-local-runtime-secret-change-me"
+    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Runtime 工具令牌密钥尚未配置")
+
+
+def issue_runtime_token(
+    tenant_id: str,
+    session_id: str,
+    scope_type: str,
+    scope_id: str | None,
+    expires_minutes: int = 20,
+) -> tuple[str, datetime]:
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(minutes=expires_minutes)
+    payload = {
+        "sub": f"runtime:{session_id}",
+        "tenant_id": tenant_id,
+        "session_id": session_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "token_use": "agent-tool-runtime",
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "iss": "luheng-agent-gateway",
+        "aud": "luheng-harness-tools",
+    }
+    return jwt.encode(payload, _runtime_secret(), algorithm="HS256"), expires_at
+
+
+def decode_runtime_token(token: str) -> RuntimeGrant:
+    try:
+        claims = jwt.decode(
+            token,
+            _runtime_secret(),
+            algorithms=["HS256"],
+            audience="luheng-harness-tools",
+            issuer="luheng-agent-gateway",
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Runtime 工具令牌无效或已过期") from exc
+    if claims.get("token_use") != "agent-tool-runtime":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌用途不允许访问 Agent 工具")
+    tenant_id = str(claims.get("tenant_id") or "")
+    session_id = str(claims.get("session_id") or "")
+    scope_type = str(claims.get("scope_type") or "global")
+    scope_id = str(claims["scope_id"]) if claims.get("scope_id") is not None else None
+    if not tenant_id or not session_id or scope_type not in {"global", "activity", "case"}:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Runtime 工具令牌声明不完整")
+    return RuntimeGrant(tenant_id=tenant_id, session_id=session_id, scope_type=scope_type, scope_id=scope_id)
 
 
 def request_context(

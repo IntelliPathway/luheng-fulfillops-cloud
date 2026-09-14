@@ -1,0 +1,2 @@
+# Optional production runtime. Keep separate from the zero-provider API/test install.
+deepseek-harness-sdk==0.1.5rc1

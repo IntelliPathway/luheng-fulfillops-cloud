@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .db import Base, build_engine, build_session_factory
 from .agent_gateway import gateway_overview, gateway_profile
+from .agent_tools import execute_controlled_tool
+from .db import Base, build_engine, build_session_factory
 from .domain import (
     SERVICE_TYPES,
     activity_preflight,
@@ -23,8 +34,8 @@ from .domain import (
     utcnow,
     validate_service_settings,
 )
+from .harness_runtime import close_harness_runtimes
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
-from .runtime_adapters import test_agent_runtime
 from .models import (
     Activity,
     AgentMessage,
@@ -40,6 +51,7 @@ from .models import (
     ServiceConfig,
     User,
 )
+from .runtime_adapters import test_agent_runtime
 from .schemas import (
     ActivityOut,
     ActivityPreflightOut,
@@ -49,6 +61,7 @@ from .schemas import (
     AgentRuntimeOut,
     AgentSessionCreate,
     AgentSessionOut,
+    AgentToolRequest,
     AsyncTestRequest,
     AuthSessionOut,
     ConnectionTestOut,
@@ -67,9 +80,15 @@ from .schemas import (
     ServiceConfigOut,
     ServiceConfigUpsert,
 )
-from .security import RequestContext, issue_dev_token, request_context, require_at_least, require_role
+from .security import (
+    RequestContext,
+    decode_runtime_token,
+    issue_dev_token,
+    request_context,
+    require_at_least,
+    require_role,
+)
 from .seed import seed_demo_data
-
 
 Context = Annotated[RequestContext, Depends(request_context)]
 
@@ -80,6 +99,14 @@ def get_db(request: Request):
 
 
 Database = Annotated[Session, Depends(get_db)]
+
+
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        close_harness_runtimes()
 
 
 def service_out(config: ServiceConfig) -> ServiceConfigOut:
@@ -144,7 +171,13 @@ def audit(db: Session, context: RequestContext, action: str, resource_type: str,
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    app = FastAPI(title="履衡 AI FulfillOps API", version="0.3.1", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(
+        title="履衡 AI FulfillOps API",
+        version="0.4.0",
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        lifespan=app_lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:4177,http://localhost:5173").split(",")],
@@ -162,7 +195,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.3.1")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.4.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -228,7 +261,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
         validate_service_settings(service_type, config.settings)
         if not config.secret_ref:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="服务凭证尚未托管")
-        latency, detail = test_agent_runtime(config) if service_type == "agent" else test_detail(service_type)
+        model_config = db.scalar(
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == context.tenant_id,
+                ServiceConfig.service_type == "model",
+            )
+        ) if service_type == "agent" else None
+        latency, detail = test_agent_runtime(config, model_config) if service_type == "agent" else test_detail(service_type)
         tested_at = utcnow()
         result = ConnectionTest(
             tenant_id=context.tenant_id,
@@ -411,6 +450,39 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get("/api/v1/agents/gateway", response_model=AgentGatewayOut, tags=["agents"])
     def get_agent_gateway(context: Context, db: Database) -> AgentGatewayOut:
         return AgentGatewayOut(**gateway_overview(db, context.tenant_id))
+
+    @app.post("/api/v1/internal/agent-tools/{tool_name}", include_in_schema=False)
+    def call_internal_agent_tool(
+        tool_name: str,
+        payload: AgentToolRequest,
+        db: Database,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少 Runtime 工具令牌")
+        grant = decode_runtime_token(authorization.split(" ", 1)[1].strip())
+        session = db.scalar(
+            select(AgentSession).where(
+                AgentSession.id == grant.session_id,
+                AgentSession.tenant_id == grant.tenant_id,
+            )
+        )
+        if not session:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Runtime 会话不存在或租户不匹配")
+        if session.scope_type != grant.scope_type or session.scope_id != grant.scope_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Runtime 工具令牌范围已失效")
+        try:
+            return execute_controlled_tool(
+                db,
+                grant.tenant_id,
+                tool_name,
+                payload.arguments,
+                agent_session_id=grant.session_id,
+                scope_type=grant.scope_type,
+                scope_id=grant.scope_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.post("/api/v1/agents/sessions", response_model=AgentSessionOut, status_code=status.HTTP_201_CREATED, tags=["agents"])
     def create_agent_session(payload: AgentSessionCreate, context: Context, db: Database) -> AgentSessionOut:

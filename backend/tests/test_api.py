@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.main import create_app
+from app.models import AgentRun
 
 
 @pytest.fixture()
@@ -368,6 +370,43 @@ def test_deepseek_harness_sdk_mode_does_not_fake_a_successful_connection(client:
     ).json()
     job = client.get(f"/api/v1/jobs/{queued['id']}", headers=headers()).json()
     assert job["status"] == "failed"
-    assert "SDK" in job["error"] or "安全插件" in job["error"]
+    assert "SDK" in job["error"] or "安全插件" in job["error"] or "未显式启用" in job["error"]
     current = client.get("/api/v1/integrations", headers=headers()).json()
     assert current["services"]["agent"]["connected"] is False
+
+
+def test_runtime_failure_persists_failed_agent_run(client: TestClient) -> None:
+    saved = client.put(
+        "/api/v1/integrations/agent",
+        headers=headers(),
+        json={
+            "provider": "DeepSeek Harness",
+            "settings": {
+                "endpoint": "stdio://deepseek-harness-sdk",
+                "profile": "fulfillops-safe",
+                "approval": "高影响动作需确认",
+                "transport": "python-sdk",
+                "safetyPreset": "fulfillops-safe",
+                "sessionPersistence": "runtime-jsonl",
+            },
+            "credential": "sdk-disabled-secret",
+        },
+    )
+    assert saved.status_code == 200
+    session = client.post(
+        "/api/v1/agents/sessions",
+        headers=headers(role="viewer"),
+        json={"scope_type": "global", "title": "失败恢复"},
+    ).json()
+    queued = client.post(
+        f"/api/v1/agents/sessions/{session['id']}/messages",
+        headers=headers(role="viewer"),
+        json={"content": "查询 C002", "idempotency_key": "sdk-disabled-turn"},
+    ).json()
+    job = client.get(f"/api/v1/jobs/{queued['id']}", headers=headers(role="viewer")).json()
+    assert job["status"] == "failed"
+    with client.app.state.Session() as db:
+        run = db.scalar(select(AgentRun).where(AgentRun.job_id == job["id"]))
+        assert run is not None
+        assert run.status == "failed"
+        assert "未显式启用" in run.error

@@ -4,6 +4,7 @@ set -euo pipefail
 smoke_tmp="$(mktemp -d)"
 api_pid=""
 web_pid=""
+task_python="${PYTHON_BIN:-python3}"
 
 cleanup() {
   [[ -n "$web_pid" ]] && kill "$web_pid" 2>/dev/null || true
@@ -14,7 +15,7 @@ trap cleanup EXIT
 
 (
   cd backend
-  CORS_ORIGINS=http://127.0.0.1:4187 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010
+  DATABASE_URL="sqlite:///$smoke_tmp/luheng-smoke.db" CORS_ORIGINS=http://127.0.0.1:4187 "$task_python" -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 ) >"$smoke_tmp/api.log" 2>&1 &
 api_pid=$!
 
@@ -35,7 +36,7 @@ page_title="$(curl -fsS "$base_url/" | rg -o '<title>[^<]+' | head -1 | sed 's/<
 session_json="$(curl -fsS "${actor_headers[@]}" http://127.0.0.1:8010/api/v1/auth/session)"
 gateway_json="$(curl -fsS "${actor_headers[@]}" http://127.0.0.1:8010/api/v1/agents/gateway)"
 agent_session_id="$(curl -fsS "${actor_headers[@]}" -X POST http://127.0.0.1:8010/api/v1/agents/sessions -d '{"scope_type":"global","title":"HTTP 冒烟"}' | jq -r .id)"
-job_id="$(curl -fsS "${actor_headers[@]}" -X POST "http://127.0.0.1:8010/api/v1/agents/sessions/$agent_session_id/messages" -d '{"content":"本月回款和佣金是多少？","idempotency_key":"http-smoke-chatbi-v031"}' | jq -r .id)"
+job_id="$(curl -fsS "${actor_headers[@]}" -X POST "http://127.0.0.1:8010/api/v1/agents/sessions/$agent_session_id/messages" -d '{"content":"本月回款和佣金是多少？","idempotency_key":"http-smoke-chatbi-v040"}' | jq -r .id)"
 
 job_json=""
 for _ in {1..20}; do

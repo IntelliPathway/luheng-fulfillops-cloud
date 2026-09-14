@@ -7,7 +7,13 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from .domain import build_self_test_items, service_versions, test_detail, utcnow, validate_service_settings
+from .domain import (
+    build_self_test_items,
+    service_versions,
+    test_detail,
+    utcnow,
+    validate_service_settings,
+)
 from .models import (
     AgentMessage,
     AgentProposal,
@@ -22,7 +28,6 @@ from .models import (
 )
 from .runtime_adapters import run_runtime_turn, test_agent_runtime
 from .security import RequestContext
-
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
 
@@ -99,7 +104,13 @@ def _connection_test(db: Session, job: AsyncJob) -> dict[str, Any]:
     validate_service_settings(service_type, config.settings)
     if not config.secret_ref:
         raise ValueError("服务凭证尚未托管")
-    latency, detail = test_agent_runtime(config) if service_type == "agent" else test_detail(service_type)
+    model_config = db.scalar(
+        select(ServiceConfig).where(
+            ServiceConfig.tenant_id == job.tenant_id,
+            ServiceConfig.service_type == "model",
+        )
+    ) if service_type == "agent" else None
+    latency, detail = test_agent_runtime(config, model_config) if service_type == "agent" else test_detail(service_type)
     tested_at = utcnow()
     result = ConnectionTest(
         tenant_id=job.tenant_id,
@@ -182,6 +193,11 @@ def _agent_turn(db: Session, job: AsyncJob) -> dict[str, Any]:
     )
     db.add(run)
     db.flush()
+    # Persist the running record before crossing the provider/process boundary.
+    # A Runtime crash must remain visible even when the surrounding turn
+    # transaction is rolled back.
+    db.commit()
+    db.refresh(run)
     generated, checkpoint, runtime = run_runtime_turn(db, session, content)
     answer = generated["answer"]
     assistant_message = AgentMessage(
@@ -282,13 +298,20 @@ def execute_job(session_factory: sessionmaker, job_id: str) -> None:
                 )
             )
             db.commit()
-        except Exception as exc:
+        # This is the durable job boundary: every handler failure must be
+        # persisted as a failed job and, when applicable, a failed AgentRun.
+        except Exception as exc:  # noqa: BLE001
             db.rollback()
             job = db.get(AsyncJob, job_id)
             message = exc.detail if isinstance(exc, HTTPException) else str(exc)
             job.status = "failed"
             job.error = str(message)[:2000]
             job.completed_at = utcnow()
+            run = db.scalar(select(AgentRun).where(AgentRun.job_id == job.id))
+            if run and run.status == "running":
+                run.status = "failed"
+                run.error = job.error
+                run.completed_at = job.completed_at
             db.add(
                 AuditEvent(
                     tenant_id=job.tenant_id,

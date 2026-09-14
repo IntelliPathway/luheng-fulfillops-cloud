@@ -84,12 +84,12 @@ function ServiceForm({type,initial,onClose}){
    <Field label="Runtime Endpoint *"><input value={form.endpoint} onChange={e=>set('endpoint',e.target.value)}/></Field>
    <Field label="Auth Token *" hint="仅显示脱敏演示值"><input type="password" value={form.authToken} onChange={e=>set('authToken',e.target.value)}/></Field>
    <Field label="行动审批"><select value={form.approval} onChange={e=>set('approval',e.target.value)}><option>高影响动作需确认</option><option>所有写操作需确认</option><option>仅授权外自动阻断</option></select></Field>
-   <Field label="运行传输"><select value={form.transport||'sandbox-contract'} onChange={e=>set('transport',e.target.value)}><option value="sandbox-contract">安全适配契约（沙箱）</option><option value="python-sdk">Python SDK / JSON-RPC（待部署）</option></select></Field>
+   <Field label="运行传输"><select value={form.transport||'sandbox-contract'} onChange={e=>set('transport',e.target.value)}><option value="sandbox-contract">安全适配契约（沙箱）</option><option value="python-sdk">真实 SDK / JSON-RPC（受控 MCP）</option></select></Field>
    <Field label="安全策略"><input value={form.safetyPreset||'fulfillops-safe'} readOnly/></Field>
    <Field label="会话持久化"><select value={form.sessionPersistence||'database-checkpoint'} onChange={e=>set('sessionPersistence',e.target.value)}><option value="database-checkpoint">数据库检查点</option><option value="runtime-jsonl">Runtime JSONL + 数据库游标</option></select></Field>
    <Field label="工具权限"><input value="8 个受控业务工具 · 禁止 shell / 直接改账" readOnly/></Field>
   </div>}
-  {type==='agent'&&form.provider==='DeepSeek Harness'&&<div className="harness-preview-note"><WarningCircle size={19}/><span><b>DeepSeek Harness · Developer Preview</b><small>当前仅验证 fulfillops-safe 适配契约和会话恢复，不启动官方 SDK 进程。生产接入必须先部署专用插件，移除默认 shell/文件系统能力，再完成真实模型与工具回放。</small></span></div>}
+  {type==='agent'&&form.provider==='DeepSeek Harness'&&<div className="harness-preview-note"><WarningCircle size={19}/><span><b>DeepSeek Harness · Developer Preview</b><small>{form.transport==='python-sdk'?'真实模式会启动官方 SDK 进程，应用 fulfillops-safe Patch 禁用默认 Shell，并仅注册 8 个租户级 MCP 工具；需由部署环境显式启用并从 KMS 注入模型凭证。':'当前为零外部调用的契约沙箱；会验证工具边界和数据库检查点，但不会启动官方 SDK。'}</small></span></div>}
   {type==='model'&&<div className="form-grid integration-form">
    <Field label="服务商 *"><select value={form.provider} onChange={e=>set('provider',e.target.value)}><option>DeepSeek</option><option>OpenAI Compatible</option><option>Azure OpenAI</option><option>私有化模型网关</option></select></Field>
    <Field label="模型 / 部署名称 *"><input value={form.model} onChange={e=>set('model',e.target.value)}/></Field>
@@ -175,7 +175,7 @@ export function Integrations(){
  const enable=async()=>{try{await a.enableIntegration();setConfirmEnable(false);a.notify('AI 与渠道已启用到后续新建活动')}catch(reason){a.notify(`启用失败：${reason.message||'门禁未通过'}`)}};
  const lastRun=a.integrationState.lastRun;
  return <div className="integrations-page">
-  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.3.1 已连接':'本地演示降级'}</span>{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {a.activeJob.status==='succeeded'?'已完成':a.activeJob.status==='running'?'运行中':'排队中'}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
+  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.4.0 已连接':'本地演示降级'}</span>{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {a.activeJob.status==='succeeded'?'已完成':a.activeJob.status==='running'?'运行中':'排队中'}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
 
   <section className="gateway-runtime-strip" aria-label="Agent Gateway 状态">
    <span className="gateway-runtime-icon"><Robot size={21}/></span>

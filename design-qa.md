@@ -67,3 +67,11 @@ final result: passed
 - Selecting `python-sdk` without the official SDK and an approved FulfillOps safety plugin produces a failed connection job; the UI cannot present a contract-only test as a real provider connection.
 - Activity creation, Agent detail and usage surfaces now resolve the configured Runtime instead of presenting Hermes as the only implementation.
 - Vite production build and the Sites worker suite pass. The cloud browser client still blocks loopback URLs with `ERR_BLOCKED_BY_CLIENT`, so visual verification used compile/render checks and HTTP smoke rather than replacing screenshot evidence.
+
+## v0.4 DeepSeek Harness SDK/MCP verification · 2026-09-14
+
+- Updated the existing integration and Agent runtime status surfaces without changing the approved BoardUI layout or information hierarchy.
+- The Runtime selector now distinguishes the zero-provider contract sandbox from the real SDK/JSON-RPC path; the Agent answer status distinguishes in-process continuation from database-checkpoint replay and shows verified tool count.
+- `npm test` passed 12 domain/API-contract tests and 4 Sites packaging tests; `npm run build` produced the required client, server and hosting artifacts.
+- Backend coverage passed 23 tests across MCP discovery/call framing, scoped Runtime JWT, tenant isolation, SDK job projection, process reuse, restart replay and failed-run persistence.
+- No real DeepSeek credential was available in this environment, so this QA cycle intentionally made no provider call. The approved page structure did not change; existing screenshot evidence remains the visual baseline.

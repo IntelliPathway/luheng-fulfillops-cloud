@@ -1,12 +1,14 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "profile": "fulfillops-safe",
   "runtime": "DeepSeek Harness",
-  "transport": ["sandbox-contract", "python-sdk-jsonrpc"],
+  "transport": ["sandbox-contract", "python-sdk"],
   "session": {
     "persistence": "database-checkpoint",
     "resume_key": "tenant_id + agent_session_id",
-    "event_cursor": "monotonic"
+    "event_cursor": "monotonic",
+    "in_process_resume": "same provider session",
+    "process_restart_resume": "database checkpoint replay into a new provider session"
   },
   "allowed_tools": [
     "case.read",
@@ -29,6 +31,9 @@
   ],
   "rules": {
     "tenant_scope_required": true,
+    "runtime_token_bound_to_tenant_and_session": true,
+    "runtime_token_ttl_minutes": 20,
+    "default_sdk_shell_disabled": true,
     "source_attribution_required": true,
     "high_impact_actions": "structured_confirmation",
     "final_decision_owner": "FulfillOps deterministic services",

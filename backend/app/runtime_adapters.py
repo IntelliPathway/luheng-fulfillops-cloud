@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
-import os
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -11,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .agent_gateway import FORBIDDEN_RUNTIME_TOOLS, TOOL_CATALOG, build_agent_result
-from .models import AgentRuntimeCheckpoint, AgentSession, ServiceConfig
+from .harness_runtime import HARNESS_RUNTIME_MANAGER, HarnessLaunchContext
+from .models import AgentMessage, AgentRuntimeCheckpoint, AgentSession, ServiceConfig
 
 
 @dataclass(frozen=True)
@@ -23,6 +22,10 @@ class RuntimeContext:
     provider: str
     profile: str
     settings: dict[str, Any]
+    logical_provider_session_id: str
+    prior_turn_count: int
+    previous_metadata: dict[str, Any]
+    replay_messages: list[dict[str, str]]
 
 
 class RuntimeAdapter(Protocol):
@@ -59,7 +62,7 @@ def _blocked_runtime_request(query: str) -> dict[str, Any] | None:
                 {"label": "最终裁决", "value": "确定性业务服务"},
             ],
             "sources": [
-                {"label": "Agent 工具权限策略", "entity_type": "tool_policy", "entity_id": "fulfillops-safe", "version": "v0.3.1"}
+                {"label": "Agent 工具权限策略", "entity_type": "tool_policy", "entity_id": "fulfillops-safe", "version": "v0.4"}
             ],
             "navigation_hint": "integrations",
         },
@@ -80,11 +83,10 @@ class FulfillOpsSandboxAdapter:
 class DeepSeekHarnessAdapter:
     """Safe adapter contract for the DeepSeek Harness developer preview.
 
-    The current repository deliberately does not launch the upstream SDK. The
-    production driver is enabled only after an out-of-tree FulfillOps plugin has
-    removed shell/filesystem tools and registered the controlled business tool
-    catalog. Until then, sandbox-contract mode exercises the exact gateway and
-    persistence contract without making an external model call.
+    sandbox-contract mode keeps a zero-provider deterministic path. python-sdk
+    mode launches the official subprocess SDK with the fulfillops-safe overlay:
+    the shipped persistent shell is disabled and only the scoped MCP tool
+    bridge is registered.
     """
 
     name = "DeepSeek Harness Adapter"
@@ -94,14 +96,29 @@ class DeepSeekHarnessAdapter:
         safety_preset = str(context.settings.get("safetyPreset") or "fulfillops-safe")
         if safety_preset != "fulfillops-safe":
             raise ValueError("DeepSeek Harness 必须使用 fulfillops-safe 安全策略")
-        if transport != "sandbox-contract":
-            if importlib.util.find_spec("deepseek_harness") is None:
-                raise RuntimeError("DeepSeek Harness Python SDK 尚未安装；不能把契约测试标记为真实接入")
-            if os.getenv("FULFILLOPS_DSH_PLUGIN_READY") != "1":
-                raise RuntimeError("FulfillOps Harness 安全插件尚未确认就绪；禁止启动带 shell/文件系统能力的 Runtime")
-            raise RuntimeError("DeepSeek Harness 生产驱动尚未启用；请完成专用插件验收后接入")
         blocked = _blocked_runtime_request(query)
-        result = blocked or build_agent_result(db, context.tenant_id, query, context.scope_type, context.scope_id)
+        if blocked:
+            return blocked
+        if transport == "python-sdk":
+            generated, runtime = HARNESS_RUNTIME_MANAGER.run(
+                HarnessLaunchContext(
+                    tenant_id=context.tenant_id,
+                    session_id=context.session_id,
+                    scope_type=context.scope_type,
+                    scope_id=context.scope_id,
+                    settings=context.settings,
+                    logical_provider_session_id=context.logical_provider_session_id,
+                    prior_turn_count=context.prior_turn_count,
+                    previous_metadata=context.previous_metadata,
+                    replay_messages=context.replay_messages,
+                ),
+                query,
+            )
+            generated["_runtime"] = runtime
+            return generated
+        if transport != "sandbox-contract":
+            raise RuntimeError(f"不支持的 DeepSeek Harness 传输模式：{transport}")
+        result = build_agent_result(db, context.tenant_id, query, context.scope_type, context.scope_id)
         result["tool_trace"] = [
             {
                 "tool": "runtime.session.resume",
@@ -125,24 +142,24 @@ def runtime_settings_for(db: Session, session: AgentSession) -> dict[str, Any]:
             ServiceConfig.provider == session.runtime_provider,
         )
     )
-    return dict(config.settings) if config else {
+    settings = dict(config.settings) if config else {
         "transport": "sandbox-contract",
         "safetyPreset": "fulfillops-safe",
         "sessionPersistence": "database-checkpoint",
     }
+    model_config = db.scalar(
+        select(ServiceConfig).where(
+            ServiceConfig.tenant_id == session.tenant_id,
+            ServiceConfig.service_type == "model",
+        )
+    )
+    if model_config:
+        settings["modelService"] = {"provider": model_config.provider, **dict(model_config.settings)}
+    return settings
 
 
 def run_runtime_turn(db: Session, session: AgentSession, query: str) -> tuple[dict[str, Any], AgentRuntimeCheckpoint, dict[str, Any]]:
     settings = runtime_settings_for(db, session)
-    context = RuntimeContext(
-        tenant_id=session.tenant_id,
-        session_id=session.id,
-        scope_type=session.scope_type,
-        scope_id=session.scope_id,
-        provider=session.runtime_provider,
-        profile=session.runtime_profile,
-        settings=settings,
-    )
     checkpoint = db.scalar(
         select(AgentRuntimeCheckpoint).where(
             AgentRuntimeCheckpoint.tenant_id == session.tenant_id,
@@ -162,15 +179,47 @@ def run_runtime_turn(db: Session, session: AgentSession, query: str) -> tuple[di
         )
         db.add(checkpoint)
         db.flush()
+    replay_messages = [
+        {"role": message.role, "content": message.content}
+        for message in db.scalars(
+            select(AgentMessage)
+            .where(AgentMessage.tenant_id == session.tenant_id, AgentMessage.session_id == session.id)
+            .order_by(AgentMessage.created_at.desc())
+            .limit(13)
+        )
+    ][::-1]
+    if replay_messages and replay_messages[-1]["role"] == "user" and replay_messages[-1]["content"] == query:
+        replay_messages.pop()
+    context = RuntimeContext(
+        tenant_id=session.tenant_id,
+        session_id=session.id,
+        scope_type=session.scope_type,
+        scope_id=session.scope_id,
+        provider=session.runtime_provider,
+        profile=session.runtime_profile,
+        settings=settings,
+        logical_provider_session_id=checkpoint.provider_session_id,
+        prior_turn_count=checkpoint.turn_count,
+        previous_metadata=dict(checkpoint.runtime_metadata or {}),
+        replay_messages=replay_messages,
+    )
     generated = adapter_for(session.runtime_provider).run(db, context, query)
+    runtime_details = generated.pop("_runtime", {})
     checkpoint.turn_count += 1
-    checkpoint.event_cursor += max(2, len(generated.get("tool_trace") or []) + 2)
+    checkpoint.event_cursor += max(
+        2,
+        int(runtime_details.get("sdk_event_count") or 0),
+        len(generated.get("tool_trace") or []) + 2,
+    )
+    if runtime_details.get("provider_session_id"):
+        checkpoint.provider_session_id = str(runtime_details["provider_session_id"])
     checkpoint.runtime_metadata = {
         "transport": settings.get("transport") or "sandbox-contract",
         "safety_preset": settings.get("safetyPreset") or "fulfillops-safe",
         "session_persistence": settings.get("sessionPersistence") or "database-checkpoint",
         "registered_tools": [item["name"] for item in TOOL_CATALOG],
         "forbidden_tools": FORBIDDEN_RUNTIME_TOOLS,
+        **runtime_details,
     }
     runtime = {
         "adapter": adapter_for(session.runtime_provider).name,
@@ -183,7 +232,7 @@ def run_runtime_turn(db: Session, session: AgentSession, query: str) -> tuple[di
     return generated, checkpoint, runtime
 
 
-def test_agent_runtime(config: ServiceConfig) -> tuple[int, str]:
+def test_agent_runtime(config: ServiceConfig, model_config: ServiceConfig | None = None) -> tuple[int, str]:
     if config.provider != "DeepSeek Harness":
         return 126, "Runtime 鉴权通过；工具白名单与审批回调可用"
     transport = str(config.settings.get("transport") or "sandbox-contract")
@@ -191,8 +240,13 @@ def test_agent_runtime(config: ServiceConfig) -> tuple[int, str]:
         raise ValueError("DeepSeek Harness 连接测试失败：必须选择 fulfillops-safe 安全策略")
     if transport == "sandbox-contract":
         return 64, "DeepSeek Harness 适配契约通过；8/8 受控工具，7 类危险工具未注册；未启动外部进程"
-    if importlib.util.find_spec("deepseek_harness") is None:
-        raise ValueError("DeepSeek Harness Python SDK 尚未安装")
-    if os.getenv("FULFILLOPS_DSH_PLUGIN_READY") != "1":
-        raise ValueError("FulfillOps Harness 安全插件尚未通过验收")
-    return 93, "DeepSeek Harness SDK 与 fulfillops-safe 插件已发现；需另行完成真实模型与业务工具回放"
+    if transport != "python-sdk":
+        raise ValueError(f"DeepSeek Harness 连接测试失败：不支持传输模式 {transport}")
+    try:
+        settings = dict(config.settings)
+        if model_config:
+            settings["modelService"] = {"provider": model_config.provider, **dict(model_config.settings)}
+        HARNESS_RUNTIME_MANAGER.probe(config.tenant_id, settings)
+    except RuntimeError as exc:
+        raise ValueError(f"DeepSeek Harness 连接测试失败：{exc}") from exc
+    return 93, "DeepSeek Harness SDK 握手通过；fulfillops-safe Patch 已禁用 Shell，并发现 8 个受控 MCP 工具"
