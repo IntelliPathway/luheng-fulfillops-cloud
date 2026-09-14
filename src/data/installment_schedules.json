@@ -1,0 +1,182 @@
+[
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN001_1",
+    "plan_id": "PLAN001",
+    "case_id": "C001",
+    "installment_no": 1,
+    "due_date": "2026-08-06",
+    "due_yuan": 10000
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_1",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 1,
+    "due_date": "2026-08-10",
+    "due_yuan": 2520
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_2",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 2,
+    "due_date": "2026-09-10",
+    "due_yuan": 2016
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_3",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 3,
+    "due_date": "2026-10-10",
+    "due_yuan": 2016
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_4",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 4,
+    "due_date": "2026-11-10",
+    "due_yuan": 2016
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_5",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 5,
+    "due_date": "2026-12-10",
+    "due_yuan": 2016
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN002_6",
+    "plan_id": "PLAN002",
+    "case_id": "C002",
+    "installment_no": 6,
+    "due_date": "2027-01-10",
+    "due_yuan": 2016
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN003_1",
+    "plan_id": "PLAN003",
+    "case_id": "C003",
+    "installment_no": 1,
+    "due_date": "2026-09-05",
+    "due_yuan": 8000
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_1",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 1,
+    "due_date": "2026-08-25",
+    "due_yuan": 3570
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_2",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 2,
+    "due_date": "2026-09-25",
+    "due_yuan": 2856
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_3",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 3,
+    "due_date": "2026-10-25",
+    "due_yuan": 2856
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_4",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 4,
+    "due_date": "2026-11-25",
+    "due_yuan": 2856
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_5",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 5,
+    "due_date": "2026-12-25",
+    "due_yuan": 2856
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN014_6",
+    "plan_id": "PLAN014",
+    "case_id": "C014",
+    "installment_no": 6,
+    "due_date": "2027-01-25",
+    "due_yuan": 2856
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_1",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 1,
+    "due_date": "2026-07-25",
+    "due_yuan": 3675
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_2",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 2,
+    "due_date": "2026-08-25",
+    "due_yuan": 2940
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_3",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 3,
+    "due_date": "2026-09-25",
+    "due_yuan": 2940
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_4",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 4,
+    "due_date": "2026-10-25",
+    "due_yuan": 2940
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_5",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 5,
+    "due_date": "2026-11-25",
+    "due_yuan": 2940
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "schedule_id": "PLAN015_6",
+    "plan_id": "PLAN015",
+    "case_id": "C015",
+    "installment_no": 6,
+    "due_date": "2026-12-25",
+    "due_yuan": 2940
+  }
+]

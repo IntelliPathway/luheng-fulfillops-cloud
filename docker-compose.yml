@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: luheng
+      POSTGRES_USER: luheng
+      POSTGRES_PASSWORD: luheng-dev-only
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luheng -d luheng"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - luheng_pg:/var/lib/postgresql/data
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://luheng:luheng-dev-only@postgres:5432/luheng
+      CORS_ORIGINS: http://localhost:4177
+      ALLOW_DEV_HEADER_AUTH: "true"
+      ALLOW_DEV_TOKEN: "true"
+      AUTH_JWT_SECRET: luheng-compose-development-secret-change-me
+      OIDC_ISSUER: luheng-local
+      OIDC_AUDIENCE: luheng-fulfillops
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 4177"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    volumes:
+      - .:/workspace
+      - web_modules:/workspace/node_modules
+    ports:
+      - "4177:4177"
+    depends_on:
+      - api
+
+volumes:
+  luheng_pg:
+  web_modules:

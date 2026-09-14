@@ -1,0 +1,16 @@
+node_modules/
+dist/
+backend/.venv/
+backend/*.db
+*.db
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+*.log
+export/RecoveryCloud_Interactive.html
+qa/standalone.html

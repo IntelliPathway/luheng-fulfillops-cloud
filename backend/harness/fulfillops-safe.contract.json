@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "profile": "fulfillops-safe",
+  "runtime": "DeepSeek Harness",
+  "transport": ["sandbox-contract", "python-sdk-jsonrpc"],
+  "session": {
+    "persistence": "database-checkpoint",
+    "resume_key": "tenant_id + agent_session_id",
+    "event_cursor": "monotonic"
+  },
+  "allowed_tools": [
+    "case.read",
+    "activity.read",
+    "metrics.query",
+    "policy.read",
+    "knowledge.search",
+    "run.read",
+    "activity.pause.propose",
+    "activity.resume.propose"
+  ],
+  "forbidden_tools": [
+    "shell",
+    "filesystem",
+    "http.unrestricted",
+    "payment.write",
+    "commission.write",
+    "protection.release",
+    "policy.publish"
+  ],
+  "rules": {
+    "tenant_scope_required": true,
+    "source_attribution_required": true,
+    "high_impact_actions": "structured_confirmation",
+    "final_decision_owner": "FulfillOps deterministic services",
+    "private_chain_of_thought_storage": false
+  }
+}

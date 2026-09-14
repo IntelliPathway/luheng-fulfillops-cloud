@@ -1,0 +1,38 @@
+[
+  {
+    "tenant_id": "TENANT_A",
+    "amc_id": "AMC_DEMO_A",
+    "package_id": "PKG_A",
+    "package_name": "虚构AMC甲消费贷包",
+    "mandate_id": "M_A",
+    "start_date": "2026-08-01",
+    "end_date": "2026-12-31",
+    "policy_id": "POL_A_V1",
+    "commission_rule_id": "COM_A_V1",
+    "creditor_account_token": "MOCK_ACCOUNT_A"
+  },
+  {
+    "tenant_id": "TENANT_A",
+    "amc_id": "AMC_DEMO_B",
+    "package_id": "PKG_B",
+    "package_name": "虚构AMC乙信用贷包",
+    "mandate_id": "M_B",
+    "start_date": "2026-08-01",
+    "end_date": "2026-12-31",
+    "policy_id": "POL_B_V1",
+    "commission_rule_id": "COM_B_V1",
+    "creditor_account_token": "MOCK_ACCOUNT_B"
+  },
+  {
+    "tenant_id": "TENANT_B",
+    "amc_id": "AMC_DEMO_C",
+    "package_id": "PKG_C",
+    "package_name": "虚构AMC丙消费贷包",
+    "mandate_id": "M_C",
+    "start_date": "2026-08-01",
+    "end_date": "2026-12-31",
+    "policy_id": "POL_C_V1",
+    "commission_rule_id": "COM_C_V1",
+    "creditor_account_token": "MOCK_ACCOUNT_C"
+  }
+]
