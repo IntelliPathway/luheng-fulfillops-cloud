@@ -25,6 +25,7 @@ from .models import (
     AuditEvent,
     ConnectionTest,
     IntegrationState,
+    ModelReplayRun,
     SelfTestReport,
     ServiceConfig,
 )
@@ -272,10 +273,27 @@ def _agent_turn(db: Session, job: AsyncJob) -> dict[str, Any]:
     }
 
 
+def _model_replay(db: Session, job: AsyncJob) -> dict[str, Any]:
+    from .model_replay import execute_model_replay
+
+    replay_run_id = str(job.payload.get("replay_run_id") or "")
+    replay = db.scalar(
+        select(ModelReplayRun).where(
+            ModelReplayRun.id == replay_run_id,
+            ModelReplayRun.tenant_id == job.tenant_id,
+            ModelReplayRun.job_id == job.id,
+        )
+    )
+    if not replay:
+        raise ValueError("模型回放记录不存在或不属于当前作业")
+    return execute_model_replay(db, replay)
+
+
 JOB_HANDLERS = {
     "integration.connection_test": _connection_test,
     "integration.self_test": _self_test,
     "agent.turn": _agent_turn,
+    "agent.model_replay": _model_replay,
 }
 
 
@@ -371,6 +389,29 @@ def execute_claimed_job(session_factory: sessionmaker, job_id: str, worker_id: s
                 run.status = "failed"
                 run.error = job.error
                 run.completed_at = job.completed_at
+            replay = db.scalar(select(ModelReplayRun).where(ModelReplayRun.job_id == job.id))
+            if replay:
+                replay.status = "cancelled" if cancelled else "failed"
+                replay.completed_at = job.completed_at
+                if not replay.results:
+                    replay.results = [
+                        {
+                            "case_id": "suite-execution",
+                            "status": replay.status,
+                            "checks": [
+                                {
+                                    "name": "execution",
+                                    "passed": False,
+                                    "expected": "completed",
+                                    "actual": "cancelled" if cancelled else type(exc).__name__,
+                                }
+                            ],
+                            "tool_trace": [],
+                            "answer_title": "",
+                            "output_digest": None,
+                        }
+                    ]
+                    replay.failed_count = 1
             db.add(
                 AuditEvent(
                     tenant_id=job.tenant_id,

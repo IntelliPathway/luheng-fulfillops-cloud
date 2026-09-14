@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+import app.secret_store as secret_store_module
 from app.main import create_app
 from app.models import AgentSession, ManagedSecret
 from app.runtime_adapters import runtime_settings_for
@@ -30,6 +31,37 @@ def _configure_envelope(monkeypatch: pytest.MonkeyPatch, seed: int = 1, version:
     monkeypatch.setenv("SECRET_MASTER_KEY_VERSION", version)
     monkeypatch.delenv("SECRET_PREVIOUS_KEYS", raising=False)
     return encoded
+
+
+class FakeSecretsManager:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+        self.create_requests: list[dict] = []
+        self.put_requests: list[dict] = []
+
+    def create_secret(self, **request) -> dict:
+        self.create_requests.append(request)
+        self.values[request["Name"]] = request["SecretString"]
+        return {"ARN": f"arn:aws:secretsmanager:ap-southeast-1:123456789012:secret:{request['Name']}"}
+
+    def put_secret_value(self, **request) -> dict:
+        self.put_requests.append(request)
+        self.values[request["SecretId"]] = request["SecretString"]
+        return {"VersionId": request["ClientRequestToken"]}
+
+    def get_secret_value(self, **request) -> dict:
+        return {"SecretString": self.values[request["SecretId"]]}
+
+
+def _configure_aws(monkeypatch: pytest.MonkeyPatch) -> FakeSecretsManager:
+    fake = FakeSecretsManager()
+    monkeypatch.setenv("SECRET_STORE_BACKEND", "aws-secrets-manager")
+    monkeypatch.setenv("AWS_REGION", "ap-southeast-1")
+    monkeypatch.setenv("AWS_SECRET_PREFIX", "luheng/fulfillops")
+    monkeypatch.setenv("AWS_KMS_KEY_ID", "alias/luheng-fulfillops")
+    monkeypatch.setattr(secret_store_module, "_aws_client", lambda: fake)
+    monkeypatch.setattr(secret_store_module, "_boto3_available", lambda: True)
+    return fake
 
 
 def test_envelope_store_encrypts_resolves_and_retires(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,3 +175,62 @@ def test_secret_store_health_and_api_rotation(monkeypatch: pytest.MonkeyPatch) -
             assert settings["_modelCredential"] == "api-envelope-secret-2468"
         operator = {"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-operator"}
         assert client.get("/api/v1/security/secrets/health", headers=operator).status_code == 403
+
+
+def test_aws_secrets_manager_stores_only_reference_and_rotates_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _configure_aws(monkeypatch)
+    app = create_app("sqlite:///:memory:")
+    with app.state.Session() as db:
+        reference, last4 = store_secret(db, "TENANT_A", "model", "deepseek-cloud-secret-1357")
+        assert reference.startswith("aws-sm://luheng/fulfillops/TENANT_A/model/")
+        assert last4 == "1357"
+        assert resolve_secret(db, reference, "TENANT_A", "model") == "deepseek-cloud-secret-1357"
+        assert len(fake.create_requests) == 1
+        assert fake.create_requests[0]["KmsKeyId"] == "alias/luheng-fulfillops"
+        assert not db.scalars(select(ManagedSecret)).all()
+
+        rotated_reference, rotated_last4 = store_secret(
+            db,
+            "TENANT_A",
+            "model",
+            "rotated-cloud-secret-2468",
+            previous_reference=reference,
+        )
+        assert rotated_reference == reference
+        assert rotated_last4 == "2468"
+        assert len(fake.put_requests) == 1
+        assert resolve_secret(db, reference, "TENANT_A", "model") == "rotated-cloud-secret-2468"
+
+
+def test_aws_reference_and_payload_are_tenant_service_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _configure_aws(monkeypatch)
+    app = create_app("sqlite:///:memory:")
+    with app.state.Session() as db:
+        reference, _ = store_secret(db, "TENANT_A", "model", "tenant-bound-cloud-secret")
+        with pytest.raises(SecretStoreError, match="不属于当前租户服务"):
+            resolve_secret(db, reference, "TENANT_B", "model")
+        with pytest.raises(SecretStoreError, match="不属于当前租户服务"):
+            resolve_secret(db, reference, "TENANT_A", "voice")
+        name = reference.removeprefix("aws-sm://")
+        fake.values[name] = json.dumps(
+            {
+                "schema": "luheng-secret-v1",
+                "tenant_id": "TENANT_B",
+                "service_type": "model",
+                "credential": "cross-tenant-secret",
+            }
+        )
+        with pytest.raises(SecretStoreError, match="不匹配"):
+            resolve_secret(db, reference, "TENANT_A", "model")
+
+
+def test_aws_secret_health_requires_region_and_optional_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_STORE_BACKEND", "aws-secrets-manager")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    app = create_app("sqlite:///:memory:")
+    with app.state.Session() as db:
+        health = secret_store_status(db, "TENANT_A")
+        assert health.status == "degraded"
+        assert health.resolvable is False
+        assert "AWS_REGION" in health.detail

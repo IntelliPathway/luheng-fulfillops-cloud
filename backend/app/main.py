@@ -37,6 +37,7 @@ from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
 from .migrations import run_postgres_migrations
+from .model_replay import ReplaySuiteError, replay_suite_metadata
 from .models import (
     Activity,
     AgentMessage,
@@ -48,6 +49,7 @@ from .models import (
     CaseRecord,
     ConnectionTest,
     IntegrationState,
+    ModelReplayRun,
     SelfTestReport,
     ServiceConfig,
     User,
@@ -64,6 +66,7 @@ from .schemas import (
     AgentSessionOut,
     AgentToolRequest,
     AsyncTestRequest,
+    AuthHealthOut,
     AuthSessionOut,
     ConnectionTestOut,
     DevTokenOut,
@@ -74,6 +77,8 @@ from .schemas import (
     IntegrationOverviewOut,
     IntegrationStateOut,
     JobOut,
+    ModelReplayRequest,
+    ModelReplayRunOut,
     ProposalDecisionRequest,
     ProposalOut,
     QueueHealthOut,
@@ -86,6 +91,7 @@ from .schemas import (
 from .secret_store import SecretStoreError, secret_store_status, store_secret
 from .security import (
     RequestContext,
+    auth_configuration,
     decode_runtime_token,
     issue_dev_token,
     request_context,
@@ -182,7 +188,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.6.0",
+        version="0.7.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -205,7 +211,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.6.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.7.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -223,6 +229,26 @@ def create_app(database_url: str | None = None) -> FastAPI:
             tenant_id=context.tenant_id,
             role=context.role,
             auth_mode=context.auth_mode,
+        )
+
+    @app.get("/api/v1/security/auth/health", response_model=AuthHealthOut, tags=["security"])
+    def get_auth_health(context: Context) -> AuthHealthOut:
+        require_role(context, "admin")
+        config = auth_configuration()
+        return AuthHealthOut(
+            mode=config.mode,
+            status=config.status,
+            issuer_configured=config.issuer_configured,
+            audience_configured=config.audience_configured,
+            jwks_configured=config.jwks_configured,
+            allowed_algorithms=list(config.allowed_algorithms),
+            required_claims=list(config.required_claims),
+            tenant_claim=config.tenant_claim,
+            leeway_seconds=config.leeway_seconds,
+            jwks_cache_seconds=config.jwks_cache_seconds,
+            dev_header_enabled=config.dev_header_enabled,
+            dev_token_enabled=config.dev_token_enabled,
+            detail=config.detail,
         )
 
     @app.get("/api/v1/integrations", response_model=IntegrationOverviewOut, tags=["integrations"])
@@ -498,6 +524,99 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get("/api/v1/agents/gateway", response_model=AgentGatewayOut, tags=["agents"])
     def get_agent_gateway(context: Context, db: Database) -> AgentGatewayOut:
         return AgentGatewayOut(**gateway_overview(db, context.tenant_id))
+
+    @app.post(
+        "/api/v1/agents/replays/jobs",
+        response_model=JobOut,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["agents", "jobs"],
+    )
+    def enqueue_model_replay(
+        payload: ModelReplayRequest,
+        background_tasks: BackgroundTasks,
+        context: Context,
+        db: Database,
+    ) -> JobOut:
+        require_role(context, "admin")
+        try:
+            metadata = replay_suite_metadata(payload.suite_name)
+        except ReplaySuiteError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        job, created = enqueue_job(
+            db,
+            context,
+            "agent.model_replay",
+            {
+                "suite_name": metadata["name"],
+                "suite_version": metadata["version"],
+                "mode": metadata["mode"],
+                "dataset_digest": metadata["dataset_digest"],
+            },
+            payload.idempotency_key,
+            max_attempts=2,
+            commit=False,
+        )
+        if created:
+            replay = ModelReplayRun(
+                tenant_id=context.tenant_id,
+                job_id=job.id,
+                suite_name=metadata["name"],
+                suite_version=metadata["version"],
+                mode=metadata["mode"],
+                provider=metadata["provider"],
+                profile=metadata["profile"],
+                status="queued",
+                dataset_digest=metadata["dataset_digest"],
+                results=[],
+                created_by=context.actor_id,
+            )
+            db.add(replay)
+            db.flush()
+            job.payload = {**job.payload, "replay_run_id": replay.id}
+            audit(
+                db,
+                context,
+                "agent.replay.queued",
+                "model_replay_run",
+                replay.id,
+                {
+                    "suite_name": replay.suite_name,
+                    "suite_version": replay.suite_version,
+                    "dataset_digest": replay.dataset_digest,
+                    "mode": replay.mode,
+                },
+            )
+            db.commit()
+            dispatch_inline_job(background_tasks, app.state.Session, job.id)
+        return JobOut.model_validate(job)
+
+    @app.get("/api/v1/agents/replays", response_model=list[ModelReplayRunOut], tags=["agents"])
+    def list_model_replays(
+        context: Context,
+        db: Database,
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> list[ModelReplayRunOut]:
+        require_role(context, "admin")
+        rows = db.scalars(
+            select(ModelReplayRun)
+            .where(ModelReplayRun.tenant_id == context.tenant_id)
+            .order_by(ModelReplayRun.created_at.desc())
+            .limit(limit)
+        )
+        return [ModelReplayRunOut.model_validate(row) for row in rows]
+
+    @app.get("/api/v1/agents/replays/{replay_run_id}", response_model=ModelReplayRunOut, tags=["agents"])
+    def get_model_replay(replay_run_id: str, context: Context, db: Database) -> ModelReplayRunOut:
+        require_role(context, "admin")
+        replay = db.scalar(
+            select(ModelReplayRun).where(
+                ModelReplayRun.id == replay_run_id,
+                ModelReplayRun.tenant_id == context.tenant_id,
+            )
+        )
+        if not replay:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型回放记录不存在")
+        return ModelReplayRunOut.model_validate(replay)
 
     @app.post("/api/v1/internal/agent-tools/{tool_name}", include_in_schema=False)
     def call_internal_agent_tool(

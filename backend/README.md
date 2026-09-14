@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.6.0` 后端基线，提供数据库成员权限、JWT/OIDC、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 密钥信封、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点与行动提案，以及多租户接入门禁和活动预检。
+`v0.7.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点、行动提案和可审计安全回放。
 
 ## 本地运行
 
@@ -43,6 +43,9 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 - `GET /api/v1/jobs/{id}`：恢复连接测试、自测或 Agent 运行进度；失败作业可重试，排队/运行作业可取消。
 - `GET /api/v1/jobs/queue/health`：读取当前租户排队/运行/陈旧任务，以及全局可用 Worker 数。
 - `GET /api/v1/security/secrets/health`：管理员查看密钥后端、可解密状态、活动密钥数和当前密钥版本；不返回引用或密文。
+- `GET /api/v1/security/auth/health`：管理员查看 OIDC 校验模式、算法/声明策略与开发认证开关；不返回 IdP 地址。
+- `POST /api/v1/agents/replays/jobs`：把 `fulfillops-safe-core` 安全回放作为持久作业提交。
+- `GET /api/v1/agents/replays`：读取当前租户的回放结果、数据集摘要、逐项检查和输出摘要。
 
 每个运行作业都记录 `lease_owner`、`lease_expires_at` 与 `heartbeat_at`。Worker 定期续租；租约过期时，其他 Worker 会关闭遗留的运行记录，并在 `max_attempts` 预算内重新排队。PostgreSQL 使用 `FOR UPDATE SKIP LOCKED`，SQLite 开发路径使用带状态条件的原子更新。运行中取消为协作式：先写入 `cancel_requested_at`，再由持有租约的 Worker 在当前处理器安全边界收口。
 
@@ -52,6 +55,8 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 
 - `SECRET_STORE_BACKEND=reference-only` 是默认零密钥路径，只生成外部 KMS 引用，不能从数据库恢复明文。
 - `SECRET_STORE_BACKEND=local-envelope` 使用 `SECRET_MASTER_KEY` 的 32 字节 URL-safe Base64 密钥执行 AES-256-GCM；数据库只保存密文、随机 nonce、算法和密钥版本。
+- `SECRET_STORE_BACKEND=aws-secrets-manager` 使用工作负载角色调用 AWS；安装 `requirements-aws.txt` 并配置 `AWS_REGION`。应用数据库只保存 `aws-sm://` 引用和末四位掩码，云端 JSON 载荷再次绑定租户与服务。
+- `AWS_SECRET_PREFIX` 默认为 `luheng/fulfillops`；可选 `AWS_KMS_KEY_ID` 使用客户托管 KMS Key。应用不读取或持久化静态 AWS Access Key，推荐实例、ECS/EKS 或工作负载身份。
 - 密文的 AAD 同时绑定引用、租户与服务类型，跨租户或跨服务读取会失败；更新凭证会让旧信封进入 `retired`。
 - `SECRET_PREVIOUS_KEYS` 可在主密钥轮换窗口内按版本解密旧密文，完成重写后再从部署配置移除旧密钥。
 - 设置新主密钥与旧密钥表后运行 `python -m app.secret_cli rotate`，可把全部活动信封原地重包裹并写入无敏感内容的审计事件；也可追加 `--tenant TENANT_A` 限定租户。`status --tenant TENANT_A` 会报告待轮换数量。
@@ -61,7 +66,17 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 - 配置变更会撤销旧自测报告及管理员启用状态。
 - 活动创建由服务端重新执行保护、重复任务、目标、预算、策略和渠道门禁。
 
-`local-envelope` 是可运行的自托管信封实现，不等同于云 KMS 或 HSM。生产环境应由 KMS 注入主密钥，后续也可按相同契约增加 Vault、AWS Secrets Manager、云 KMS 或企业密钥平台 Provider。生产环境必须关闭开发头认证与开发令牌入口，并配置企业 OIDC issuer、audience 和 JWKS。
+`local-envelope` 是可运行的自托管信封实现，不等同于云 KMS 或 HSM。AWS 后端的健康接口只证明依赖和配置完整，实际 IAM/KMS 权限在首次读写时验证。生产环境必须关闭开发头认证与开发令牌入口，并配置企业 OIDC issuer、audience 和 JWKS。
+
+## 企业 OIDC
+
+设置 `AUTH_MODE=oidc` 后，Bearer 身份只接受 JWKS 公钥验证。JWKS 默认必须使用无内嵌凭证的 HTTPS 地址；仅封闭测试网络可显式设置 `OIDC_ALLOW_INSECURE_JWKS=true`。默认仅允许 `RS256`，可通过 `OIDC_ALLOWED_ALGORITHMS` 显式增加受支持的 RSA、PSS、ECDSA 或 EdDSA 算法；对称 `HS*` 与 `none` 永远不能用于该模式。默认要求 `sub,exp,iat`，`OIDC_REQUIRED_CLAIMS` 只能追加不能移除这些声明。
+
+`OIDC_LEEWAY_SECONDS` 限制在 0—300 秒，`OIDC_JWKS_CACHE_SECONDS` 限制在 60—86400 秒。若企业 IdP 提供租户授权声明，可设置 `OIDC_TENANT_CLAIM`；字符串或数组中必须包含当前 `X-Tenant-ID`。该声明只缩小租户范围，用户角色仍从 `tenant_memberships` 读取。
+
+## Agent 安全回放
+
+`fulfillops-safe-core` v1 包含钱指标查询、保护案件、暂停提案和 Shell 越权阻断四个回放。作业通过与普通 Agent 相同的安全适配器和工具策略运行，但使用隔离会话、不解析真实模型凭证、不执行行动提案。`model_replay_runs` 保存套件版本、原始文件 SHA-256、逐项断言、工具轨迹、输出摘要和审计结果，可用于发版门禁与回归比较。当前仅支持 `deterministic-contract`；未来真实 Provider 回放必须单独审批并建立脱敏数据集、费用预算和输出基线。
 
 DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`。真实模式用 `fulfillops-safe.patch.yml` 禁用官方 `sdk-minimal` 的默认 Shell，仅通过独立 MCP 子进程暴露 8 个受控业务工具；工具回调使用租户与会话绑定的短时 Runtime JWT。安装、环境变量、恢复语义和验收口径见 `harness/README.md`。
 
@@ -73,4 +88,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 .venv/bin/python -m pytest
 ```
 
-当前本地基线为 38 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 39 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥信封、轮换、Runtime 注入，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v07-assurance.sh`；脚本会验证认证健康、四项回放、零外部模型调用和零业务写入。
+
+当前本地基线为 47 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 48 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、本地信封与 AWS Secrets Manager、OIDC/JWKS 强校验、开发令牌口径、回放幂等/隔离，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

@@ -147,6 +147,22 @@ class AuthSessionOut(BaseModel):
     auth_mode: str
 
 
+class AuthHealthOut(BaseModel):
+    mode: Literal["oidc", "shared-secret", "development", "unconfigured"]
+    status: Literal["ready", "development", "degraded"]
+    issuer_configured: bool
+    audience_configured: bool
+    jwks_configured: bool
+    allowed_algorithms: list[str]
+    required_claims: list[str]
+    tenant_claim: str | None
+    leeway_seconds: int
+    jwks_cache_seconds: int
+    dev_header_enabled: bool
+    dev_token_enabled: bool
+    detail: str
+
+
 class DevTokenRequest(BaseModel):
     actor_id: str = Field(min_length=1, max_length=80)
 
@@ -200,7 +216,7 @@ class QueueHealthOut(BaseModel):
 
 
 class SecretStoreHealthOut(BaseModel):
-    backend: Literal["reference-only", "local-envelope"]
+    backend: Literal["reference-only", "local-envelope", "aws-secrets-manager"]
     status: Literal["reference-only", "ready", "degraded"]
     persistent: bool
     resolvable: bool
@@ -212,6 +228,31 @@ class SecretStoreHealthOut(BaseModel):
 
 class AsyncTestRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=4, max_length=120)
+
+
+class ModelReplayRequest(BaseModel):
+    suite_name: Literal["fulfillops-safe-core"] = "fulfillops-safe-core"
+    idempotency_key: str | None = Field(default=None, min_length=4, max_length=120)
+
+
+class ModelReplayRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    job_id: str
+    suite_name: str
+    suite_version: str
+    mode: str
+    provider: str
+    profile: str
+    status: str
+    dataset_digest: str
+    results: list[dict[str, Any]]
+    passed_count: int
+    failed_count: int
+    created_by: str
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class AgentGatewayOut(BaseModel):

@@ -5,12 +5,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 ARG INSTALL_HARNESS=false
-COPY requirements.txt requirements-harness.txt ./
+ARG INSTALL_AWS=false
+COPY requirements.txt requirements-harness.txt requirements-aws.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
-    && if [ "$INSTALL_HARNESS" = "true" ]; then pip install --no-cache-dir -r requirements-harness.txt; fi
+    && if [ "$INSTALL_HARNESS" = "true" ]; then pip install --no-cache-dir -r requirements-harness.txt; fi \
+    && if [ "$INSTALL_AWS" = "true" ]; then pip install --no-cache-dir -r requirements-aws.txt; fi
 COPY app ./app
 COPY harness ./harness
 COPY migrations ./migrations
+COPY replay ./replay
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -160,7 +160,7 @@ def test_dev_bearer_token_uses_database_membership(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["actor_id"] == "test-operator"
     assert response.json()["role"] == "operator"
-    assert response.json()["auth_mode"] == "oidc"
+    assert response.json()["auth_mode"] == "development-token"
 
 
 def test_async_connection_test_is_persistent_and_idempotent(client: TestClient) -> None:

@@ -49,6 +49,7 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
         app = create_app(scoped_url)
         inspector = inspect(app.state.engine)
         assert "managed_secrets" in inspector.get_table_names()
+        assert "model_replay_runs" in inspector.get_table_names()
         assert {column["name"] for column in inspector.get_columns("async_jobs")} >= {
             "lease_owner",
             "lease_expires_at",
@@ -56,7 +57,7 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             "recovery_count",
         }
         with app.state.engine.connect() as connection:
-            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 5
+            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 6
 
         broker = PostgresNotifyBroker(scoped_url)
         broker.start()

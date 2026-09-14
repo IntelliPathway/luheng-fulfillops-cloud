@@ -234,7 +234,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.6.0")
+    version: Mapped[str] = mapped_column(String(24), default="0.7.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -316,6 +316,31 @@ class AgentProposal(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+class ModelReplayRun(Base):
+    __tablename__ = "model_replay_runs"
+    __table_args__ = (
+        Index("ix_model_replay_runs_tenant_created", "tenant_id", "created_at"),
+        UniqueConstraint("job_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("REPLAY"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("async_jobs.id"), nullable=False, unique=True, index=True)
+    suite_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    suite_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    mode: Mapped[str] = mapped_column(String(40), nullable=False, default="deterministic-contract")
+    provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    profile: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued", index=True)
+    dataset_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    passed_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class BusinessMetricSnapshot(Base):

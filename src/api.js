@@ -141,10 +141,20 @@ export const jobApi = {
 
 export const securityApi = {
   secretHealth: tenant => request('/security/secrets/health', tenant),
+  authHealth: tenant => request('/security/auth/health', tenant),
 };
 
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
+  replays: tenant => request('/agents/replays', tenant),
+  replayRun: (tenant, replayId) => request(`/agents/replays/${replayId}`, tenant),
+  replay: async (tenant, onUpdate) => {
+    const queued = await request('/agents/replays/jobs', tenant, {
+      method: 'POST',
+      body: JSON.stringify({suite_name: 'fulfillops-safe-core', idempotency_key: jobKey(`model-replay-${tenant}`)}),
+    });
+    return waitForJob(tenant, queued, onUpdate);
+  },
   createSession: (tenant, scope = {}) => request('/agents/sessions', tenant, {
     method: 'POST',
     body: JSON.stringify({

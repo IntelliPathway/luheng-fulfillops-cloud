@@ -139,6 +139,7 @@ export function Integrations(){
  const [activeStep,setActiveStep]=useState(-1);
  const [results,setResults]=useState([]);
  const [confirmEnable,setConfirmEnable]=useState(false);
+ const [replayRunning,setReplayRunning]=useState(false);
  const services=a.serviceConfigs;
  const readyCount=Object.values(services).filter(service=>service.tested).length;
  const allReady=a.integrationReadiness.allConnected;
@@ -174,15 +175,23 @@ export function Integrations(){
   setActiveStep(-1);setRunning(false);
  };
  const enable=async()=>{try{await a.enableIntegration();setConfirmEnable(false);a.notify('AI 与渠道已启用到后续新建活动')}catch(reason){a.notify(`启用失败：${reason.message||'门禁未通过'}`)}};
+ const runReplay=async()=>{setReplayRunning(true);try{const replay=await a.runModelReplay();a.notify(replay?.status==='passed'?`模型回放通过：${replay.passed_count} 项`:'模型回放存在失败项，请查看验收记录')}catch(reason){a.notify(`模型回放失败：${reason.message||'服务不可用'}`)}finally{setReplayRunning(false)}};
  const lastRun=a.integrationState.lastRun;
+ const secretLabel=a.secretHealth.backend==='aws-secrets-manager'?'AWS Secrets Manager':a.secretHealth.status==='ready'?`密钥信封 ${a.secretHealth.key_version}`:'外部密钥引用';
  return <div className="integrations-page">
-  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.6.0 已连接':'本地演示降级'}</span>{a.backendStatus==='connected'&&<span className={`environment-chip ${a.queueHealth.status!=='degraded'?'enabled':''}`}><HardDrives size={14}/>{a.queueHealth.mode==='external'?(a.queueHealth.status==='healthy'?`${a.queueHealth.active_workers} 个 Worker`:'Worker 待恢复'):'内联作业'} · {a.queueHealth.broker_backend==='postgres-notify'?'PG 通知':'DB 轮询'} · 排队 {a.queueHealth.queued_jobs}</span>}{a.backendStatus==='connected'&&<span className={`environment-chip ${a.secretHealth.status==='ready'?'enabled':''}`}><LockKey size={14}/>{a.secretHealth.status==='ready'?`密钥信封 ${a.secretHealth.key_version}`:'外部密钥引用'}</span>}{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {jobStatusLabel(a.activeJob)}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
+  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.7.0 已连接':'本地演示降级'}</span>{a.backendStatus==='connected'&&<span className={`environment-chip ${a.queueHealth.status!=='degraded'?'enabled':''}`}><HardDrives size={14}/>{a.queueHealth.mode==='external'?(a.queueHealth.status==='healthy'?`${a.queueHealth.active_workers} 个 Worker`:'Worker 待恢复'):'内联作业'} · {a.queueHealth.broker_backend==='postgres-notify'?'PG 通知':'DB 轮询'} · 排队 {a.queueHealth.queued_jobs}</span>}{a.backendStatus==='connected'&&<span className={`environment-chip ${a.secretHealth.status==='ready'?'enabled':''}`}><LockKey size={14}/>{secretLabel}</span>}{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {jobStatusLabel(a.activeJob)}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
 
   <section className="gateway-runtime-strip" aria-label="Agent Gateway 状态">
    <span className="gateway-runtime-icon"><Robot size={21}/></span>
    <span><b>Agent Gateway</b><small>{a.agentGateway.provider} · {a.agentGateway.profile} · {a.agentGateway.tools?.length||0} 个受控工具</small></span>
    <span className={`connection-pill ${a.agentGateway.connected?'ready':'waiting'}`}>{a.agentGateway.connected?<CheckCircle size={13} weight="fill"/>:<Clock size={13}/>} {a.agentGateway.mode==='sandbox-contract'?'沙箱契约已就绪':a.agentGateway.connected?'SDK 连接已验证':'SDK 等待验证'}</span>
    <small>{a.agentGateway.transport} · {a.agentGateway.session_persistence}；对话负责查询、解释和提案，确定性业务服务最终裁决。</small>
+  </section>
+
+  <section className="security-assurance-grid" aria-label="生产安全与模型验收">
+   <article><span className="assurance-icon"><ShieldCheck size={20}/></span><span><b>企业身份</b><small>{a.authHealth.mode==='oidc'?'OIDC / JWKS 非对称签名':a.authHealth.mode==='development'?'开发认证模式':'认证策略仅管理员可见'} · {a.authHealth.required_claims?.join(' / ')||'sub / exp / iat'}</small></span><span className={`connection-pill ${a.authHealth.status==='ready'?'ready':'waiting'}`}>{a.authHealth.status==='ready'?'强校验就绪':'待生产配置'}</span></article>
+   <article><span className="assurance-icon"><LockKey size={20}/></span><span><b>租户密钥</b><small>{secretLabel} · {a.secretHealth.active_secrets||0} 个活动引用</small></span><span className={`connection-pill ${a.secretHealth.resolvable?'ready':'waiting'}`}>{a.secretHealth.resolvable?'可受控解析':'仅引用'}</span></article>
+   <article><span className="assurance-icon"><Flask size={20}/></span><span><b>安全模型回放</b><small>{a.latestReplay?`${a.latestReplay.passed_count}/${a.latestReplay.passed_count+a.latestReplay.failed_count} 通过 · ${a.latestReplay.dataset_digest.slice(0,8)}`:'尚无持久化验收记录'} · 不调用外部模型</small></span><Button disabled={a.backendStatus!=='connected'||a.identity.role!=='admin'||replayRunning} onClick={runReplay}>{replayRunning?'回放中…':'运行回放'}</Button></article>
   </section>
 
   <section className="integration-service-grid" aria-label="接入服务">

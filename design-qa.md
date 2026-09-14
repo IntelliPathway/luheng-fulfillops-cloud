@@ -90,3 +90,11 @@ final result: passed
 - API output exposes only backend readiness, key version and secret count. References, nonces, ciphertext and plaintext never enter the frontend state.
 - Local tests cover AES-GCM persistence, tenant/service binding, credential retirement, previous-key rotation and transient Runtime injection. GitHub Actions passed the PostgreSQL 17 migration/notification path and the complete 55-test release suite.
 - `npm test` and the production build pass. The cloud browser loopback restriction remains unchanged, so the existing screenshot baseline is retained for this text-only status delta.
+
+## v0.7 production assurance verification · 2026-09-14
+
+- The integrations page adds one compact three-card assurance row for enterprise identity, tenant secret storage and the latest Agent replay. It reuses existing card, pill and button tokens and collapses to one column below 980px.
+- The replay button is admin-only and disabled when the API is offline. A completed run refreshes the persisted pass count and dataset digest; the copy explicitly states that no external model is called.
+- API and UI contracts expose only OIDC policy readiness, secret backend/key class and replay digests. Issuer/JWKS URLs, secret references, credential values and raw prompts do not enter the assurance cards.
+- Backend verification passed 47 local tests with the PostgreSQL service test skipped; frontend/API passed 13 tests and Sites passed 4. The v0.7 smoke completed all four replay cases with zero external model calls and no activity state change.
+- The local API and Vite server both started successfully. The cloud browser again rejected `http://127.0.0.1:4177` with `ERR_BLOCKED_BY_CLIENT`, so no new screenshot is claimed; production compilation, rendered asset inspection, API smoke and the existing BoardUI screenshot baseline cover this incremental row.

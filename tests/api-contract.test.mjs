@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {normalizeIntegrationOverview, servicePayload} from '../src/api.js';
+import {agentApi, normalizeIntegrationOverview, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -66,4 +66,28 @@ test('preserves DeepSeek Harness safety and persistence settings', () => {
     sessionPersistence: 'database-checkpoint',
   });
   assert.equal(payload.credential, 'harness-secret');
+});
+
+test('calls OIDC health and persistent replay endpoints with tenant context', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    if (String(url).endsWith('/agents/replays/jobs')) {
+      return {ok: true, json: async () => ({id: 'JOB-REPLAY', status: 'succeeded', result: {replay_run_id: 'REPLAY-1'}})};
+    }
+    return {ok: true, json: async () => ({status: 'ready'})};
+  };
+  try {
+    await securityApi.authHealth('TENANT_A');
+    await agentApi.replay('TENANT_A');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/security/auth/health');
+  assert.equal(calls[0].options.headers['X-Tenant-ID'], 'TENANT_A');
+  assert.equal(calls[1].url, '/api/v1/agents/replays/jobs');
+  const replayBody = JSON.parse(calls[1].options.body);
+  assert.equal(replayBody.suite_name, 'fulfillops-safe-core');
+  assert.match(replayBody.idempotency_key, /^model-replay-TENANT_A-/);
 });
