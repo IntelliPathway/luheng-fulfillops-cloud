@@ -14,7 +14,7 @@ def run_postgres_migrations(engine: Engine) -> list[str]:
 
     SQLite remains a zero-dependency test/development path and is built from
     SQLAlchemy metadata. PostgreSQL upgrades are transactionally recorded so an
-    existing v0.4 data volume can safely start the v0.5 API and worker.
+    existing v0.4 data volume can safely start the current API and worker.
     """
 
     if engine.dialect.name != "postgresql":

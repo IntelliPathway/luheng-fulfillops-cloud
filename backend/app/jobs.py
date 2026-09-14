@@ -14,6 +14,7 @@ from .domain import (
     utcnow,
     validate_service_settings,
 )
+from .job_broker import publish_job_notification
 from .job_queue import LeaseHeartbeat, claim_job, clear_job_lease
 from .models import (
     AgentMessage,
@@ -92,6 +93,7 @@ def enqueue_job(
     )
     db.add(job)
     db.flush()
+    publish_job_notification(db, job)
     db.add(
         AuditEvent(
             tenant_id=context.tenant_id,
@@ -124,7 +126,7 @@ def _connection_test(db: Session, job: AsyncJob) -> dict[str, Any]:
             ServiceConfig.service_type == "model",
         )
     ) if service_type == "agent" else None
-    latency, detail = test_agent_runtime(config, model_config) if service_type == "agent" else test_detail(service_type)
+    latency, detail = test_agent_runtime(config, model_config, db) if service_type == "agent" else test_detail(service_type)
     tested_at = utcnow()
     result = ConnectionTest(
         tenant_id=job.tenant_id,

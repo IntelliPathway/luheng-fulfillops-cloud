@@ -5,6 +5,8 @@ v0.4 同时提供零外部调用的 `sandbox-contract` 和可显式启用的 `py
 
 从 v0.5 起，Compose 中的真实 Runtime 由独立 Worker 启动。Worker 回调 API 时使用服务名地址 `http://api:8000`；本机内联模式仍可使用 `http://127.0.0.1:8000`。
 
+从 v0.6 起，模型凭证可由 `local-envelope` 在数据库中加密持久化，并在启动 Harness 前按租户和服务瞬时解密；`DEEPSEEK_API_KEY` 环境注入仍作为部署覆盖路径。凭证不会进入检查点、事件日志或 MCP 子进程环境，SDK 仅通过构造参数接收。
+
 ## 安全组成
 
 - `fulfillops-safe.patch.yml` 覆盖官方 `sdk-minimal` Profile，首先禁用默认的 `persistent-bash` 和 `persistent-pwsh`。

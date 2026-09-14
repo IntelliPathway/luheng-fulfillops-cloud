@@ -83,3 +83,10 @@ final result: passed
 - Existing compact BoardUI density, light/dark Agent themes and responsive layout were preserved; no structural visual redesign was introduced.
 - Automated verification covers external enqueueing, concurrent claim exclusivity, lease heartbeat, stale recovery, bounded attempts, lease fencing and cooperative cancellation. Backend 30, frontend/API 12 and Sites 4 checks passed; both the production build and standalone export completed successfully.
 - The cloud browser again rejected the loopback preview with `ERR_BLOCKED_BY_CLIENT`. The UI delta is limited to queue-health text and status color, so the approved screenshots remain the visual baseline; current output was verified through production compilation, HTTP rendering and both inline/external-process smoke tests.
+
+## v0.6 secret and broker verification · 2026-09-14
+
+- The integrations header adds compact Broker and secret-store status without changing the approved card grid, hierarchy or responsive behavior.
+- API output exposes only backend readiness, key version and secret count. References, nonces, ciphertext and plaintext never enter the frontend state.
+- Local tests cover AES-GCM persistence, tenant/service binding, credential retirement, previous-key rotation and transient Runtime injection. PostgreSQL migration/notification coverage is isolated behind `TEST_POSTGRES_URL` and enabled in GitHub Actions.
+- `npm test` and the production build pass. The cloud browser loopback restriction remains unchanged, so the existing screenshot baseline is retained for this text-only status delta.

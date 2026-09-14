@@ -9,10 +9,11 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from .domain import utcnow
+from .job_broker import broker_health
 from .models import AgentRun, AsyncJob, AuditEvent, JobWorker
 
 DEFAULT_QUEUE = "default"
-WORKER_VERSION = "0.5.0"
+WORKER_VERSION = "0.6.0"
 
 
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -303,6 +304,7 @@ def queue_health(db: Session, tenant_id: str) -> dict[str, Any]:
         "stale_jobs": stale_jobs,
         "latest_heartbeat_at": latest_heartbeat,
         "lease_seconds": configured_lease_seconds(),
+        **broker_health(db),
     }
 
 

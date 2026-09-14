@@ -26,7 +26,6 @@ from .domain import (
     SERVICE_TYPES,
     activity_preflight,
     build_self_test_items,
-    create_secret_reference,
     gate_for,
     invalidate_integration,
     service_versions,
@@ -78,11 +77,13 @@ from .schemas import (
     ProposalDecisionRequest,
     ProposalOut,
     QueueHealthOut,
+    SecretStoreHealthOut,
     SelfTestItem,
     SelfTestReportOut,
     ServiceConfigOut,
     ServiceConfigUpsert,
 )
+from .secret_store import SecretStoreError, secret_store_status, store_secret
 from .security import (
     RequestContext,
     decode_runtime_token,
@@ -181,7 +182,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.5.0",
+        version="0.6.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -204,7 +205,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.5.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.6.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -240,7 +241,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
             db.add(config)
             db.flush()
         if payload.credential:
-            config.secret_ref, config.credential_last4 = create_secret_reference(context.tenant_id, service_type, payload.credential)
+            try:
+                config.secret_ref, config.credential_last4 = store_secret(
+                    db,
+                    context.tenant_id,
+                    service_type,
+                    payload.credential,
+                    previous_reference=config.secret_ref,
+                )
+            except SecretStoreError as exc:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         if not config.secret_ref:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="首次配置必须提供 credential")
         config.provider = payload.provider
@@ -276,7 +286,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 ServiceConfig.service_type == "model",
             )
         ) if service_type == "agent" else None
-        latency, detail = test_agent_runtime(config, model_config) if service_type == "agent" else test_detail(service_type)
+        latency, detail = test_agent_runtime(config, model_config, db) if service_type == "agent" else test_detail(service_type)
         tested_at = utcnow()
         result = ConnectionTest(
             tenant_id=context.tenant_id,
@@ -419,6 +429,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get("/api/v1/jobs/queue/health", response_model=QueueHealthOut, tags=["jobs"])
     def get_queue_health(context: Context, db: Database) -> QueueHealthOut:
         return QueueHealthOut(**queue_health(db, context.tenant_id))
+
+    @app.get("/api/v1/security/secrets/health", response_model=SecretStoreHealthOut, tags=["security"])
+    def get_secret_store_health(context: Context, db: Database) -> SecretStoreHealthOut:
+        require_role(context, "admin")
+        return SecretStoreHealthOut(**secret_store_status(db, context.tenant_id).__dict__)
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, context: Context, db: Database) -> JobOut:

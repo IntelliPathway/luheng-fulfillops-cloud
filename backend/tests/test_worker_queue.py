@@ -45,6 +45,8 @@ def test_external_mode_leaves_work_for_independent_worker(monkeypatch) -> None:
             "stale_jobs": 0,
             "latest_heartbeat_at": None,
             "lease_seconds": 60,
+            "broker_backend": "database",
+            "broker_status": "polling",
         }
 
         worker = DatabaseWorker(app.state.Session, worker_id="worker-test-1")

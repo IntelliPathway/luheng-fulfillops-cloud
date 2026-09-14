@@ -110,7 +110,7 @@ def _launch_kwargs(context: HarnessLaunchContext, token: str) -> dict[str, Any]:
         raise RuntimeError("fulfillops-safe Harness patch 不存在")
     dsh_home, workspace = _runtime_paths(context)
     provider, model, base_url = _model_settings(context.settings)
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+    api_key = str(context.settings.get("_modelCredential") or os.getenv("DEEPSEEK_API_KEY") or "")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY 未注入 Runtime 进程；KMS 引用不能自动当作明文凭证")
     backend_root = _backend_root()
@@ -144,7 +144,7 @@ def validate_runtime_prerequisites(settings: dict[str, Any]) -> None:
     _sdk_class()
     if not _patch_path().is_file():
         raise RuntimeError("fulfillops-safe Harness patch 不存在")
-    if not os.getenv("DEEPSEEK_API_KEY"):
+    if not settings.get("_modelCredential") and not os.getenv("DEEPSEEK_API_KEY"):
         raise RuntimeError("DEEPSEEK_API_KEY 未通过运行环境或 KMS 注入")
     _model_settings(settings)
 

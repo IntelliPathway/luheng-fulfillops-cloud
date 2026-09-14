@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from .db import build_engine, build_session_factory
 from .domain import utcnow
 from .harness_runtime import close_harness_runtimes
+from .job_broker import JobWakeupBroker, build_job_broker
 from .job_queue import (
     DEFAULT_QUEUE,
     claim_job,
@@ -46,11 +47,13 @@ class DatabaseWorker:
         worker_id: str,
         queues: tuple[str, ...] = (DEFAULT_QUEUE,),
         lease_seconds: int | None = None,
+        broker: JobWakeupBroker | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.worker_id = worker_id
         self.queues = queues
         self.lease_seconds = lease_seconds or configured_lease_seconds()
+        self.broker = broker or build_job_broker(str(session_factory.kw["bind"].url))
 
     def run_once(self) -> bool:
         recover_stale_jobs(self.session_factory, self.worker_id)
@@ -92,9 +95,10 @@ class DatabaseWorker:
             while not stop_event.is_set():
                 handled = self.run_once()
                 if not handled:
-                    stop_event.wait(poll_seconds)
+                    self.broker.wait(stop_event, poll_seconds)
         finally:
             update_worker(self.session_factory, self.worker_id, status="stopped", queues=self.queues)
+            self.broker.close()
             close_harness_runtimes()
 
 

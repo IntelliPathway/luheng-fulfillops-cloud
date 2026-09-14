@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -40,10 +39,6 @@ def validate_service_settings(service_type: str, settings: dict[str, Any]) -> No
     missing = [key for key in REQUIRED_SETTINGS[service_type] if not str(settings.get(key, "")).strip()]
     if missing:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"缺少必填配置：{', '.join(missing)}")
-
-
-def create_secret_reference(tenant_id: str, service_type: str, credential: str) -> tuple[str, str]:
-    return f"kms://luheng/{tenant_id}/{service_type}/{uuid4().hex}", credential[-4:]
 
 
 def service_versions(configs: list[ServiceConfig]) -> dict[str, int]:

@@ -195,6 +195,19 @@ class QueueHealthOut(BaseModel):
     stale_jobs: int
     latest_heartbeat_at: datetime | None
     lease_seconds: int
+    broker_backend: Literal["database", "postgres-notify"]
+    broker_status: Literal["polling", "ready", "degraded"]
+
+
+class SecretStoreHealthOut(BaseModel):
+    backend: Literal["reference-only", "local-envelope"]
+    status: Literal["reference-only", "ready", "degraded"]
+    persistent: bool
+    resolvable: bool
+    key_version: str | None
+    active_secrets: int
+    rotation_pending: int
+    detail: str
 
 
 class AsyncTestRequest(BaseModel):

@@ -139,6 +139,10 @@ export const jobApi = {
   queueHealth: tenant => request('/jobs/queue/health', tenant),
 };
 
+export const securityApi = {
+  secretHealth: tenant => request('/security/secrets/health', tenant),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   createSession: (tenant, scope = {}) => request('/agents/sessions', tenant, {

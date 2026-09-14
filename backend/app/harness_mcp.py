@@ -108,7 +108,7 @@ def handle_request(
             {
                 "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "luheng-fulfillops-safe-tools", "version": "0.5.0"},
+                "serverInfo": {"name": "luheng-fulfillops-safe-tools", "version": "0.6.0"},
                 "instructions": "仅允许租户范围内只读查询与活动暂停/恢复提案；所有业务写入由 FulfillOps API 复核。",
             },
         )

@@ -1,6 +1,6 @@
 # 履衡 AI · FulfillOps Cloud 全栈开发版
 
-当前版本：`v0.5.0`。本版本在 v0.4 DeepSeek Harness SDK/MCP 安全 Runtime 之上增加可独立部署的持久任务 Worker。API 负责幂等入队，Worker 通过数据库租约认领任务、续租心跳并恢复崩溃作业；前端会明确展示内联/外部执行与 Worker 健康状态。API 不可用时仍明确降级为本地演示。
+当前版本：`v0.6.0`。本版本在持久任务 Worker 之上补齐可轮换的 AES-256-GCM 密钥信封、PostgreSQL `LISTEN/NOTIFY` Worker 唤醒与 GitHub Actions 数据库升级验收。数据库队列仍是作业事实源，通知丢失不会丢任务；API 不可用时仍明确降级为本地演示。
 
 已选方向：第 1 版浅色 SaaS 工作空间 + 第 3 版 Agent 运行详情，支持全局深浅主题。
 
@@ -23,8 +23,10 @@
 9. 在「AI 与渠道」分别配置 Hermes、DeepSeek Harness、LangGraph 或自研 Agent Runtime，以及模型、语音与 SIP 电话服务，完成单项连接测试、五项全链路沙箱自测和管理员启用确认。
 10. DeepSeek Harness 采用 `fulfillops-safe` Patch：对话结果展示 Provider Session、Turn、事件 Cursor、已核验工具数，以及“进程内续接/检查点重放”的真实恢复方式。
 11. Compose 环境由独立 Worker 消费持久作业；页面显示 Worker 健康、排队数量和活动作业。Worker 异常退出后，过期租约会在尝试预算内自动重新排队。
-12. 在异常中心处理异议、停止联系、金额冲突、授权缺失和委托到期；委托后尾期只核对被动到账，禁止主动触达。
-13. 切换组织以查看租户隔离；组织设置中可还原整个演示。
+12. Compose 使用 PostgreSQL 通知低延迟唤醒 Worker，通知不可用时自动保留数据库轮询；AI 与渠道页同步显示 Broker 与密钥信封状态。
+13. `local-envelope` 使用租户/服务绑定的 AES-256-GCM 密文保存凭证，轮换后旧版本退役；主密钥不写入数据库。
+14. 在异常中心处理异议、停止联系、金额冲突、授权缺失和委托到期；委托后尾期只核对被动到账，禁止主动触达。
+15. 切换组织以查看租户隔离；组织设置中可还原整个演示。
 
 支持活动搜索、按名称排序、紧凑行高、分页、批量暂停/恢复、资产包筛选、案件搜索、侧边栏快速搜索（⌘/Ctrl+K）、通知中心、键盘关闭弹窗与深浅主题。
 
@@ -32,7 +34,7 @@
 
 这是可联调的全栈开发版，使用此前生成的 AMC 虚构样本。API 连接时，AI 与渠道配置、连接测试、自测报告、启用状态、活动快照和审计事件按租户入库；无 API 时才使用浏览器脱敏缓存。任何配置变更都会撤销旧报告与启用。
 
-Hermes、模型、语音和电话 Provider 当前仍返回确定性的沙箱适配器结果，不执行真实外呼、扣费、支付、邮件或生产系统写入。DeepSeek Harness 的 `sandbox-contract` 不启动官方 SDK；`python-sdk` 已具备真实进程、MCP 工具与检查点恢复路径，但只有部署端安装 SDK、显式启用并注入模型凭证后才会连接。`credential` 只生成密钥托管引用和末四位，明文不会写入业务数据库或 API 响应。
+Hermes、模型、语音和电话 Provider 当前仍返回确定性的沙箱适配器结果，不执行真实外呼、扣费、支付、邮件或生产系统写入。DeepSeek Harness 的 `sandbox-contract` 不启动官方 SDK；`python-sdk` 已具备真实进程、MCP 工具与检查点恢复路径。`credential` 在 `local-envelope` 模式下加密入库并只向 Runtime 内存解密，API 仅返回末四位；`reference-only` 模式仍要求部署平台直接注入真实凭证。
 
 租户 A 初始确认净回款 ¥19,920、计佣回款 ¥18,420、应计佣金 ¥2,778、实际收佣 ¥0。C002 模拟补款后分别为 ¥20,936、¥19,436、¥2,930.40、¥0；C002 第二期完成，后续分期仍未到期。租户 B 始终为 8 个案件、净回款 ¥800、应计佣金 ¥160。
 
@@ -42,6 +44,6 @@ Hermes、模型、语音和电话 Provider 当前仍返回确定性的沙箱适�
 
 使用原稿中提取的品牌资产；图标使用 Phosphor 图标库。经营首页进一步对齐 BoardUI 的侧边栏搜索、紧凑工具栏、柔和卡片、带坐标轴图表与高密度数据表，并保留 AI 经营建议、保护暂停和可追溯 Agent 运行语义。「AI 与渠道」页面由四张入口卡承载 Agent Runtime、模型、语音和电话，并增加接入进度、五项自测、启用门禁和最近报告。`design-qa.md` 记录浏览器验证、视觉对比与已知限制，`qa/` 保存截图证据。
 
-本项目保留 Vite 与 Sites 兼容构建。`v0.5.0` 已通过 30 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 46 项；覆盖身份、Bearer、Gateway、MCP 工具、Runtime JWT、Worker 唯一认领、心跳续租、崩溃恢复、租约 fencing、协作式取消、失败 Run、进程内续接与检查点重放。后续需要完成真实 DeepSeek 模型回放、企业 IdP、正式 KMS、Redis/Kafka Broker 适配、支付回执和佣金账簿。
+本项目保留 Vite 与 Sites 兼容构建。`v0.6.0` 的 CI 基线为 39 项后端、12 项前端领域/API 契约和 4 项站点构建测试，共 55 项；新增覆盖密文不可逆暴露、租户/服务 AAD 绑定、密钥轮换、Runtime 瞬时注入、v0.4 PostgreSQL 原地升级和 `LISTEN/NOTIFY` 唤醒。后续仍需完成云 KMS/HSM Provider、真实 DeepSeek 模型回放、企业 IdP、支付回执和佣金账簿。
 
 重新导出独立 HTML：先执行 `npm run build`，再运行 `python3 scripts/export-standalone.py`，结果位于 `export/LuhengAI_FulfillOps_Interactive.html`。

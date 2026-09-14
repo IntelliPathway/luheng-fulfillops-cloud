@@ -31,8 +31,13 @@ services:
       OIDC_AUDIENCE: luheng-fulfillops
       RUNTIME_JWT_SECRET: luheng-compose-runtime-secret-change-me
       JOB_EXECUTION_MODE: external
+      JOB_BROKER_BACKEND: postgres-notify
+      JOB_BROKER_CHANNEL: luheng_jobs
       JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-60}
       WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-30}
+      SECRET_STORE_BACKEND: local-envelope
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      SECRET_MASTER_KEY_VERSION: ${SECRET_MASTER_KEY_VERSION:-compose-dev-v1}
       FULFILLOPS_ENABLE_DSH_RUNTIME: ${FULFILLOPS_ENABLE_DSH_RUNTIME:-false}
       FULFILLOPS_INTERNAL_URL: http://127.0.0.1:8000
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
@@ -58,11 +63,16 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://luheng:luheng-dev-only@postgres:5432/luheng
       JOB_EXECUTION_MODE: external
+      JOB_BROKER_BACKEND: postgres-notify
+      JOB_BROKER_CHANNEL: luheng_jobs
       JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-60}
       WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-30}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
       WORKER_ID: fulfillops-worker-1
       WORKER_QUEUES: default
+      SECRET_STORE_BACKEND: local-envelope
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      SECRET_MASTER_KEY_VERSION: ${SECRET_MASTER_KEY_VERSION:-compose-dev-v1}
       AUTH_JWT_SECRET: luheng-compose-development-secret-change-me
       RUNTIME_JWT_SECRET: luheng-compose-runtime-secret-change-me
       FULFILLOPS_ENABLE_DSH_RUNTIME: ${FULFILLOPS_ENABLE_DSH_RUNTIME:-false}

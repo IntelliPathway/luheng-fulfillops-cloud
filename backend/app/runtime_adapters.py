@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from .agent_gateway import FORBIDDEN_RUNTIME_TOOLS, TOOL_CATALOG, build_agent_result
 from .harness_runtime import HARNESS_RUNTIME_MANAGER, HarnessLaunchContext
 from .models import AgentMessage, AgentRuntimeCheckpoint, AgentSession, ServiceConfig
+from .secret_store import resolve_secret
 
 
 @dataclass(frozen=True)
@@ -155,6 +156,9 @@ def runtime_settings_for(db: Session, session: AgentSession) -> dict[str, Any]:
     )
     if model_config:
         settings["modelService"] = {"provider": model_config.provider, **dict(model_config.settings)}
+        credential = resolve_secret(db, model_config.secret_ref, session.tenant_id, "model")
+        if credential:
+            settings["_modelCredential"] = credential
     return settings
 
 
@@ -232,7 +236,11 @@ def run_runtime_turn(db: Session, session: AgentSession, query: str) -> tuple[di
     return generated, checkpoint, runtime
 
 
-def test_agent_runtime(config: ServiceConfig, model_config: ServiceConfig | None = None) -> tuple[int, str]:
+def test_agent_runtime(
+    config: ServiceConfig,
+    model_config: ServiceConfig | None = None,
+    db: Session | None = None,
+) -> tuple[int, str]:
     if config.provider != "DeepSeek Harness":
         return 126, "Runtime 鉴权通过；工具白名单与审批回调可用"
     transport = str(config.settings.get("transport") or "sandbox-contract")
@@ -246,6 +254,10 @@ def test_agent_runtime(config: ServiceConfig, model_config: ServiceConfig | None
         settings = dict(config.settings)
         if model_config:
             settings["modelService"] = {"provider": model_config.provider, **dict(model_config.settings)}
+            if db:
+                credential = resolve_secret(db, model_config.secret_ref, config.tenant_id, "model")
+                if credential:
+                    settings["_modelCredential"] = credential
         HARNESS_RUNTIME_MANAGER.probe(config.tenant_id, settings)
     except RuntimeError as exc:
         raise ValueError(f"DeepSeek Harness 连接测试失败：{exc}") from exc

@@ -104,6 +104,26 @@ class ServiceConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class ManagedSecret(Base):
+    __tablename__ = "managed_secrets"
+    __table_args__ = (
+        UniqueConstraint("reference"),
+        Index("ix_managed_secrets_tenant_service", "tenant_id", "service_type", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("SEC"))
+    reference: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    service_type: Mapped[str] = mapped_column(String(24), index=True)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    nonce: Mapped[str] = mapped_column(String(64), nullable=False)
+    algorithm: Mapped[str] = mapped_column(String(24), default="A256GCM")
+    key_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class IntegrationState(Base):
     __tablename__ = "integration_states"
 
@@ -214,7 +234,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.5.0")
+    version: Mapped[str] = mapped_column(String(24), default="0.6.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
