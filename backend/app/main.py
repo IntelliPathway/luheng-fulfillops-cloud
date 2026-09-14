@@ -36,7 +36,16 @@ from .domain import (
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
-from .migrations import run_postgres_migrations
+from .migrations import run_postgres_migrations, run_sqlite_compatibility_migrations
+from .model_gateway import (
+    LIVE_MODE,
+    ModelGatewayError,
+    live_model_calls_enabled,
+    model_gateway_health,
+    model_policy_settings,
+    policy_snapshot,
+    test_model_runtime,
+)
 from .model_replay import ReplaySuiteError, replay_suite_metadata
 from .models import (
     Activity,
@@ -77,6 +86,7 @@ from .schemas import (
     IntegrationOverviewOut,
     IntegrationStateOut,
     JobOut,
+    ModelGatewayHealthOut,
     ModelReplayRequest,
     ModelReplayRunOut,
     ProposalDecisionRequest,
@@ -188,7 +198,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.7.0",
+        version="0.8.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -206,12 +216,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.Session = build_session_factory(engine)
     run_postgres_migrations(engine)
     Base.metadata.create_all(engine)
+    run_sqlite_compatibility_migrations(engine)
     with app.state.Session() as db:
         seed_demo_data(db)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.7.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.8.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -259,6 +270,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def save_service(service_type: str, payload: ServiceConfigUpsert, context: Context, db: Database) -> IntegrationOverviewOut:
         require_role(context, "admin")
         validate_service_settings(service_type, payload.settings)
+        if service_type == "model":
+            try:
+                model_policy_settings(payload.provider, payload.settings)
+            except ModelGatewayError as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         config = db.scalar(
             select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type)
         )
@@ -312,7 +328,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 ServiceConfig.service_type == "model",
             )
         ) if service_type == "agent" else None
-        latency, detail = test_agent_runtime(config, model_config, db) if service_type == "agent" else test_detail(service_type)
+        try:
+            if service_type == "agent":
+                latency, detail = test_agent_runtime(config, model_config, db)
+            elif service_type == "model":
+                latency, detail = test_model_runtime(db, config)
+            else:
+                latency, detail = test_detail(service_type)
+        except ModelGatewayError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"模型连接测试失败（{exc.code}）") from exc
         tested_at = utcnow()
         result = ConnectionTest(
             tenant_id=context.tenant_id,
@@ -525,6 +549,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def get_agent_gateway(context: Context, db: Database) -> AgentGatewayOut:
         return AgentGatewayOut(**gateway_overview(db, context.tenant_id))
 
+    @app.get("/api/v1/models/gateway/health", response_model=ModelGatewayHealthOut, tags=["models", "security"])
+    def get_model_gateway_health(context: Context, db: Database) -> ModelGatewayHealthOut:
+        require_role(context, "admin")
+        config = db.scalar(
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == context.tenant_id,
+                ServiceConfig.service_type == "model",
+            )
+        )
+        return ModelGatewayHealthOut(**model_gateway_health(config))
+
     @app.post(
         "/api/v1/agents/replays/jobs",
         response_model=JobOut,
@@ -542,6 +577,35 @@ def create_app(database_url: str | None = None) -> FastAPI:
             metadata = replay_suite_metadata(payload.suite_name)
         except ReplaySuiteError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        model_config = None
+        model_snapshot: dict = {
+            "execution_mode": "deterministic-contract",
+            "external_calls_allowed": False,
+            "data_policy": "no-provider-input",
+        }
+        provider = metadata["provider"]
+        profile = metadata["profile"]
+        if payload.mode == LIVE_MODE:
+            if not payload.acknowledged_external_call:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="真实模型回放必须明确确认外部调用")
+            if not live_model_calls_enabled():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="部署环境未启用真实模型调用")
+            model_config = db.scalar(
+                select(ServiceConfig).where(
+                    ServiceConfig.tenant_id == context.tenant_id,
+                    ServiceConfig.service_type == "model",
+                )
+            )
+            if not model_config or not model_config.connected:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="真实模型回放要求模型配置已通过连接测试")
+            try:
+                model_snapshot = policy_snapshot(model_config)
+            except ModelGatewayError as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+            if model_snapshot["execution_mode"] != LIVE_MODE:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="模型配置尚未选择真实 Provider 模式")
+            provider = model_config.provider
+            profile = "governed-live-evaluation-v1"
         job, created = enqueue_job(
             db,
             context,
@@ -549,11 +613,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
             {
                 "suite_name": metadata["name"],
                 "suite_version": metadata["version"],
-                "mode": metadata["mode"],
+                "mode": payload.mode,
                 "dataset_digest": metadata["dataset_digest"],
+                "model_config_version": model_config.version if model_config else None,
             },
             payload.idempotency_key,
-            max_attempts=2,
+            max_attempts=1 if payload.mode == LIVE_MODE else 2,
             commit=False,
         )
         if created:
@@ -562,11 +627,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 job_id=job.id,
                 suite_name=metadata["name"],
                 suite_version=metadata["version"],
-                mode=metadata["mode"],
-                provider=metadata["provider"],
-                profile=metadata["profile"],
+                mode=payload.mode,
+                provider=provider,
+                profile=profile,
+                model_config_version=model_config.version if model_config else None,
+                model_name=str(model_config.settings.get("model")) if model_config else None,
                 status="queued",
                 dataset_digest=metadata["dataset_digest"],
+                policy_snapshot=model_snapshot,
                 results=[],
                 created_by=context.actor_id,
             )
@@ -584,6 +652,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
                     "suite_version": replay.suite_version,
                     "dataset_digest": replay.dataset_digest,
                     "mode": replay.mode,
+                    "model_config_version": replay.model_config_version,
+                    "external_call_approved": payload.mode == LIVE_MODE,
                 },
             )
             db.commit()

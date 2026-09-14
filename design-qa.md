@@ -99,3 +99,12 @@ final result: passed
 - Backend verification passed 47 local tests with the PostgreSQL service test skipped; frontend/API passed 13 tests and Sites passed 4. The v0.7 smoke completed all four replay cases with zero external model calls and no activity state change.
 - GitHub Actions run `34876163686` passed the PostgreSQL 17 migration path and the complete 65-test v0.7 release baseline for commit `a4161a3`.
 - The local API and Vite server both started successfully. The cloud browser again rejected `http://127.0.0.1:4177` with `ERR_BLOCKED_BY_CLIENT`, so no new screenshot is claimed; production compilation, rendered asset inspection, API smoke and the existing BoardUI screenshot baseline cover this incremental row.
+
+## v0.8 governed model gateway verification · 2026-09-14
+
+- The integrations page extends the assurance row from three to four cards and adds a compact replay-mode selector. It reuses the existing card, pill, select and button tokens; the responsive breakpoint still collapses the grid to one column below 980px.
+- The model form now separates `contract-only` from `live-provider`, exposes output/cost ceilings and explains the deployment-level egress gate. A native confirmation is required immediately before a real Provider replay, and the option remains disabled until the Gateway reports every gate ready.
+- Backend verification passed 54 local tests with the PostgreSQL service test skipped; frontend/API passed 13 and Sites passed 4. The v0.8 smoke completed the four deterministic cases with zero external calls and confirmed that an acknowledged live request still returns HTTP 409 while the deployment switch is off.
+- A combined runtime smoke loaded the application shell through Vite, proxied `/api/v1/health` to API `0.8.0`, and returned model Gateway state `contract`. The API and Vite development servers remain started on ports 8000 and 4177.
+- The cloud browser rejected both `terminal.local:4177` and direct loopback access with `ERR_BLOCKED_BY_CLIENT` / local-URL policy. No new browser screenshot is claimed; production compilation, live HTTP proxy verification and the approved BoardUI screenshot baseline cover this incremental controls-only change.
+- No real DeepSeek credential was available and `ENABLE_LIVE_MODEL_CALLS` stayed false, so this QA cycle made no Provider request and incurred no model cost.

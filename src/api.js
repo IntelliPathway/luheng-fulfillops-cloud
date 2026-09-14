@@ -59,7 +59,7 @@ export async function waitForJob(tenant, initial, onUpdate, options = {}) {
 const secretField = {agent: 'authToken', model: 'apiKey', voice: 'accessKey', phone: 'secret'};
 const settingKeys = {
   agent: ['endpoint', 'profile', 'approval', 'transport', 'safetyPreset', 'sessionPersistence'],
-  model: ['endpoint', 'model', 'timeout'],
+  model: ['endpoint', 'model', 'timeout', 'executionMode', 'maxOutputTokens', 'maxCostUsd'],
   voice: ['region', 'asr', 'tts', 'sampleRate'],
   phone: ['sipHost', 'trunk', 'callerId', 'callback'],
 };
@@ -142,16 +142,22 @@ export const jobApi = {
 export const securityApi = {
   secretHealth: tenant => request('/security/secrets/health', tenant),
   authHealth: tenant => request('/security/auth/health', tenant),
+  modelGatewayHealth: tenant => request('/models/gateway/health', tenant),
 };
 
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),
   replayRun: (tenant, replayId) => request(`/agents/replays/${replayId}`, tenant),
-  replay: async (tenant, onUpdate) => {
+  replay: async (tenant, mode = 'deterministic-contract', onUpdate) => {
     const queued = await request('/agents/replays/jobs', tenant, {
       method: 'POST',
-      body: JSON.stringify({suite_name: 'fulfillops-safe-core', idempotency_key: jobKey(`model-replay-${tenant}`)}),
+      body: JSON.stringify({
+        suite_name: 'fulfillops-safe-core',
+        mode,
+        acknowledged_external_call: mode === 'live-provider',
+        idempotency_key: jobKey(`model-replay-${tenant}-${mode}`),
+      }),
     });
     return waitForJob(tenant, queued, onUpdate);
   },

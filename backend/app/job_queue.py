@@ -13,7 +13,7 @@ from .job_broker import broker_health
 from .models import AgentRun, AsyncJob, AuditEvent, JobWorker
 
 DEFAULT_QUEUE = "default"
-WORKER_VERSION = "0.7.0"
+WORKER_VERSION = "0.8.0"
 
 
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:

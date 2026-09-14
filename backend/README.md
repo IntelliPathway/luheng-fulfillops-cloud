@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.7.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、Agent 会话检查点、行动提案和可审计安全回放。
+`v0.8.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、Agent 会话检查点、行动提案和可审计安全回放。
 
 ## 本地运行
 
@@ -44,6 +44,7 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 - `GET /api/v1/jobs/queue/health`：读取当前租户排队/运行/陈旧任务，以及全局可用 Worker 数。
 - `GET /api/v1/security/secrets/health`：管理员查看密钥后端、可解密状态、活动密钥数和当前密钥版本；不返回引用或密文。
 - `GET /api/v1/security/auth/health`：管理员查看 OIDC 校验模式、算法/声明策略与开发认证开关；不返回 IdP 地址。
+- `GET /api/v1/models/gateway/health`：管理员查看模型执行模式、允许端点主机、Token/费用上限和真实调用门禁；不返回密钥或完整请求。
 - `POST /api/v1/agents/replays/jobs`：把 `fulfillops-safe-core` 安全回放作为持久作业提交。
 - `GET /api/v1/agents/replays`：读取当前租户的回放结果、数据集摘要、逐项检查和输出摘要。
 
@@ -76,7 +77,15 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 
 ## Agent 安全回放
 
-`fulfillops-safe-core` v1 包含钱指标查询、保护案件、暂停提案和 Shell 越权阻断四个回放。作业通过与普通 Agent 相同的安全适配器和工具策略运行，但使用隔离会话、不解析真实模型凭证、不执行行动提案。`model_replay_runs` 保存套件版本、原始文件 SHA-256、逐项断言、工具轨迹、输出摘要和审计结果，可用于发版门禁与回归比较。当前仅支持 `deterministic-contract`；未来真实 Provider 回放必须单独审批并建立脱敏数据集、费用预算和输出基线。
+`fulfillops-safe-core` v1 包含钱指标查询、保护案件、暂停提案和 Shell 越权阻断四个回放。`deterministic-contract` 通过与普通 Agent 相同的安全适配器和工具策略运行，但使用隔离会话、不解析模型凭证、不执行行动提案。
+
+`live-provider` 会先完成上述确定性检查，再把不含业务原文的断言/工具状态摘要交给模型做一次 JSON 安全评估。它要求 `ENABLE_LIVE_MODEL_CALLS=true`、模型配置选择 `live-provider`、Endpoint/模型命中部署允许列表、密钥可解析、当前版本连接测试通过和管理员明确确认。每次运行最多一次外部调用且不自动重试，以避免重复计费。`model_replay_runs` 只保存不可逆摘要、Token、保守费用、配置版本和 Provider 请求 ID 哈希。
+
+## 受控模型 Gateway
+
+默认 `executionMode=contract-only`，连接测试只验证策略而不访问 Provider。真实模式使用 OpenAI-compatible `/chat/completions` 和 JSON Object 输出；不跟随重定向，默认只允许 `api.deepseek.com`，并拒绝 URL 凭证、查询参数、本地/私有地址和非标准端口。企业网关必须通过 `MODEL_EGRESS_ALLOWLIST` 显式加入；私网与 HTTP 开关只供封闭测试环境。
+
+单次请求限制 12,000 字符、5—60 秒超时、64—4,096 输出 Token 和租户配置/部署配置的双重费用上限。预算使用 `MODEL_COST_CEILING_USD_PER_M_TOKENS` 做保守预留和事后核对，并非账单结算口径。Provider 错误只保留标准化错误码，不保存响应正文。
 
 DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`。真实模式用 `fulfillops-safe.patch.yml` 禁用官方 `sdk-minimal` 的默认 Shell，仅通过独立 MCP 子进程暴露 8 个受控业务工具；工具回调使用租户与会话绑定的短时 Runtime JWT。安装、环境变量、恢复语义和验收口径见 `harness/README.md`。
 
@@ -88,6 +97,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 .venv/bin/python -m pytest
 ```
 
-生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v07-assurance.sh`；脚本会验证认证健康、四项回放、零外部模型调用和零业务写入。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`；脚本会验证模型健康、契约回放、零外部调用，以及真实调用在部署开关关闭时失败关闭。
 
-当前本地基线为 47 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 48 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、本地信封与 AWS Secrets Manager、OIDC/JWKS 强校验、开发令牌口径、回放幂等/隔离，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前本地基线为 54 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 55 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

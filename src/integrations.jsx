@@ -64,6 +64,12 @@ function ServiceForm({type,initial,onClose}){
    : {provider:value,endpoint:form.endpoint||'https://agent.example.test/v1',profile:form.profile||'fulfill-agent',transport:'sandbox-contract',safetyPreset:'fulfillops-safe',sessionPersistence:'database-checkpoint'};
   setForm(old=>({...old,...preset}));setTestState('idle');setError('');
  };
+ const setModelProvider=value=>{
+  const preset=value==='DeepSeek'
+   ? {provider:value,endpoint:'https://api.deepseek.com',model:'deepseek-flash'}
+   : {provider:value,endpoint:form.endpoint||'https://model-gateway.example.test/v1',model:form.model||'fulfill-model'};
+  setForm(old=>({...old,...preset}));setTestState('idle');setError('');
+ };
  const required=type==='agent'?['provider','endpoint','profile','authToken']:type==='model'?['provider','endpoint','model','apiKey']:type==='voice'?['provider','region','asr','tts','accessKey']:['provider','sipHost','trunk','callerId','callback','secret'];
  const saveDraft=async()=>{try{await a.saveServiceConfig(type,form);a.notify(`${meta.title}配置已保存，需重新测试连接`);onClose()}catch(reason){setError(reason.message||'配置保存失败')}};
  const test=async()=>{
@@ -78,7 +84,7 @@ function ServiceForm({type,initial,onClose}){
    a.notify(`${meta.title}连接测试通过`);
   }catch(reason){setTestState('idle');setError(reason.message||'连接测试失败')}
  };
- return <Modal wide title={`配置${meta.title}`} subtitle="保存配置、持久作业测试与生产启用分别确认。当前适配器使用沙箱契约，不调用外部服务。" onClose={onClose} footer={<><span className="muted small">带 * 为连接测试必填项</span><div className="footer-actions"><Button onClick={saveDraft}>保存草稿</Button><Button variant="primary" disabled={testState==='running'} onClick={test}>{testState==='running'?<><SpinnerGap className="spin" size={16}/>测试中…</>:testState==='passed'?<><CheckCircle size={16}/>重新测试</>:'测试连接'}</Button></div></>}>
+ return <Modal wide title={`配置${meta.title}`} subtitle="保存配置、持久作业测试与生产启用分别确认；真实线路还受部署级安全门禁约束。" onClose={onClose} footer={<><span className="muted small">带 * 为连接测试必填项</span><div className="footer-actions"><Button onClick={saveDraft}>保存草稿</Button><Button variant="primary" disabled={testState==='running'} onClick={test}>{testState==='running'?<><SpinnerGap className="spin" size={16}/>测试中…</>:testState==='passed'?<><CheckCircle size={16}/>重新测试</>:'测试连接'}</Button></div></>}>
   {type==='agent'&&<div className="form-grid integration-form">
    <Field label="Agent Runtime *"><select value={form.provider} onChange={e=>setAgentProvider(e.target.value)}><option>Hermes Agent</option><option>DeepSeek Harness</option><option>LangGraph Runtime</option><option>自研 Agent Gateway</option></select></Field>
    <Field label="Agent Profile *"><input value={form.profile} onChange={e=>set('profile',e.target.value)}/></Field>
@@ -92,13 +98,17 @@ function ServiceForm({type,initial,onClose}){
   </div>}
   {type==='agent'&&form.provider==='DeepSeek Harness'&&<div className="harness-preview-note"><WarningCircle size={19}/><span><b>DeepSeek Harness · Developer Preview</b><small>{form.transport==='python-sdk'?'真实模式会启动官方 SDK 进程，应用 fulfillops-safe Patch 禁用默认 Shell，并仅注册 8 个租户级 MCP 工具；需由部署环境显式启用并从 KMS 注入模型凭证。':'当前为零外部调用的契约沙箱；会验证工具边界和数据库检查点，但不会启动官方 SDK。'}</small></span></div>}
   {type==='model'&&<div className="form-grid integration-form">
-   <Field label="服务商 *"><select value={form.provider} onChange={e=>set('provider',e.target.value)}><option>DeepSeek</option><option>OpenAI Compatible</option><option>Azure OpenAI</option><option>私有化模型网关</option></select></Field>
+   <Field label="服务商 *"><select value={form.provider} onChange={e=>setModelProvider(e.target.value)}><option>DeepSeek</option><option>OpenAI Compatible</option><option>Azure OpenAI</option><option>私有化模型网关</option></select></Field>
    <Field label="模型 / 部署名称 *"><input value={form.model} onChange={e=>set('model',e.target.value)}/></Field>
    <Field label="API Endpoint *"><input value={form.endpoint} onChange={e=>set('endpoint',e.target.value)}/></Field>
    <Field label="API Key *" hint="仅显示脱敏演示值"><input type="password" value={form.apiKey} onChange={e=>set('apiKey',e.target.value)}/></Field>
    <Field label="请求超时"><select value={form.timeout} onChange={e=>set('timeout',e.target.value)}><option value="15">15 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></Field>
+   <Field label="执行模式"><select value={form.executionMode||'contract-only'} onChange={e=>set('executionMode',e.target.value)}><option value="contract-only">安全契约（零出网）</option><option value="live-provider">真实 Provider（部署门禁）</option></select></Field>
+   <Field label="最大输出"><select value={String(form.maxOutputTokens||'512')} onChange={e=>set('maxOutputTokens',e.target.value)}><option value="256">256 Tokens</option><option value="512">512 Tokens</option><option value="1024">1,024 Tokens</option></select></Field>
+   <Field label="单次预算上限"><select value={String(form.maxCostUsd||'0.05')} onChange={e=>set('maxCostUsd',e.target.value)}><option value="0.02">$0.02</option><option value="0.05">$0.05</option><option value="0.10">$0.10</option></select></Field>
    <Field label="输出约束"><input value="结构化 JSON · 规则引擎复核" readOnly/></Field>
   </div>}
+  {type==='model'&&<div className="harness-preview-note"><WarningCircle size={19}/><span><b>{form.executionMode==='live-provider'?'真实模型调用需四重门禁':'当前为零出网模型契约'}</b><small>{form.executionMode==='live-provider'?'只有部署开关、Endpoint 白名单、可解析密钥和管理员确认同时满足才会调用；不自动跟随重定向。':'连接测试只验证 Endpoint、模型允许列表、JSON Object、超时与费用策略，不会发送 Provider 请求。'}</small></span></div>}
   {type==='voice'&&<div className="form-grid integration-form">
    <Field label="语音服务商 *"><select value={form.provider} onChange={e=>set('provider',e.target.value)}><option>阿里云智能语音</option><option>火山引擎语音</option><option>腾讯云语音</option><option>私有化语音网关</option></select></Field>
    <Field label="服务区域 *"><input value={form.region} onChange={e=>set('region',e.target.value)}/></Field>
@@ -140,6 +150,7 @@ export function Integrations(){
  const [results,setResults]=useState([]);
  const [confirmEnable,setConfirmEnable]=useState(false);
  const [replayRunning,setReplayRunning]=useState(false);
+ const [replayMode,setReplayMode]=useState('deterministic-contract');
  const services=a.serviceConfigs;
  const readyCount=Object.values(services).filter(service=>service.tested).length;
  const allReady=a.integrationReadiness.allConnected;
@@ -175,11 +186,11 @@ export function Integrations(){
   setActiveStep(-1);setRunning(false);
  };
  const enable=async()=>{try{await a.enableIntegration();setConfirmEnable(false);a.notify('AI 与渠道已启用到后续新建活动')}catch(reason){a.notify(`启用失败：${reason.message||'门禁未通过'}`)}};
- const runReplay=async()=>{setReplayRunning(true);try{const replay=await a.runModelReplay();a.notify(replay?.status==='passed'?`模型回放通过：${replay.passed_count} 项`:'模型回放存在失败项，请查看验收记录')}catch(reason){a.notify(`模型回放失败：${reason.message||'服务不可用'}`)}finally{setReplayRunning(false)}};
+ const runReplay=async()=>{if(replayMode==='live-provider'&&!window.confirm('本次会向已配置的模型 Provider 发送脱敏断言摘要并产生少量费用。确认继续？'))return;setReplayRunning(true);try{const replay=await a.runModelReplay(replayMode);a.notify(replay?.status==='passed'?`模型回放通过：${replay.passed_count} 项`:'模型回放存在失败项，请查看验收记录')}catch(reason){a.notify(`模型回放失败：${reason.message||'服务不可用'}`)}finally{setReplayRunning(false)}};
  const lastRun=a.integrationState.lastRun;
  const secretLabel=a.secretHealth.backend==='aws-secrets-manager'?'AWS Secrets Manager':a.secretHealth.status==='ready'?`密钥信封 ${a.secretHealth.key_version}`:'外部密钥引用';
  return <div className="integrations-page">
-  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.7.0 已连接':'本地演示降级'}</span>{a.backendStatus==='connected'&&<span className={`environment-chip ${a.queueHealth.status!=='degraded'?'enabled':''}`}><HardDrives size={14}/>{a.queueHealth.mode==='external'?(a.queueHealth.status==='healthy'?`${a.queueHealth.active_workers} 个 Worker`:'Worker 待恢复'):'内联作业'} · {a.queueHealth.broker_backend==='postgres-notify'?'PG 通知':'DB 轮询'} · 排队 {a.queueHealth.queued_jobs}</span>}{a.backendStatus==='connected'&&<span className={`environment-chip ${a.secretHealth.status==='ready'?'enabled':''}`}><LockKey size={14}/>{secretLabel}</span>}{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {jobStatusLabel(a.activeJob)}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
+  <PageHead title="AI 与渠道接入" description="配置、持久作业测试、自测与生产启用分别确认。"><span className={`environment-chip ${a.backendStatus==='connected'?'enabled':''}`}><CloudCheck size={14}/>{a.backendStatus==='checking'?'连接后端…':a.backendStatus==='connected'?'API v0.8.0 已连接':'本地演示降级'}</span>{a.backendStatus==='connected'&&<span className={`environment-chip ${a.queueHealth.status!=='degraded'?'enabled':''}`}><HardDrives size={14}/>{a.queueHealth.mode==='external'?(a.queueHealth.status==='healthy'?`${a.queueHealth.active_workers} 个 Worker`:'Worker 待恢复'):'内联作业'} · {a.queueHealth.broker_backend==='postgres-notify'?'PG 通知':'DB 轮询'} · 排队 {a.queueHealth.queued_jobs}</span>}{a.backendStatus==='connected'&&<span className={`environment-chip ${a.secretHealth.status==='ready'?'enabled':''}`}><LockKey size={14}/>{secretLabel}</span>}{a.activeJob&&<span className={`environment-chip ${a.activeJob.status==='succeeded'?'enabled':''}`}><Clock size={14}/>{a.activeJob.id} · {jobStatusLabel(a.activeJob)}</span>}<span className={`environment-chip ${a.integrationReadiness.ready?'enabled':''}`}><span className="live-dot"/>{a.integrationReadiness.ready?'新建活动已启用':'演示沙箱'}</span><Button icon={Flask} variant="primary" disabled={running} onClick={runSelfTest}>{running?'自测运行中':allReady?'运行全链路自测':'检查接入条件'}</Button></PageHead>
 
   <section className="gateway-runtime-strip" aria-label="Agent Gateway 状态">
    <span className="gateway-runtime-icon"><Robot size={21}/></span>
@@ -191,7 +202,8 @@ export function Integrations(){
   <section className="security-assurance-grid" aria-label="生产安全与模型验收">
    <article><span className="assurance-icon"><ShieldCheck size={20}/></span><span><b>企业身份</b><small>{a.authHealth.mode==='oidc'?'OIDC / JWKS 非对称签名':a.authHealth.mode==='development'?'开发认证模式':'认证策略仅管理员可见'} · {a.authHealth.required_claims?.join(' / ')||'sub / exp / iat'}</small></span><span className={`connection-pill ${a.authHealth.status==='ready'?'ready':'waiting'}`}>{a.authHealth.status==='ready'?'强校验就绪':'待生产配置'}</span></article>
    <article><span className="assurance-icon"><LockKey size={20}/></span><span><b>租户密钥</b><small>{secretLabel} · {a.secretHealth.active_secrets||0} 个活动引用</small></span><span className={`connection-pill ${a.secretHealth.resolvable?'ready':'waiting'}`}>{a.secretHealth.resolvable?'可受控解析':'仅引用'}</span></article>
-   <article><span className="assurance-icon"><Flask size={20}/></span><span><b>安全模型回放</b><small>{a.latestReplay?`${a.latestReplay.passed_count}/${a.latestReplay.passed_count+a.latestReplay.failed_count} 通过 · ${a.latestReplay.dataset_digest.slice(0,8)}`:'尚无持久化验收记录'} · 不调用外部模型</small></span><Button disabled={a.backendStatus!=='connected'||a.identity.role!=='admin'||replayRunning} onClick={runReplay}>{replayRunning?'回放中…':'运行回放'}</Button></article>
+   <article><span className="assurance-icon"><Cpu size={20}/></span><span><b>模型出网</b><small>{a.modelGateway.provider||'未配置'} · {a.modelGateway.model||'—'} · {a.modelGateway.endpoint_host||'无允许端点'}</small></span><span className={`connection-pill ${a.modelGateway.status==='ready'?'ready':'waiting'}`}>{a.modelGateway.status==='ready'?'真实调用就绪':'零出网契约'}</span></article>
+   <article className="replay-assurance"><span className="assurance-icon"><Flask size={20}/></span><span><b>安全模型回放</b><small>{a.latestReplay?`${a.latestReplay.passed_count}/${a.latestReplay.passed_count+a.latestReplay.failed_count} 通过 · ${a.latestReplay.external_call_count?`${a.latestReplay.input_tokens+a.latestReplay.output_tokens} Tokens / $${a.latestReplay.estimated_cost_usd}`:'零外部调用'}`:'尚无持久化验收记录'}</small></span><span className="replay-actions"><select aria-label="回放模式" value={replayMode} onChange={e=>setReplayMode(e.target.value)}><option value="deterministic-contract">契约回放</option><option value="live-provider" disabled={a.modelGateway.status!=='ready'}>真实模型</option></select><Button disabled={a.backendStatus!=='connected'||a.identity.role!=='admin'||replayRunning} onClick={runReplay}>{replayRunning?'回放中…':'运行'}</Button></span></article>
   </section>
 
   <section className="integration-service-grid" aria-label="接入服务">

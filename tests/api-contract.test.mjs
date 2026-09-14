@@ -33,10 +33,15 @@ test('normalizes backend integration fields for the existing UI model', () => {
 
 test('sends credentials separately from provider settings', () => {
   const payload = servicePayload('model', {
-    provider: 'DeepSeek', endpoint: 'https://example.test', model: 'chat', timeout: '30', apiKey: 'plain-secret',
+    provider: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', timeout: '30',
+    executionMode: 'live-provider', maxOutputTokens: '512', maxCostUsd: '0.05', apiKey: 'plain-secret',
   });
   assert.equal(payload.credential, 'plain-secret');
   assert.equal('apiKey' in payload.settings, false);
+  assert.deepEqual(payload.settings, {
+    endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', timeout: '30',
+    executionMode: 'live-provider', maxOutputTokens: '512', maxCostUsd: '0.05',
+  });
 });
 
 test('does not resend a masked credential returned by the backend', () => {
@@ -68,7 +73,7 @@ test('preserves DeepSeek Harness safety and persistence settings', () => {
   assert.equal(payload.credential, 'harness-secret');
 });
 
-test('calls OIDC health and persistent replay endpoints with tenant context', async () => {
+test('calls assurance health and governed replay endpoints with tenant context', async () => {
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
@@ -80,14 +85,18 @@ test('calls OIDC health and persistent replay endpoints with tenant context', as
   };
   try {
     await securityApi.authHealth('TENANT_A');
+    await securityApi.modelGatewayHealth('TENANT_A');
     await agentApi.replay('TENANT_A');
   } finally {
     globalThis.fetch = originalFetch;
   }
   assert.equal(calls[0].url, '/api/v1/security/auth/health');
   assert.equal(calls[0].options.headers['X-Tenant-ID'], 'TENANT_A');
-  assert.equal(calls[1].url, '/api/v1/agents/replays/jobs');
-  const replayBody = JSON.parse(calls[1].options.body);
+  assert.equal(calls[1].url, '/api/v1/models/gateway/health');
+  assert.equal(calls[2].url, '/api/v1/agents/replays/jobs');
+  const replayBody = JSON.parse(calls[2].options.body);
   assert.equal(replayBody.suite_name, 'fulfillops-safe-core');
+  assert.equal(replayBody.mode, 'deterministic-contract');
+  assert.equal(replayBody.acknowledged_external_call, false);
   assert.match(replayBody.idempotency_key, /^model-replay-TENANT_A-/);
 });

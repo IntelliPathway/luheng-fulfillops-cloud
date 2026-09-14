@@ -232,6 +232,8 @@ class AsyncTestRequest(BaseModel):
 
 class ModelReplayRequest(BaseModel):
     suite_name: Literal["fulfillops-safe-core"] = "fulfillops-safe-core"
+    mode: Literal["deterministic-contract", "live-provider"] = "deterministic-contract"
+    acknowledged_external_call: bool = False
     idempotency_key: str | None = Field(default=None, min_length=4, max_length=120)
 
 
@@ -245,14 +247,38 @@ class ModelReplayRunOut(BaseModel):
     mode: str
     provider: str
     profile: str
+    model_config_version: int | None
+    model_name: str | None
     status: str
     dataset_digest: str
+    policy_snapshot: dict[str, Any]
     results: list[dict[str, Any]]
     passed_count: int
     failed_count: int
+    external_call_count: int
+    input_tokens: int
+    output_tokens: int
+    estimated_cost_usd: float
     created_by: str
     created_at: datetime
     completed_at: datetime | None
+
+
+class ModelGatewayHealthOut(BaseModel):
+    status: Literal["unconfigured", "contract", "ready", "degraded"]
+    configured: bool
+    provider: str | None
+    model: str | None
+    config_version: int | None
+    execution_mode: Literal["contract-only", "live-provider"]
+    endpoint_host: str | None
+    egress_allowed: bool
+    credential_configured: bool
+    live_calls_enabled: bool
+    connected: bool
+    max_output_tokens: int
+    max_cost_usd: float
+    detail: str
 
 
 class AgentGatewayOut(BaseModel):
