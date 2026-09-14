@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ServiceType = Literal["agent", "model", "voice", "phone"]
 ActivityGoal = Literal["已签协议履约", "首次联络与意愿确认", "回款自动核对"]
@@ -351,3 +351,146 @@ class ProposalOut(BaseModel):
 
 class ProposalDecisionRequest(BaseModel):
     acknowledged: bool
+
+
+class PaymentWebhookConfigRequest(BaseModel):
+    credential: str | None = Field(default=None, min_length=16, max_length=4096)
+    max_amount_cents: int = Field(default=100_000_000, ge=1, le=1_000_000_000)
+
+
+class PaymentWebhookConfigOut(BaseModel):
+    provider: str
+    credential_mask: str
+    version: int
+    active: bool
+    max_amount_cents: int
+    updated_at: datetime
+
+
+class PaymentWebhookPayload(BaseModel):
+    event_id: str = Field(min_length=4, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
+    event_type: Literal["payment", "refund"]
+    amount_cents: int = Field(gt=0, le=1_000_000_000)
+    currency: Literal["CNY"] = "CNY"
+    occurred_at: datetime
+    case_id: str | None = Field(default=None, pattern=r"^C[0-9]{3,12}$")
+    original_event_id: str | None = Field(default=None, min_length=4, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
+
+    @model_validator(mode="after")
+    def validate_refund_reference(self) -> PaymentWebhookPayload:
+        if self.event_type == "refund" and not self.original_event_id:
+            raise ValueError("退款回执必须提供 original_event_id")
+        if self.event_type == "payment" and self.original_event_id:
+            raise ValueError("支付回执不能提供 original_event_id")
+        return self
+
+
+class PaymentReceiptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    provider: str
+    provider_event_id: str
+    event_type: str
+    amount_cents: int
+    currency: str
+    occurred_at: datetime
+    case_id: str | None
+    original_provider_event_id: str | None
+    payload_digest: str
+    signature_digest: str
+    signature_version: str
+    signature_verified: bool
+    status: str
+    failure_code: str | None
+    recovery_entry_id: str | None
+    duplicate_count: int
+    received_at: datetime
+    updated_at: datetime
+
+
+class PaymentReceiptAcceptanceOut(BaseModel):
+    receipt: PaymentReceiptOut
+    duplicate: bool
+
+
+class PaymentReceiptMatchRequest(BaseModel):
+    case_id: str = Field(pattern=r"^C[0-9]{3,12}$")
+    acknowledged: bool
+
+
+class PaymentSandboxReceiptRequest(BaseModel):
+    case_id: str = Field(default="C002", pattern=r"^C[0-9]{3,12}$")
+    amount_cents: int = Field(default=101_600, gt=0, le=100_000_000)
+    idempotency_key: str = Field(min_length=4, max_length=90, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class RecoveryLedgerEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entry_id: str
+    receipt_id: str | None
+    case_id: str
+    package_id: str
+    event_type: str
+    amount_cents: int
+    eligible_amount_cents: int
+    commission_rule_id: str
+    commission_rule_version: int
+    rate_bps: int
+    commission_cents: int
+    reason: str
+    original_entry_id: str | None
+    allocation: str
+    source: str
+    booked_at: datetime
+    created_at: datetime
+
+
+class CommissionLedgerEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    event_id: str
+    event_type: str
+    amount_cents: int
+    source_recovery_entry_id: str | None
+    reference: str
+    idempotency_key: str
+    created_by: str
+    occurred_at: datetime
+    created_at: datetime
+
+
+class FinancialSummaryOut(BaseModel):
+    confirmed_net_recovery_cents: int
+    commission_eligible_recovery_cents: int
+    accrued_commission_cents: int
+    settled_commission_cents: int
+    collected_commission_cents: int
+    unsettled_commission_cents: int
+    uncollected_settlement_cents: int
+    pending_receipt_count: int
+
+
+class FinancialOverviewOut(BaseModel):
+    summary: FinancialSummaryOut
+    recovery_ledger: list[RecoveryLedgerEntryOut]
+    commission_ledger: list[CommissionLedgerEntryOut]
+    pending_receipts: list[PaymentReceiptOut]
+    webhook_ready: bool
+    webhook_provider: str | None
+    sandbox_enabled: bool
+
+
+class CommissionEventRequest(BaseModel):
+    event_type: Literal["settlement", "collection"]
+    amount_cents: int = Field(gt=0, le=1_000_000_000)
+    reference: str = Field(min_length=4, max_length=160)
+    idempotency_key: str = Field(min_length=4, max_length=120)
+    occurred_at: datetime
+    acknowledged: bool
+
+
+class CommissionEventAcceptanceOut(BaseModel):
+    entry: CommissionLedgerEntryOut
+    duplicate: bool

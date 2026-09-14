@@ -1,19 +1,176 @@
 from __future__ import annotations
 
+import hashlib
+import os
+from datetime import date, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .financial_ledger import refresh_business_metrics
 from .models import (
     Activity,
     AssetPackage,
     BusinessMetricSnapshot,
+    CaseFinancialProfile,
     CaseRecord,
+    CommissionLedgerEntry,
+    CommissionRule,
     IntegrationState,
+    PaymentWebhookConfig,
+    RecoveryLedgerEntry,
     ServiceConfig,
     Tenant,
     TenantMembership,
     User,
 )
+from .secret_store import store_secret
+
+FINANCIAL_CASES = [
+    ("TENANT_A", "C001", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 1), date(2026, 8, 6), True),
+    ("TENANT_A", "C002", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 1), date(2027, 1, 10), True),
+    ("TENANT_A", "C003", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 20), date(2026, 9, 5), True),
+    ("TENANT_A", "C004", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_A", "C005", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_A", "C006", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_A", "C008", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_A", "C010", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_A", "C014", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 8, 31), date(2026, 8, 20), date(2027, 1, 25), True),
+    ("TENANT_A", "C015", "PKG_B", "COM_B_V1", date(2026, 1, 1), date(2026, 7, 31), date(2026, 7, 20), date(2026, 12, 25), False),
+    ("TENANT_A", "C016", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_B", "C021", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+    ("TENANT_B", "C024", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+]
+
+
+SEED_RECOVERIES = [
+    ("TENANT_A", "TX001", "C001", "PKG_A", "2026-08-06", "PAYMENT", 1_000_000, 1_000_000, "COM_A_V1", 1500, 150_000, "IN_MANDATE", None),
+    ("TENANT_A", "TX002", "C002", "PKG_A", "2026-08-10", "PAYMENT", 252_000, 252_000, "COM_A_V1", 1500, 37_800, "IN_MANDATE", None),
+    ("TENANT_A", "TX003", "C002", "PKG_A", "2026-09-10", "PAYMENT", 100_000, 100_000, "COM_A_V1", 1500, 15_000, "IN_MANDATE", None),
+    ("TENANT_A", "TX004", "C003", "PKG_A", "2026-09-05", "PAYMENT", 300_000, 300_000, "COM_A_V1", 1500, 45_000, "IN_MANDATE", None),
+    ("TENANT_A", "TX005", "C004", "PKG_A", "2026-09-07", "PAYMENT", 60_000, 60_000, "COM_A_V1", 1500, 9_000, "IN_MANDATE", None),
+    ("TENANT_A", "RF005", "C004", "PKG_A", "2026-09-08", "REFUND", -20_000, -20_000, "COM_A_V1", 1500, -3_000, "REFUND_ORIGINAL_RATE", "seed:TX005"),
+    ("TENANT_A", "TX006", "C005", "PKG_A", "2026-09-04", "PAYMENT", 100_000, 100_000, "COM_A_V1", 1500, 15_000, "IN_MANDATE", None),
+    ("TENANT_A", "TX008", "C014", "PKG_B", "2026-09-10", "PAYMENT", 50_000, 50_000, "COM_B_V1", 1800, 9_000, "SIGNED_PLAN_TAIL", None),
+    ("TENANT_A", "TX009", "C015", "PKG_B", "2026-09-10", "PAYMENT", 80_000, 0, "COM_B_V1", 1800, 0, "OUTSIDE_TAIL", None),
+    ("TENANT_A", "TX010", "C016", "PKG_B", "2026-07-31", "PAYMENT", 70_000, 0, "COM_B_V1", 1800, 0, "PRE_MANDATE", None),
+    ("TENANT_B", "TX012", "C021", "PKG_C", "2026-09-09", "PAYMENT", 50_000, 50_000, "COM_C_V1", 2000, 10_000, "IN_MANDATE", None),
+    ("TENANT_B", "TX013", "C021", "PKG_C", "2026-09-10", "PAYMENT", 30_000, 30_000, "COM_C_V1", 2000, 6_000, "IN_MANDATE", None),
+]
+
+
+def _seed_financial_data(db: Session) -> None:
+    for tenant_id, rule_id, package_id, rate_bps in (
+        ("TENANT_A", "COM_A_V1", "PKG_A", 1500),
+        ("TENANT_A", "COM_B_V1", "PKG_B", 1800),
+        ("TENANT_B", "COM_C_V1", "PKG_C", 2000),
+    ):
+        exists = db.scalar(
+            select(CommissionRule.id).where(
+                CommissionRule.tenant_id == tenant_id,
+                CommissionRule.rule_id == rule_id,
+                CommissionRule.version == 1,
+            )
+        )
+        if not exists:
+            db.add(CommissionRule(tenant_id=tenant_id, rule_id=rule_id, package_id=package_id, rate_bps=rate_bps))
+    db.flush()
+    for tenant_id, case_id, package_id, rule_id, start, end, signed_at, last_due, tail_eligible in FINANCIAL_CASES:
+        case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
+        if not case:
+            db.add(CaseRecord(tenant_id=tenant_id, case_id=case_id, package_id=package_id, status="已确认回款"))
+        exists = db.scalar(
+            select(CaseFinancialProfile.id).where(
+                CaseFinancialProfile.tenant_id == tenant_id,
+                CaseFinancialProfile.case_id == case_id,
+            )
+        )
+        if not exists:
+            db.add(
+                CaseFinancialProfile(
+                    tenant_id=tenant_id,
+                    case_id=case_id,
+                    commission_rule_id=rule_id,
+                    mandate_start=start,
+                    mandate_end=end,
+                    signed_plan_at=signed_at,
+                    signed_plan_last_due=last_due,
+                    signed_plan_tail_eligible=tail_eligible,
+                )
+            )
+    db.flush()
+    for row in SEED_RECOVERIES:
+        tenant_id, transaction_id, case_id, package_id, booked, event_type, amount, eligible, rule_id, rate, commission, reason, original = row
+        entry_id = f"seed:{transaction_id}"
+        exists = db.scalar(
+            select(RecoveryLedgerEntry.id).where(
+                RecoveryLedgerEntry.tenant_id == tenant_id,
+                RecoveryLedgerEntry.entry_id == entry_id,
+            )
+        )
+        if exists:
+            continue
+        booked_at = datetime.fromisoformat(f"{booked}T12:00:00")
+        db.add(
+            RecoveryLedgerEntry(
+                entry_id=entry_id,
+                tenant_id=tenant_id,
+                receipt_id=None,
+                case_id=case_id,
+                package_id=package_id,
+                event_type=event_type,
+                amount_cents=amount,
+                eligible_amount_cents=eligible,
+                commission_rule_id=rule_id,
+                commission_rule_version=1,
+                rate_bps=rate,
+                commission_cents=commission,
+                reason=reason,
+                original_entry_id=original,
+                allocation=f"{case_id} · 演示账簿迁移",
+                source="AMC 脱敏回款文件",
+                booked_at=booked_at,
+            )
+        )
+        digest = hashlib.sha256(f"{entry_id}:{commission}".encode()).hexdigest()
+        db.add(
+            CommissionLedgerEntry(
+                tenant_id=tenant_id,
+                event_id=f"SEED-COM-{transaction_id}",
+                event_type="accrual" if commission >= 0 else "reversal",
+                amount_cents=commission,
+                source_recovery_entry_id=entry_id,
+                reference=f"回款账簿 {entry_id}",
+                idempotency_key=f"seed:{transaction_id}",
+                payload_digest=digest,
+                created_by="system:seed",
+                occurred_at=booked_at,
+            )
+        )
+    sandbox_secret = os.getenv("PAYMENT_SANDBOX_SECRET", "").strip()
+    if sandbox_secret:
+        provider = "sandbox-amc"
+        config = db.scalar(
+            select(PaymentWebhookConfig).where(
+                PaymentWebhookConfig.tenant_id == "TENANT_A",
+                PaymentWebhookConfig.provider == provider,
+            )
+        )
+        if not config:
+            secret_ref, last4 = store_secret(db, "TENANT_A", f"payment-{provider}", sandbox_secret)
+            db.add(
+                PaymentWebhookConfig(
+                    tenant_id="TENANT_A",
+                    provider=provider,
+                    secret_ref=secret_ref,
+                    credential_last4=last4,
+                    version=1,
+                    max_amount_cents=100_000_000,
+                )
+            )
+    db.flush()
+    refresh_business_metrics(db, "TENANT_A")
+    refresh_business_metrics(db, "TENANT_B")
 
 
 def seed_demo_data(db: Session) -> None:
@@ -62,6 +219,7 @@ def seed_demo_data(db: Session) -> None:
             exists = db.scalar(select(Activity.id).where(Activity.tenant_id == tenant_id, Activity.activity_id == activity_id))
             if not exists:
                 db.add(Activity(tenant_id=tenant_id, activity_id=activity_id, name=name, package_id=package_id, goal=goal, status=activity_status, mode="sandbox", budget_yuan=30, case_ids=case_ids, policy_version=1, service_snapshot={}, preflight={"seed": True}))
+        _seed_financial_data(db)
         db.commit()
         return
 
@@ -277,4 +435,5 @@ def seed_demo_data(db: Session) -> None:
             )
             for key, value in values.items()
         )
+    _seed_financial_data(db)
     db.commit()

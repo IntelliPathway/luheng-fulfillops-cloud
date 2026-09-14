@@ -46,10 +46,20 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
         monkeypatch.setenv("SECRET_STORE_BACKEND", "local-envelope")
         monkeypatch.setenv("SECRET_MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
         monkeypatch.setenv("SECRET_MASTER_KEY_VERSION", "ci-v1")
+        monkeypatch.setenv("PAYMENT_SANDBOX_SECRET", "postgres-payment-signing-secret-v1")
+        monkeypatch.setenv("ENABLE_PAYMENT_SANDBOX", "true")
         app = create_app(scoped_url)
         inspector = inspect(app.state.engine)
         assert "managed_secrets" in inspector.get_table_names()
         assert "model_replay_runs" in inspector.get_table_names()
+        assert {
+            "commission_rules",
+            "case_financial_profiles",
+            "payment_webhook_configs",
+            "payment_receipts",
+            "recovery_ledger_entries",
+            "commission_ledger_entries",
+        } <= set(inspector.get_table_names())
         assert {column["name"] for column in inspector.get_columns("model_replay_runs")} >= {
             "policy_snapshot",
             "external_call_count",
@@ -64,12 +74,19 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             "recovery_count",
         }
         with app.state.engine.connect() as connection:
-            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 7
+            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 8
 
         broker = PostgresNotifyBroker(scoped_url)
         broker.start()
         headers = {"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-user"}
         with TestClient(app) as client:
+            payment = client.post(
+                "/api/v1/payments/sandbox-receipts",
+                headers={"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-operator"},
+                json={"case_id": "C002", "amount_cents": 101_600, "idempotency_key": "postgres-payment-ci"},
+            )
+            assert payment.status_code == 200, payment.text
+            assert payment.json()["receipt"]["status"] == "matched"
             queued = client.post(
                 "/api/v1/integrations/voice/connection-test/jobs",
                 headers=headers,

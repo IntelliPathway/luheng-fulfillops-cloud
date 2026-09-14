@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {agentApi, normalizeIntegrationOverview, securityApi, servicePayload} from '../src/api.js';
+import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -99,4 +99,45 @@ test('calls assurance health and governed replay endpoints with tenant context',
   assert.equal(replayBody.mode, 'deterministic-contract');
   assert.equal(replayBody.acknowledged_external_call, false);
   assert.match(replayBody.idempotency_key, /^model-replay-TENANT_A-/);
+});
+
+test('normalizes integer-cent financial ledgers for display without losing evidence', () => {
+  const result = normalizeFinancialOverview({
+    summary: {confirmed_net_recovery_cents: 101600, pending_receipt_count: 0},
+    recovery_ledger: [{
+      entry_id: 'REC-1', receipt_id: 'PR-1', case_id: 'C002', package_id: 'PKG_A',
+      booked_at: '2026-09-12T12:00:00', event_type: 'payment', amount_cents: 101600,
+      eligible_amount_cents: 101600, commission_rule_id: 'COM_A_V1', commission_rule_version: 1,
+      rate_bps: 1500, commission_cents: 15240, reason: 'IN_MANDATE', original_entry_id: null,
+      allocation: 'provider_case_reference', source: 'sandbox-amc',
+    }],
+    commission_ledger: [], pending_receipts: [], webhook_ready: true,
+    webhook_provider: 'sandbox-amc', sandbox_enabled: true,
+  }, 'TENANT_A');
+  assert.equal(result.ledger[0].cash_yuan, 1016);
+  assert.equal(result.ledger[0].commission_yuan, 152.4);
+  assert.equal(result.ledger[0].rate, 0.15);
+  assert.equal(result.ledger[0].tenant_id, 'TENANT_A');
+  assert.equal(result.ledger[0].signature, 'HMAC v1 验签通过');
+  assert.equal(result.webhookReady, true);
+});
+
+test('submits only a sandbox event key and never serializes a payment secret', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({receipt: {id: 'PR-1'}, duplicate: false})};
+  };
+  try {
+    await paymentApi.overview('TENANT_A');
+    await paymentApi.sandboxReceipt('TENANT_A', 'ui-demo-payment-v1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/payments/overview');
+  assert.equal(calls[1].url, '/api/v1/payments/sandbox-receipts');
+  const body = JSON.parse(calls[1].options.body);
+  assert.deepEqual(body, {case_id: 'C002', amount_cents: 101600, idempotency_key: 'ui-demo-payment-v1'});
+  assert.equal(JSON.stringify(calls).includes('secret'), false);
 });

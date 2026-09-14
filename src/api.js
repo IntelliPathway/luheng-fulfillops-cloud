@@ -195,3 +195,52 @@ export const activityApi = {
   preflight: (tenant, form) => request('/activities/preflight', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
   create: (tenant, form) => request('/activities', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
 };
+
+export function normalizeFinancialOverview(payload, tenant) {
+  return {
+    summary: payload.summary,
+    ledger: (payload.recovery_ledger || []).map(row => ({
+      tenant_id: tenant,
+      transaction_id: row.entry_id,
+      receipt_id: row.receipt_id,
+      case_id: row.case_id,
+      package_id: row.package_id,
+      booked_date: row.booked_at.slice(0, 10),
+      event_type: row.event_type,
+      cash_yuan: row.amount_cents / 100,
+      eligible: row.eligible_amount_cents !== 0,
+      eligible_cash_yuan: row.eligible_amount_cents / 100,
+      commission_rule_id: row.commission_rule_id,
+      commission_rule_version: row.commission_rule_version,
+      rate: row.rate_bps / 10000,
+      commission_yuan: row.commission_cents / 100,
+      reason: row.reason,
+      original_transaction_id: row.original_entry_id || '',
+      allocation: row.allocation,
+      source: row.source,
+      signature: row.receipt_id ? 'HMAC v1 验签通过' : '迁移数据摘要已核验',
+      idempotency: row.receipt_id ? 'Provider 事件号唯一' : '迁移批次唯一',
+    })),
+    commissionLedger: payload.commission_ledger || [],
+    pendingReceipts: payload.pending_receipts || [],
+    webhookReady: payload.webhook_ready,
+    webhookProvider: payload.webhook_provider,
+    sandboxEnabled: payload.sandbox_enabled,
+  };
+}
+
+export const paymentApi = {
+  overview: tenant => request('/payments/overview', tenant),
+  sandboxReceipt: (tenant, idempotencyKey) => request('/payments/sandbox-receipts', tenant, {
+    method: 'POST',
+    body: JSON.stringify({case_id: 'C002', amount_cents: 101600, idempotency_key: idempotencyKey}),
+  }),
+  matchReceipt: (tenant, receiptId, caseId) => request(`/payments/receipts/${receiptId}/match`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({case_id: caseId, acknowledged: true}),
+  }),
+  commissionEvent: (tenant, payload) => request('/commissions/events', tenant, {
+    method: 'POST',
+    body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+};

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -234,7 +234,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.8.0")
+    version: Mapped[str] = mapped_column(String(24), default="0.9.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -361,3 +361,129 @@ class BusinessMetricSnapshot(Base):
     unit: Mapped[str] = mapped_column(String(24), default="yuan")
     source: Mapped[str] = mapped_column(String(120))
     as_of: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class CommissionRule(Base):
+    __tablename__ = "commission_rules"
+    __table_args__ = (UniqueConstraint("tenant_id", "rule_id", "version"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CRULE"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    rule_id: Mapped[str] = mapped_column(String(80), index=True)
+    package_id: Mapped[str] = mapped_column(String(40), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    rate_bps: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class CaseFinancialProfile(Base):
+    __tablename__ = "case_financial_profiles"
+    __table_args__ = (UniqueConstraint("tenant_id", "case_id"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CFP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    commission_rule_id: Mapped[str] = mapped_column(String(80), index=True)
+    mandate_start: Mapped[date] = mapped_column(nullable=False)
+    mandate_end: Mapped[date] = mapped_column(nullable=False)
+    signed_plan_at: Mapped[date | None] = mapped_column(nullable=True)
+    signed_plan_last_due: Mapped[date | None] = mapped_column(nullable=True)
+    signed_plan_tail_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class PaymentWebhookConfig(Base):
+    __tablename__ = "payment_webhook_configs"
+    __table_args__ = (UniqueConstraint("tenant_id", "provider"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("PWH"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(12), index=True)
+    secret_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    credential_last4: Mapped[str] = mapped_column(String(8), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    max_amount_cents: Mapped[int] = mapped_column(Integer, default=100_000_000)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class PaymentReceipt(Base):
+    __tablename__ = "payment_receipts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", "provider_event_id"),
+        Index("ix_payment_receipts_tenant_status", "tenant_id", "status", "received_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("PRC"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(12), index=True)
+    provider_event_id: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(24))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(3), default="CNY")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    case_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    original_provider_event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    signature_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    signature_version: Mapped[str] = mapped_column(String(12), default="v1")
+    signature_verified: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(24), default="accepted", index=True)
+    failure_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    recovery_entry_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class RecoveryLedgerEntry(Base):
+    __tablename__ = "recovery_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "entry_id"),
+        UniqueConstraint("receipt_id"),
+        Index("ix_recovery_ledger_tenant_booked", "tenant_id", "booked_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("RLE"))
+    entry_id: Mapped[str] = mapped_column(String(120), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    receipt_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    package_id: Mapped[str] = mapped_column(String(40), index=True)
+    event_type: Mapped[str] = mapped_column(String(24))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    eligible_amount_cents: Mapped[int] = mapped_column(Integer)
+    commission_rule_id: Mapped[str] = mapped_column(String(80))
+    commission_rule_version: Mapped[int] = mapped_column(Integer)
+    rate_bps: Mapped[int] = mapped_column(Integer)
+    commission_cents: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(40))
+    original_entry_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    allocation: Mapped[str] = mapped_column(String(160), default="按案件直接匹配")
+    source: Mapped[str] = mapped_column(String(120))
+    booked_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class CommissionLedgerEntry(Base):
+    __tablename__ = "commission_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "event_id"),
+        UniqueConstraint("tenant_id", "idempotency_key"),
+        UniqueConstraint("tenant_id", "source_recovery_entry_id"),
+        Index("ix_commission_ledger_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CLE"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    event_id: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(24), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    source_recovery_entry_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reference: Mapped[str] = mapped_column(String(160))
+    idempotency_key: Mapped[str] = mapped_column(String(120))
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

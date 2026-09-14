@@ -109,3 +109,13 @@ final result: passed
 - A combined runtime smoke loaded the application shell through Vite, proxied `/api/v1/health` to API `0.8.0`, and returned model Gateway state `contract`. The API and Vite development servers remain started on ports 8000 and 4177.
 - The cloud browser rejected both `terminal.local:4177` and direct loopback access with `ERR_BLOCKED_BY_CLIENT` / local-URL policy. No new browser screenshot is claimed; production compilation, live HTTP proxy verification and the approved BoardUI screenshot baseline cover this incremental controls-only change.
 - No real DeepSeek credential was available and `ENABLE_LIVE_MODEL_CALLS` stayed false, so this QA cycle made no Provider request and incurred no model cost.
+
+## v0.9 financial ledger verification · 2026-09-14
+
+- The payments workspace now treats server-returned integer-cent ledgers as authoritative when the API is connected. Five separate metrics distinguish confirmed recovery, commission-eligible recovery, accrued commission, confirmed settlement and collected commission.
+- The receipt modal states the HMAC, provider-event idempotency and immutable-ledger boundary. Its submit action is disabled when the API reports that the sandbox or resolvable signing secret is unavailable; no payment signing secret is serialized by the frontend.
+- Resetting the interactive demo no longer changes server money facts. It resets local workflow state and refreshes the tenant ledger from the API.
+- Backend verification passed 63 local tests with one PostgreSQL service test skipped; frontend/API passed 15 and Sites passed 4. The financial smoke accepted one signed receipt, deduplicated its replay, rejected a bad signature with HTTP 401 and rejected collection beyond confirmed settlement with HTTP 409.
+- The layout change is limited to an additional money metric, evidence copy and settlement event table. Production compilation and live HTTP verification cover the new data path; browser-loopback screenshot status is recorded during final runtime verification.
+- A combined runtime check loaded `/payments` through Vite, proxied `/api/v1/health` as API `0.9.0`, and returned the seeded `sandbox-amc` ledger totals from the same port. The local API and Vite development processes were also started on ports 8000 and 4177.
+- The cloud browser again rejected `terminal.local:4177` and `127.0.0.1:4177` with `ERR_BLOCKED_BY_CLIENT`. No new browser screenshot is claimed; the existing approved visual baseline, production compile and live proxy check cover this incremental financial-data change.

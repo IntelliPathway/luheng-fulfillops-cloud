@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import (
@@ -16,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,16 @@ from .domain import (
     test_detail,
     utcnow,
     validate_service_settings,
+)
+from .financial_ledger import (
+    FinancialLedgerError,
+    accept_payment_webhook,
+    configure_payment_webhook,
+    financial_summary,
+    match_payment_receipt,
+    payment_sandbox_enabled,
+    record_commission_event,
+    sign_payment_webhook,
 )
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
@@ -56,9 +67,13 @@ from .models import (
     AsyncJob,
     AuditEvent,
     CaseRecord,
+    CommissionLedgerEntry,
     ConnectionTest,
     IntegrationState,
     ModelReplayRun,
+    PaymentReceipt,
+    PaymentWebhookConfig,
+    RecoveryLedgerEntry,
     SelfTestReport,
     ServiceConfig,
     User,
@@ -77,10 +92,15 @@ from .schemas import (
     AsyncTestRequest,
     AuthHealthOut,
     AuthSessionOut,
+    CommissionEventAcceptanceOut,
+    CommissionEventRequest,
+    CommissionLedgerEntryOut,
     ConnectionTestOut,
     DevTokenOut,
     DevTokenRequest,
     EnableRequest,
+    FinancialOverviewOut,
+    FinancialSummaryOut,
     GateOut,
     HealthOut,
     IntegrationOverviewOut,
@@ -89,16 +109,29 @@ from .schemas import (
     ModelGatewayHealthOut,
     ModelReplayRequest,
     ModelReplayRunOut,
+    PaymentReceiptAcceptanceOut,
+    PaymentReceiptMatchRequest,
+    PaymentReceiptOut,
+    PaymentSandboxReceiptRequest,
+    PaymentWebhookConfigOut,
+    PaymentWebhookConfigRequest,
+    PaymentWebhookPayload,
     ProposalDecisionRequest,
     ProposalOut,
     QueueHealthOut,
+    RecoveryLedgerEntryOut,
     SecretStoreHealthOut,
     SelfTestItem,
     SelfTestReportOut,
     ServiceConfigOut,
     ServiceConfigUpsert,
 )
-from .secret_store import SecretStoreError, secret_store_status, store_secret
+from .secret_store import (
+    SecretStoreError,
+    resolve_secret,
+    secret_store_status,
+    store_secret,
+)
 from .security import (
     RequestContext,
     auth_configuration,
@@ -190,6 +223,25 @@ def audit(db: Session, context: RequestContext, action: str, resource_type: str,
     )
 
 
+def payment_config_out(config: PaymentWebhookConfig) -> PaymentWebhookConfigOut:
+    return PaymentWebhookConfigOut(
+        provider=config.provider,
+        credential_mask=f"••••{config.credential_last4}",
+        version=config.version,
+        active=config.active,
+        max_amount_cents=config.max_amount_cents,
+        updated_at=config.updated_at,
+    )
+
+
+def payment_receipt_out(receipt: PaymentReceipt) -> PaymentReceiptOut:
+    return PaymentReceiptOut.model_validate(receipt)
+
+
+def raise_financial_error(exc: FinancialLedgerError) -> None:
+    raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
+
+
 def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_id: str) -> None:
     if should_execute_inline():
         background_tasks.add_task(execute_job, session_factory, job_id)
@@ -198,7 +250,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.8.0",
+        version="0.9.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -222,7 +274,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.8.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.9.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -484,6 +536,247 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def get_secret_store_health(context: Context, db: Database) -> SecretStoreHealthOut:
         require_role(context, "admin")
         return SecretStoreHealthOut(**secret_store_status(db, context.tenant_id).__dict__)
+
+    @app.get(
+        "/api/v1/payments/webhook-configs",
+        response_model=list[PaymentWebhookConfigOut],
+        tags=["payments", "security"],
+    )
+    def list_payment_webhook_configs(context: Context, db: Database) -> list[PaymentWebhookConfigOut]:
+        require_role(context, "admin")
+        configs = db.scalars(
+            select(PaymentWebhookConfig)
+            .where(PaymentWebhookConfig.tenant_id == context.tenant_id)
+            .order_by(PaymentWebhookConfig.provider)
+        )
+        return [payment_config_out(config) for config in configs]
+
+    @app.put(
+        "/api/v1/payments/webhook-configs/{provider}",
+        response_model=PaymentWebhookConfigOut,
+        tags=["payments", "security"],
+    )
+    def save_payment_webhook_config(
+        provider: str,
+        payload: PaymentWebhookConfigRequest,
+        context: Context,
+        db: Database,
+    ) -> PaymentWebhookConfigOut:
+        require_role(context, "admin")
+        try:
+            config = configure_payment_webhook(
+                db,
+                context.tenant_id,
+                provider,
+                payload.credential,
+                payload.max_amount_cents,
+            )
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        audit(
+            db,
+            context,
+            "payment.webhook_config.updated",
+            "payment_webhook_config",
+            config.provider,
+            {"version": config.version, "max_amount_cents": config.max_amount_cents},
+        )
+        db.commit()
+        db.refresh(config)
+        return payment_config_out(config)
+
+    @app.get("/api/v1/payments/overview", response_model=FinancialOverviewOut, tags=["payments"])
+    def get_financial_overview(context: Context, db: Database) -> FinancialOverviewOut:
+        summary = financial_summary(db, context.tenant_id)
+        recoveries = list(
+            db.scalars(
+                select(RecoveryLedgerEntry)
+                .where(RecoveryLedgerEntry.tenant_id == context.tenant_id)
+                .order_by(RecoveryLedgerEntry.booked_at.desc(), RecoveryLedgerEntry.entry_id.desc())
+                .limit(500)
+            )
+        )
+        commissions = list(
+            db.scalars(
+                select(CommissionLedgerEntry)
+                .where(CommissionLedgerEntry.tenant_id == context.tenant_id)
+                .order_by(CommissionLedgerEntry.occurred_at.desc(), CommissionLedgerEntry.event_id.desc())
+                .limit(500)
+            )
+        )
+        pending = list(
+            db.scalars(
+                select(PaymentReceipt)
+                .where(
+                    PaymentReceipt.tenant_id == context.tenant_id,
+                    PaymentReceipt.status.in_({"unmatched", "review_required"}),
+                )
+                .order_by(PaymentReceipt.received_at.desc())
+                .limit(100)
+            )
+        )
+        config = db.scalar(
+            select(PaymentWebhookConfig)
+            .where(
+                PaymentWebhookConfig.tenant_id == context.tenant_id,
+                PaymentWebhookConfig.active.is_(True),
+            )
+            .order_by(PaymentWebhookConfig.updated_at.desc())
+        )
+        secret_status = secret_store_status(db, context.tenant_id)
+        return FinancialOverviewOut(
+            summary=FinancialSummaryOut(**summary),
+            recovery_ledger=[RecoveryLedgerEntryOut.model_validate(row) for row in recoveries],
+            commission_ledger=[CommissionLedgerEntryOut.model_validate(row) for row in commissions],
+            pending_receipts=[payment_receipt_out(row) for row in pending],
+            webhook_ready=bool(config and config.secret_ref and secret_status.resolvable),
+            webhook_provider=config.provider if config else None,
+            sandbox_enabled=payment_sandbox_enabled(),
+        )
+
+    @app.post(
+        "/api/v1/webhooks/payments/{tenant_id}/{provider}",
+        response_model=PaymentReceiptAcceptanceOut,
+        tags=["payment-webhooks"],
+    )
+    async def receive_payment_webhook(
+        tenant_id: str,
+        provider: str,
+        request: Request,
+        db: Database,
+        webhook_timestamp: Annotated[str, Header(alias="X-FulfillOps-Timestamp")],
+        webhook_signature: Annotated[str, Header(alias="X-FulfillOps-Signature")],
+    ) -> PaymentReceiptAcceptanceOut:
+        raw_body = await request.body()
+        if len(raw_body) > 32_768:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="支付回执载荷超过大小上限")
+        try:
+            payload = PaymentWebhookPayload.model_validate_json(raw_body)
+            accepted = accept_payment_webhook(
+                db,
+                tenant_id,
+                provider,
+                payload,
+                raw_body,
+                webhook_timestamp,
+                webhook_signature,
+            )
+        except ValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="支付回执载荷格式无效") from exc
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return PaymentReceiptAcceptanceOut(receipt=payment_receipt_out(accepted.receipt), duplicate=accepted.duplicate)
+
+    @app.post(
+        "/api/v1/payments/sandbox-receipts",
+        response_model=PaymentReceiptAcceptanceOut,
+        tags=["payments"],
+    )
+    def receive_sandbox_payment(
+        payload: PaymentSandboxReceiptRequest,
+        context: Context,
+        db: Database,
+    ) -> PaymentReceiptAcceptanceOut:
+        require_role(context, "operator", "admin")
+        if not payment_sandbox_enabled():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="部署环境未启用支付回执沙箱")
+        provider = "sandbox-amc"
+        config = db.scalar(
+            select(PaymentWebhookConfig).where(
+                PaymentWebhookConfig.tenant_id == context.tenant_id,
+                PaymentWebhookConfig.provider == provider,
+                PaymentWebhookConfig.active.is_(True),
+            )
+        )
+        if not config:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="支付回执沙箱尚未配置签名密钥")
+        try:
+            secret = resolve_secret(db, config.secret_ref, context.tenant_id, f"payment-{provider}")
+        except SecretStoreError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="支付回执沙箱密钥不可用") from exc
+        if not secret:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="支付回执沙箱密钥不可解析")
+        now = datetime.now(UTC)
+        event = PaymentWebhookPayload(
+            event_id=f"SBX-{payload.idempotency_key}",
+            event_type="payment",
+            amount_cents=payload.amount_cents,
+            currency="CNY",
+            occurred_at=datetime(2026, 9, 12, 12, 0, tzinfo=UTC),
+            case_id=payload.case_id,
+        )
+        raw_body = event.model_dump_json(exclude_none=True).encode()
+        timestamp_value = str(int(now.timestamp()))
+        signature = sign_payment_webhook(secret, timestamp_value, raw_body)
+        try:
+            accepted = accept_payment_webhook(
+                db,
+                context.tenant_id,
+                provider,
+                event,
+                raw_body,
+                timestamp_value,
+                signature,
+            )
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return PaymentReceiptAcceptanceOut(receipt=payment_receipt_out(accepted.receipt), duplicate=accepted.duplicate)
+
+    @app.post(
+        "/api/v1/payments/receipts/{receipt_id}/match",
+        response_model=RecoveryLedgerEntryOut,
+        tags=["payments"],
+    )
+    def match_pending_payment_receipt(
+        receipt_id: str,
+        payload: PaymentReceiptMatchRequest,
+        context: Context,
+        db: Database,
+    ) -> RecoveryLedgerEntryOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认回执匹配")
+        receipt = db.scalar(
+            select(PaymentReceipt).where(
+                PaymentReceipt.id == receipt_id,
+                PaymentReceipt.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not receipt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="支付回执不存在")
+        try:
+            entry = match_payment_receipt(db, receipt, payload.case_id, context.actor_id)
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return RecoveryLedgerEntryOut.model_validate(entry)
+
+    @app.post(
+        "/api/v1/commissions/events",
+        response_model=CommissionEventAcceptanceOut,
+        tags=["payments", "commissions"],
+    )
+    def create_commission_event(
+        payload: CommissionEventRequest,
+        context: Context,
+        db: Database,
+    ) -> CommissionEventAcceptanceOut:
+        require_role(context, "admin")
+        if not payload.acknowledged:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认佣金账簿事件")
+        try:
+            entry, duplicate = record_commission_event(
+                db,
+                context.tenant_id,
+                payload.event_type,
+                payload.amount_cents,
+                payload.reference,
+                payload.idempotency_key,
+                context.actor_id,
+                payload.occurred_at,
+            )
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return CommissionEventAcceptanceOut(entry=CommissionLedgerEntryOut.model_validate(entry), duplicate=duplicate)
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, context: Context, db: Database) -> JobOut:

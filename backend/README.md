@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.8.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、Agent 会话检查点、行动提案和可审计安全回放。
+`v0.9.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway，以及验签支付回执和不可变回款/佣金账簿。
 
 ## 本地运行
 
@@ -91,12 +91,25 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 真实模式可以使用 `local-envelope` 中当前租户的模型密钥，也可继续从部署环境读取 `DEEPSEEK_API_KEY`。部署端仍必须安装 `requirements-harness.txt`、设置 `FULFILLOPS_ENABLE_DSH_RUNTIME=1` 并注入独立的 `RUNTIME_JWT_SECRET`；未满足条件时连接作业失败且不会标记 Provider 已连接。
 
+## 支付回执与财务账簿
+
+- `PUT /api/v1/payments/webhook-configs/{provider}`：管理员配置 Provider 签名密钥和单笔金额上限；密钥进入现有密钥后端，API 仅返回末四位。
+- `POST /api/v1/webhooks/payments/{tenant}/{provider}`：对精确原始请求体校验 `X-FulfillOps-Timestamp` 和 `X-FulfillOps-Signature: v1=<HMAC-SHA256>`。未配置、坏签名、过期签名和金额超限均失败关闭。
+- `GET /api/v1/payments/overview`：按当前成员租户读取整数分汇总、回款账簿、佣金账簿和待复核回执。
+- `POST /api/v1/payments/receipts/{id}/match`：运营人员明确确认后匹配未识别回执；跨租户记录不可见。
+- `POST /api/v1/commissions/events`：管理员明确确认结算或实收；结算不能超过应计余额，实收不能超过已结算未收余额。
+- `POST /api/v1/payments/sandbox-receipts`：仅在 `ENABLE_PAYMENT_SANDBOX=true` 时提供，生成 HMAC 回执后复用正式入账路径。
+
+回执按 `(tenant_id, provider, provider_event_id)` 唯一；完全相同的原始载荷返回原记录并增加重复计数，不同载荷复用事件号返回 HTTP 409。无法自动匹配的已验签回执进入复核队列且不更新钱指标。退款必须引用已匹配原支付，累计金额不能超过原支付，并沿用原事件的计佣资格和比例。Agent 工具仍禁止 `payment.write` 和 `commission.write`，只能查询账簿或生成人工确认提案。
+
+正式环境应配置 `PAYMENT_WEBHOOK_TOLERANCE_SECONDS=300`（允许范围 60—900），保持 `ENABLE_PAYMENT_SANDBOX=false`，并通过 KMS/Secrets Manager 提供各租户 Provider 密钥。系统不保存原始支付请求体或签名，只保存 SHA-256 摘要、验签版本和不可变业务事件。
+
 ## 测试
 
 ```bash
 .venv/bin/python -m pytest
 ```
 
-生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`；脚本会验证模型健康、契约回放、零外部调用，以及真实调用在部署开关关闭时失败关闭。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh` 和 `./scripts/smoke-v09-financial-ledger.sh`。后者验证签名回执、重复事件零重复入账、坏签名零落库、应计金额，以及结算/实收不能越过前序余额。
 
-当前本地基线为 54 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 55 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前本地基线为 63 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 64 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、跨租户同号事件隔离、退款与佣金账簿，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

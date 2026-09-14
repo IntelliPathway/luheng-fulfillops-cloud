@@ -7,10 +7,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .financial_ledger import financial_summary
 from .models import (
     Activity,
     AssetPackage,
-    BusinessMetricSnapshot,
     CaseRecord,
     ServiceConfig,
 )
@@ -191,34 +191,27 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
         }
 
     if re.search(r"回款|佣金|实收|结算|收入|钱|经营|ChatBI|指标", text, re.IGNORECASE):
-        metrics = {
-            row.metric_key: row
-            for row in db.scalars(select(BusinessMetricSnapshot).where(BusinessMetricSnapshot.tenant_id == tenant_id))
-        }
-        cash = metrics.get("confirmed_net_recovery")
-        eligible = metrics.get("commission_eligible_recovery")
-        accrued = metrics.get("accrued_commission")
-        collected = metrics.get("collected_commission")
-        values = [cash, eligible, accrued, collected]
-        if not all(values):
-            body = "当前工作空间尚无完整的钱指标快照，未使用推测值补齐。"
-            facts = []
-        else:
-            body = (
-                f"确认净回款 {_money(cash.value)}，计佣回款 {_money(eligible.value)}，"
-                f"应计佣金 {_money(accrued.value)}，实际收佣 {_money(collected.value)}。"
-                "应计佣金不等于已经结算或实际到账。"
-            )
-            facts = [
-                {"label": "确认净回款", "value": _money(cash.value)},
-                {"label": "计佣回款", "value": _money(eligible.value)},
-                {"label": "应计佣金", "value": _money(accrued.value)},
-                {"label": "实际收佣", "value": _money(collected.value)},
-            ]
+        metrics = financial_summary(db, tenant_id)
+        cash = metrics["confirmed_net_recovery_cents"] / 100
+        eligible = metrics["commission_eligible_recovery_cents"] / 100
+        accrued = metrics["accrued_commission_cents"] / 100
+        collected = metrics["collected_commission_cents"] / 100
+        body = (
+            f"确认净回款 {_money(cash)}，计佣回款 {_money(eligible)}，"
+            f"应计佣金 {_money(accrued)}，实际收佣 {_money(collected)}。"
+            "应计佣金不等于已经结算或实际到账。"
+        )
+        facts = [
+            {"label": "确认净回款", "value": _money(cash)},
+            {"label": "计佣回款", "value": _money(eligible)},
+            {"label": "应计佣金", "value": _money(accrued)},
+            {"label": "实际收佣", "value": _money(collected)},
+        ]
         sources = [
-            _source(row.source, "metric", row.metric_key, row.as_of.isoformat())
-            for row in values
-            if row
+            _source("不可变回款账簿", "recovery_ledger", "confirmed-net"),
+            _source("不可变回款账簿", "recovery_ledger", "commission-eligible"),
+            _source("佣金事件账簿", "commission_ledger", "accrued"),
+            _source("佣金事件账簿", "commission_ledger", "collected"),
         ]
         return {
             "answer": {
@@ -229,8 +222,8 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
                 "navigation_hint": "payments",
                 "metric_definition": "确认净回款为验签、去重、匹配并扣除退款后的现金；应计佣金按有效规则计提。",
             },
-            "tool_trace": [_trace("metrics.query", detail="已应用租户范围、指标口径和快照时间")],
-            "evidence": [{"metric_count": len(metrics), "scope": tenant_id}],
+            "tool_trace": [_trace("metrics.query", detail="已应用租户范围并从不可变回款/佣金账簿汇总")],
+            "evidence": [{"metric_count": 5, "scope": tenant_id, "source": "financial-ledger"}],
             "proposal": None,
         }
 
