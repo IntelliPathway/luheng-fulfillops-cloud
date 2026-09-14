@@ -88,5 +88,5 @@ final result: passed
 
 - The integrations header adds compact Broker and secret-store status without changing the approved card grid, hierarchy or responsive behavior.
 - API output exposes only backend readiness, key version and secret count. References, nonces, ciphertext and plaintext never enter the frontend state.
-- Local tests cover AES-GCM persistence, tenant/service binding, credential retirement, previous-key rotation and transient Runtime injection. PostgreSQL migration/notification coverage is isolated behind `TEST_POSTGRES_URL` and enabled in GitHub Actions.
+- Local tests cover AES-GCM persistence, tenant/service binding, credential retirement, previous-key rotation and transient Runtime injection. GitHub Actions passed the PostgreSQL 17 migration/notification path and the complete 55-test release suite.
 - `npm test` and the production build pass. The cloud browser loopback restriction remains unchanged, so the existing screenshot baseline is retained for this text-only status delta.

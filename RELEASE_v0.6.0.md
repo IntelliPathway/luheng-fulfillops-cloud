@@ -20,13 +20,13 @@
 ## 验证口径
 
 - 本地：38 项后端通过，PostgreSQL 专项 1 项按环境跳过。
-- CI：配置 PostgreSQL 后执行 39 项后端测试。
+- CI：PostgreSQL 17 环境执行 39 项后端测试，包含 v0.4 原地升级、事务通知与 Worker 消费，全部通过。
 - 前端领域/API：12 项；Sites：4 项。
-- 完整 CI 目标：55 项自动化测试及生产构建。
+- 完整 CI：55 项自动化测试及生产构建全部通过。
 
 ## 仍需部署验收
 
 - `local-envelope` 是自托管信封实现；正式生产建议把主密钥托管到云 KMS/HSM，并增加对应 Provider。
-- 当前运行环境未提供本地 PostgreSQL/Docker，PostgreSQL 原地升级与通知链路由 GitHub Actions 服务容器执行。
+- 当前运行环境未提供本地 PostgreSQL/Docker；PostgreSQL 原地升级与通知链路已由 GitHub Actions 服务容器验收通过。
 - 尚未注入真实 DeepSeek API Key，不会产生模型调用或费用。
 - 企业 IdP、支付回执、佣金账簿和 ASR/TTS/SIP 生产线路仍待接入。
