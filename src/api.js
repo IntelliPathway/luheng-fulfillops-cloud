@@ -223,6 +223,7 @@ export function normalizeFinancialOverview(payload, tenant) {
     })),
     commissionLedger: payload.commission_ledger || [],
     pendingReceipts: payload.pending_receipts || [],
+    reconciliations: payload.reconciliations || [],
     webhookReady: payload.webhook_ready,
     webhookProvider: payload.webhook_provider,
     sandboxEnabled: payload.sandbox_enabled,
@@ -231,13 +232,26 @@ export function normalizeFinancialOverview(payload, tenant) {
 
 export const paymentApi = {
   overview: tenant => request('/payments/overview', tenant),
-  sandboxReceipt: (tenant, idempotencyKey) => request('/payments/sandbox-receipts', tenant, {
+  sandboxReceipt: (tenant, idempotencyKey, options = {}) => request('/payments/sandbox-receipts', tenant, {
     method: 'POST',
-    body: JSON.stringify({case_id: 'C002', amount_cents: 101600, idempotency_key: idempotencyKey}),
+    body: JSON.stringify({
+      case_id: options.caseId || 'C002',
+      amount_cents: options.amountCents || 101600,
+      idempotency_key: idempotencyKey,
+    }),
   }),
   matchReceipt: (tenant, receiptId, caseId) => request(`/payments/receipts/${receiptId}/match`, tenant, {
     method: 'POST',
     body: JSON.stringify({case_id: caseId, acknowledged: true}),
+  }),
+  matchCandidates: (tenant, receiptId) => request(`/payments/receipts/${receiptId}/candidates`, tenant),
+  proposeReconciliation: (tenant, receiptId, caseId, reason) => request(`/payments/receipts/${receiptId}/reconciliations`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({case_id: caseId, reason, acknowledged: true}),
+  }),
+  decideReconciliation: (tenant, reconciliationId, decision, reviewNote, expectedVersion) => request(`/payments/reconciliations/${reconciliationId}/decision`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({decision, review_note: reviewNote, expected_version: expectedVersion, acknowledged: true}),
   }),
   commissionEvent: (tenant, payload) => request('/commissions/events', tenant, {
     method: 'POST',

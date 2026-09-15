@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useEffect,useState} from 'react';
 import {
   ArrowRight,CheckCircle,Files,Flask,Lightning,Phone,Receipt,
   Robot,ShieldCheck,UploadSimple,WarningCircle
@@ -114,6 +114,43 @@ export function ReceiptModal({onClose}){
     <KeyValue items={[["本期累计到账","¥1,000 → ¥2,016"],["本期状态","部分履约 → 本期已足额"],["新增应计佣金","¥1,016 × 15% = ¥152.40"],["实际收佣","仍为 ¥0"]]}/>
     <label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认执行验签、去重、案件匹配、回款入账和计佣；API 在线时结果写入租户不可变账簿。</span></label>
     {a.backendStatus==='connected'&&!serverReady&&<div className="form-error" role="alert">支付回执沙箱未配置可解析签名密钥，未发起模拟回调。</div>}
+  </Modal>;
+}
+
+export function ReconciliationModal({receipt,onClose}){
+  const a=useApp();
+  const review=a.financialOverview.reconciliations.find(row=>row.receipt_id===receipt.id);
+  const [candidates,setCandidates]=useState(review?.candidate_snapshot||[]);
+  const [selected,setSelected]=useState(review?.proposed_case_id||'');
+  const [reason,setReason]=useState('已核对回执附言、金额与案件履约资料，建议按所选案件进入独立复核。');
+  const [note,setNote]=useState('已复核回执摘要、候选依据与案件财务档案，结论一致。');
+  const [ack,setAck]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  useEffect(()=>{let active=true;if(review?.candidate_snapshot?.length){setCandidates(review.candidate_snapshot);setSelected(review.proposed_case_id);return()=>{active=false}}a.reconciliationCandidates(receipt).then(rows=>{if(!active)return;setCandidates(rows);setSelected(value=>value||rows[0]?.case_id||'')}).catch(err=>active&&setError(err.message));return()=>{active=false}},[receipt.id,review?.id]);
+  const propose=async()=>{setBusy(true);setError('');try{await a.proposeReceiptReconciliation(receipt,selected,reason);setAck(false)}catch(err){setError(err.message)}finally{setBusy(false)}};
+  const decide=async decision=>{setBusy(true);setError('');try{await a.decideReceiptReconciliation(review,decision,note);onClose()}catch(err){setError(err.message)}finally{setBusy(false)}};
+  const pending=review?.status==='pending_review';
+  const canReview=pending&&a.identity.role==='admin'&&review.proposed_by!==a.identity.actor_id;
+  const footer=review?<><Button onClick={onClose}>关闭</Button>{pending&&<div className="footer-actions"><Button disabled={!canReview||!ack||busy} onClick={()=>decide('reject')}>驳回提案</Button><Button variant="primary" disabled={!canReview||!ack||busy} onClick={()=>decide('approve')}>{busy?'正在提交…':'批准并入账'}</Button></div>}</>:<><Button onClick={onClose}>取消</Button><Button variant="primary" disabled={!selected||reason.trim().length<8||!ack||busy} onClick={propose}>{busy?'正在提交…':'提交匹配提案'}</Button></>;
+  return <Modal title={`回执复核 · ${receipt.provider_event_id}`} subtitle="候选建议只辅助判断；独立管理员批准后才写入账簿。" onClose={onClose} wide footer={footer}>
+    <div className="payment-detail-head"><span>{money(receipt.amount_cents/100)}</span><Badge status={pending?'paused':'neutral'}>{pending?'等待独立复核':review?.status==='approved'?'已批准':review?.status==='rejected'?'已驳回':'待匹配'}</Badge></div>
+    <KeyValue items={[["Provider",receipt.provider],["发生时间",receipt.occurred_at.slice(0,16).replace('T',' ')],["签名摘要",`${receipt.signature_digest.slice(0,12)}…`],["原案件引用",receipt.case_id||'缺失'],["失败原因",receipt.failure_code||'—'],["是否进入钱指标","否，批准前隔离"]]}/>
+    {review?<>
+      <h3 className="section-label"><ShieldCheck size={19}/>匹配提案</h3>
+      <div className="reconciliation-proposal"><span><small>建议案件</small><b>{review.proposed_case_id}</b></span><span><small>提案人</small><b>{review.proposed_by}</b></span><span><small>版本</small><b>v{review.version}</b></span><span><small>证据摘要</small><code>{review.evidence_digest.slice(0,12)}…</code></span></div>
+      <p className="body-copy">{review.reason}</p>
+      {pending&&<Field label="独立复核结论"><textarea rows="3" value={note} onChange={event=>setNote(event.target.value)} placeholder="填写复核依据和结论…"/></Field>}
+      {pending&&!canReview&&<div className="notice warning"><WarningCircle size={19}/><span><b>{review.proposed_by===a.identity.actor_id?'不能复核自己创建的提案':'当前角色不能复核'}</b><small>必须由另一名管理员重新核对证据并作出决定。</small></span></div>}
+    </>:<>
+      <h3 className="section-label"><Robot size={19}/>确定性候选建议</h3>
+      <div className="reconciliation-candidates">{candidates.map(candidate=><label className={selected===candidate.case_id?'selected':''} key={candidate.case_id}><input type="radio" name="candidate" checked={selected===candidate.case_id} onChange={()=>setSelected(candidate.case_id)}/><span><b>{candidate.case_id} · {candidate.package_id}</b><small>{candidate.signals.join(' · ')}</small></span><em>{candidate.score} 分</em></label>)}</div>
+      {!candidates.length&&!error&&<Empty title="正在加载候选案件" description="只查询当前工作空间且财务档案完整的案件。"/>}
+      <Field label="提案依据"><textarea rows="3" value={reason} onChange={event=>setReason(event.target.value)} placeholder="说明人工核对的凭证和依据…"/></Field>
+    </>}
+    {pending&&<label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本人不是提案人，已独立核验回执摘要、案件归属和计佣边界；批准将原子写入回款及佣金账簿。</span></label>}
+    {!review&&<label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本次只创建匹配提案，不更新案件履约状态、钱指标或不可变账簿。</span></label>}
+    {error&&<div className="form-error" role="alert">{error}</div>}
   </Modal>;
 }
 

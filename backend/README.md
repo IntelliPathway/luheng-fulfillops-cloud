@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.9.1` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway，以及验签支付回执和不可变回款/佣金账簿。Sites 测试部署当前只承载前端交互沙箱，不包含本 FastAPI 服务。
+`v0.10.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿，以及 Maker–Checker 回执对账工作流。Sites 测试部署当前只承载前端交互沙箱，不包含本 FastAPI 服务。
 
 ## 本地运行
 
@@ -95,8 +95,11 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 - `PUT /api/v1/payments/webhook-configs/{provider}`：管理员配置 Provider 签名密钥和单笔金额上限；密钥进入现有密钥后端，API 仅返回末四位。
 - `POST /api/v1/webhooks/payments/{tenant}/{provider}`：对精确原始请求体校验 `X-FulfillOps-Timestamp` 和 `X-FulfillOps-Signature: v1=<HMAC-SHA256>`。未配置、坏签名、过期签名和金额超限均失败关闭。
-- `GET /api/v1/payments/overview`：按当前成员租户读取整数分汇总、回款账簿、佣金账簿和待复核回执。
-- `POST /api/v1/payments/receipts/{id}/match`：运营人员明确确认后匹配未识别回执；跨租户记录不可见。
+- `GET /api/v1/payments/overview`：按当前成员租户读取整数分汇总、回款账簿、佣金账簿、待复核回执和对账记录。
+- `GET /api/v1/payments/receipts/{id}/candidates`：读取当前租户内且财务档案完整的确定性候选建议，不执行匹配。
+- `POST /api/v1/payments/receipts/{id}/reconciliations`：运营人员或管理员创建带候选快照、证据摘要和版本号的匹配提案。
+- `POST /api/v1/payments/reconciliations/{id}/decision`：由不同账号的管理员独立批准或驳回；批准后才原子入账。
+- `POST /api/v1/payments/receipts/{id}/match`：旧版单步接口默认停用；仅兼容部署显式设置 `ALLOW_LEGACY_PAYMENT_MATCH=true` 且管理员调用时可用。
 - `POST /api/v1/commissions/events`：管理员明确确认结算或实收；结算不能超过应计余额，实收不能超过已结算未收余额。
 - `POST /api/v1/payments/sandbox-receipts`：仅在 `ENABLE_PAYMENT_SANDBOX=true` 时提供，生成 HMAC 回执后复用正式入账路径。
 
@@ -110,6 +113,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 .venv/bin/python -m pytest
 ```
 
-生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh` 和 `./scripts/smoke-v09-financial-ledger.sh`。后者验证签名回执、重复事件零重复入账、坏签名零落库、应计金额，以及结算/实收不能越过前序余额。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh` 和 `./scripts/smoke-v10-reconciliation.sh`。v0.10 冒烟覆盖未匹配回执、候选建议、旧单步路径关闭、提案、陈旧版本阻断、独立批准和原子入账。
 
-当前本地基线为 63 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 64 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、跨租户同号事件隔离、退款与佣金账簿，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前本地基线为 65 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 66 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、跨租户同号事件隔离、退款与佣金账簿，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

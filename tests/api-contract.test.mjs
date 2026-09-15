@@ -141,3 +141,29 @@ test('submits only a sandbox event key and never serializes a payment secret', a
   assert.deepEqual(body, {case_id: 'C002', amount_cents: 101600, idempotency_key: 'ui-demo-payment-v1'});
   assert.equal(JSON.stringify(calls).includes('secret'), false);
 });
+
+test('uses maker-checker reconciliation endpoints without direct ledger writes', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({id: 'REC-1', version: 1})};
+  };
+  try {
+    await paymentApi.matchCandidates('TENANT_A', 'PRC-1');
+    await paymentApi.proposeReconciliation('TENANT_A', 'PRC-1', 'C002', '人工核对付款附言与合同编号一致');
+    await paymentApi.decideReconciliation('TENANT_A', 'REC-1', 'approve', '独立复核证据一致', 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/payments/receipts/PRC-1/candidates');
+  assert.equal(calls[1].url, '/api/v1/payments/receipts/PRC-1/reconciliations');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    case_id: 'C002', reason: '人工核对付款附言与合同编号一致', acknowledged: true,
+  });
+  assert.equal(calls[2].url, '/api/v1/payments/reconciliations/REC-1/decision');
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    decision: 'approve', review_note: '独立复核证据一致', expected_version: 1, acknowledged: true,
+  });
+  assert.equal(calls.some(call => String(call.url).endsWith('/match')), false);
+});

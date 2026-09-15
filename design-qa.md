@@ -126,3 +126,11 @@ final result: passed
 - The Sites Worker returns an explicit JSON 503 for `/api/*`, preserves SPA deep-link fallback only for safe HTML GET/HEAD requests, and attaches CSP, HSTS, nosniff, frame, referrer and browser-permission protections.
 - Frontend/API checks pass 15 cases; Sites Worker/build checks pass 5 cases. The production build emits the required client, Worker and hosting manifest artifacts.
 - This deployment is intended for private product walkthroughs. It does not claim that FastAPI, PostgreSQL, payment providers or model/voice/telephony services are hosted by Sites.
+
+## v0.10.0 receipt reconciliation verification · 2026-09-15
+
+- 回款与佣金页新增「回执复核」标签、待复核计数、双人复核原则、候选案件、责任人和最近复核记录，保持原有 BoardUI 紧凑表格密度。
+- 复核弹窗区分“创建提案”和“独立复核”两种状态；批准按钮只有在管理员、非提案人、明确勾选确认三项同时满足时可用。
+- 桌面端对账表采用横向滚动保护，窄屏下提案摘要从四列回流为两列，复核历史摘要保持可读。
+- 离线演示预置一条脱敏待复核回执；批准或驳回均明确标注不会写入服务端账簿。
+- 生产构建和前端领域测试通过。受当前云浏览器本机地址策略限制，`terminal.local` 与 `127.0.0.1` 均被浏览器客户端拦截，因此本版未新增截图，也未把该限制误判为应用错误。

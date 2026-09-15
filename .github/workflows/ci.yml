@@ -54,6 +54,8 @@ jobs:
           python -m pytest -q
       - name: Smoke signed financial ledger
         run: ./scripts/smoke-v09-financial-ledger.sh
+      - name: Smoke maker-checker reconciliation
+        run: ./scripts/smoke-v10-reconciliation.sh
 
       - name: Install frontend dependencies
         run: npm ci

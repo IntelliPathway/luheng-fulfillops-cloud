@@ -234,7 +234,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.9.1")
+    version: Mapped[str] = mapped_column(String(24), default="0.10.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -435,6 +435,30 @@ class PaymentReceipt(Base):
     duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
     received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class PaymentReconciliation(Base):
+    __tablename__ = "payment_reconciliations"
+    __table_args__ = (
+        UniqueConstraint("receipt_id"),
+        Index("ix_payment_reconciliations_tenant_status", "tenant_id", "status", "proposed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("REC"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    receipt_id: Mapped[str] = mapped_column(ForeignKey("payment_receipts.id"), unique=True, index=True)
+    proposed_case_id: Mapped[str] = mapped_column(String(40), index=True)
+    candidate_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    proposed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recovery_entry_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
 
 class RecoveryLedgerEntry(Base):

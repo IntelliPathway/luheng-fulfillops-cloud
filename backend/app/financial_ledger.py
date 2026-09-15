@@ -23,6 +23,7 @@ from .models import (
     CommissionLedgerEntry,
     CommissionRule,
     PaymentReceipt,
+    PaymentReconciliation,
     PaymentWebhookConfig,
     RecoveryLedgerEntry,
 )
@@ -32,6 +33,7 @@ PAYMENT_SIGNATURE_VERSION = "v1"
 PAYMENT_CURRENCY = "CNY"
 SUPPORTED_PAYMENT_EVENTS = {"payment", "refund"}
 SUPPORTED_COMMISSION_EVENTS = {"settlement", "collection"}
+RECONCILABLE_RECEIPT_STATUSES = {"unmatched", "review_required", "review_pending", "rejected"}
 PROVIDER_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{1,11}")
 
 
@@ -453,6 +455,8 @@ def match_payment_receipt(
     receipt: PaymentReceipt,
     case_id: str,
     actor_id: str,
+    *,
+    commit: bool = True,
 ) -> RecoveryLedgerEntry:
     if receipt.status == "matched":
         entry = db.scalar(
@@ -477,9 +481,253 @@ def match_payment_receipt(
         )
     )
     refresh_business_metrics(db, receipt.tenant_id)
-    db.commit()
-    db.refresh(entry)
+    if commit:
+        db.commit()
+        db.refresh(entry)
+    else:
+        db.flush()
     return entry
+
+
+def payment_match_candidates(
+    db: Session,
+    receipt: PaymentReceipt,
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Return deterministic, tenant-scoped suggestions without changing money state."""
+
+    profiles = {
+        row.case_id: row
+        for row in db.scalars(
+            select(CaseFinancialProfile).where(CaseFinancialProfile.tenant_id == receipt.tenant_id)
+        )
+    }
+    original_case_id: str | None = None
+    if receipt.event_type == "refund" and receipt.original_provider_event_id:
+        original = db.scalar(
+            select(PaymentReceipt).where(
+                PaymentReceipt.tenant_id == receipt.tenant_id,
+                PaymentReceipt.provider == receipt.provider,
+                PaymentReceipt.provider_event_id == receipt.original_provider_event_id,
+                PaymentReceipt.status == "matched",
+            )
+        )
+        original_case_id = original.case_id if original else None
+
+    candidates: list[dict[str, Any]] = []
+    cases = db.scalars(
+        select(CaseRecord)
+        .where(CaseRecord.tenant_id == receipt.tenant_id)
+        .order_by(CaseRecord.case_id)
+    )
+    for case in cases:
+        if case.case_id not in profiles:
+            continue
+        score = 20
+        signals = ["当前租户财务档案完整"]
+        if receipt.case_id and case.case_id == receipt.case_id:
+            score += 50
+            signals.append("回执案件编号一致")
+        if original_case_id and case.case_id == original_case_id:
+            score += 60
+            signals.append("退款原交易案件一致")
+        if case.has_signed_plan:
+            score += 20
+            signals.append("存在已签履约方案")
+        if case.blocked:
+            signals.append("保护状态：仅允许被动到账核对")
+        else:
+            score += 5
+            signals.append("案件未处于保护暂停")
+        candidates.append(
+            {
+                "case_id": case.case_id,
+                "package_id": case.package_id,
+                "score": min(score, 99),
+                "signals": signals,
+                "blocked": case.blocked,
+                "has_signed_plan": case.has_signed_plan,
+            }
+        )
+    candidates.sort(key=lambda row: (-int(row["score"]), str(row["case_id"])))
+    return candidates[: max(1, min(limit, 20))]
+
+
+def propose_payment_reconciliation(
+    db: Session,
+    receipt: PaymentReceipt,
+    case_id: str,
+    reason: str,
+    actor_id: str,
+) -> PaymentReconciliation:
+    if receipt.status == "matched":
+        raise FinancialLedgerError("receipt_already_matched", "回执已经入账，不能重新发起匹配", 409)
+    if receipt.status not in RECONCILABLE_RECEIPT_STATUSES:
+        raise FinancialLedgerError("receipt_not_reconcilable", "当前回执状态不能进入对账复核", 409)
+
+    case_id = case_id.strip().upper()
+    candidates = payment_match_candidates(db, receipt, limit=20)
+    if case_id not in {str(row["case_id"]) for row in candidates}:
+        raise FinancialLedgerError("candidate_not_available", "候选案件不属于当前租户或缺少财务档案", 422)
+
+    existing = db.scalar(
+        select(PaymentReconciliation).where(PaymentReconciliation.receipt_id == receipt.id).with_for_update()
+    )
+    if existing and existing.status == "pending_review":
+        if (
+            existing.proposed_case_id == case_id
+            and existing.proposed_by == actor_id
+            and existing.reason == reason.strip()
+        ):
+            return existing
+        raise FinancialLedgerError("reconciliation_in_progress", "该回执已有待复核提案", 409)
+    if existing and existing.status == "approved":
+        raise FinancialLedgerError("receipt_already_matched", "该回执的对账提案已经批准", 409)
+
+    version = (existing.version + 1) if existing else 1
+    evidence_digest = _canonical_digest(
+        {
+            "receipt_payload_digest": receipt.payload_digest,
+            "receipt_signature_digest": receipt.signature_digest,
+            "proposed_case_id": case_id,
+            "candidate_snapshot": candidates,
+            "reason": reason.strip(),
+            "version": version,
+        }
+    )
+    now = utcnow()
+    review = existing or PaymentReconciliation(
+        tenant_id=receipt.tenant_id,
+        receipt_id=receipt.id,
+        proposed_case_id=case_id,
+        candidate_snapshot=candidates,
+        evidence_digest=evidence_digest,
+        reason=reason.strip(),
+        proposed_by=actor_id,
+    )
+    review.proposed_case_id = case_id
+    review.candidate_snapshot = candidates
+    review.evidence_digest = evidence_digest
+    review.reason = reason.strip()
+    review.status = "pending_review"
+    review.version = version
+    review.proposed_by = actor_id
+    review.proposed_at = now
+    review.reviewed_by = None
+    review.reviewed_at = None
+    review.review_note = None
+    review.recovery_entry_id = None
+    db.add(review)
+    receipt.status = "review_pending"
+    receipt.failure_code = "human_review_pending"
+    receipt.updated_at = now
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise FinancialLedgerError(
+            "reconciliation_conflict",
+            "该回执的对账提案已被其他请求更新",
+            409,
+        ) from exc
+    db.add(
+        AuditEvent(
+            tenant_id=receipt.tenant_id,
+            actor_id=actor_id,
+            action="payment.reconciliation.proposed",
+            resource_type="payment_reconciliation",
+            resource_id=review.id,
+            detail={
+                "receipt_id": receipt.id,
+                "case_id": case_id,
+                "version": version,
+                "evidence_digest": evidence_digest,
+                "reason_digest": hashlib.sha256(reason.strip().encode()).hexdigest(),
+            },
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise FinancialLedgerError(
+            "reconciliation_conflict",
+            "该回执的对账提案已被其他请求更新",
+            409,
+        ) from exc
+    db.refresh(review)
+    return review
+
+
+def decide_payment_reconciliation(
+    db: Session,
+    review: PaymentReconciliation,
+    decision: str,
+    review_note: str,
+    expected_version: int,
+    actor_id: str,
+) -> PaymentReconciliation:
+    if review.status != "pending_review":
+        raise FinancialLedgerError("reconciliation_not_pending", "对账提案已经处理或不再有效", 409)
+    if review.version != expected_version:
+        raise FinancialLedgerError("reconciliation_version_conflict", "对账提案已更新，请刷新后重试", 409)
+    if review.proposed_by == actor_id:
+        raise FinancialLedgerError("maker_checker_conflict", "提案人与复核人必须是不同账号", 409)
+    if decision not in {"approve", "reject"}:
+        raise FinancialLedgerError("invalid_reconciliation_decision", "复核决定无效")
+
+    receipt = db.scalar(
+        select(PaymentReceipt).where(
+            PaymentReceipt.id == review.receipt_id,
+            PaymentReceipt.tenant_id == review.tenant_id,
+        ).with_for_update()
+    )
+    if not receipt:
+        raise FinancialLedgerError("receipt_missing", "对账提案关联的回执不存在", 409)
+
+    now = utcnow()
+    review.reviewed_by = actor_id
+    review.reviewed_at = now
+    review.review_note = review_note.strip()
+    review.version += 1
+    if decision == "reject":
+        review.status = "rejected"
+        receipt.status = "rejected"
+        receipt.failure_code = "reconciliation_rejected"
+        receipt.updated_at = now
+    else:
+        entry = match_payment_receipt(
+            db,
+            receipt,
+            review.proposed_case_id,
+            actor_id,
+            commit=False,
+        )
+        review.status = "approved"
+        review.recovery_entry_id = entry.entry_id
+
+    db.add(
+        AuditEvent(
+            tenant_id=review.tenant_id,
+            actor_id=actor_id,
+            action=f"payment.reconciliation.{review.status}",
+            resource_type="payment_reconciliation",
+            resource_id=review.id,
+            detail={
+                "receipt_id": review.receipt_id,
+                "case_id": review.proposed_case_id,
+                "version": review.version,
+                "evidence_digest": review.evidence_digest,
+                "review_note_digest": hashlib.sha256(review_note.strip().encode()).hexdigest(),
+                "recovery_entry_id": review.recovery_entry_id,
+            },
+        )
+    )
+    refresh_business_metrics(db, review.tenant_id)
+    db.commit()
+    db.refresh(review)
+    return review
 
 
 def financial_summary(db: Session, tenant_id: str) -> dict[str, int]:
@@ -489,7 +737,7 @@ def financial_summary(db: Session, tenant_id: str) -> dict[str, int]:
         db.scalars(
             select(PaymentReceipt).where(
                 PaymentReceipt.tenant_id == tenant_id,
-                PaymentReceipt.status.in_({"unmatched", "review_required"}),
+                PaymentReceipt.status.in_({"unmatched", "review_required", "review_pending"}),
             )
         )
     )

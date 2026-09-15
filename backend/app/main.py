@@ -38,9 +38,12 @@ from .financial_ledger import (
     FinancialLedgerError,
     accept_payment_webhook,
     configure_payment_webhook,
+    decide_payment_reconciliation,
     financial_summary,
     match_payment_receipt,
+    payment_match_candidates,
     payment_sandbox_enabled,
+    propose_payment_reconciliation,
     record_commission_event,
     sign_payment_webhook,
 )
@@ -72,6 +75,7 @@ from .models import (
     IntegrationState,
     ModelReplayRun,
     PaymentReceipt,
+    PaymentReconciliation,
     PaymentWebhookConfig,
     RecoveryLedgerEntry,
     SelfTestReport,
@@ -110,8 +114,12 @@ from .schemas import (
     ModelReplayRequest,
     ModelReplayRunOut,
     PaymentReceiptAcceptanceOut,
+    PaymentMatchCandidateOut,
     PaymentReceiptMatchRequest,
     PaymentReceiptOut,
+    PaymentReconciliationCreateRequest,
+    PaymentReconciliationDecisionRequest,
+    PaymentReconciliationOut,
     PaymentSandboxReceiptRequest,
     PaymentWebhookConfigOut,
     PaymentWebhookConfigRequest,
@@ -250,7 +258,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.9.1",
+        version="0.10.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -274,7 +282,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.9.1")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.10.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -609,9 +617,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 select(PaymentReceipt)
                 .where(
                     PaymentReceipt.tenant_id == context.tenant_id,
-                    PaymentReceipt.status.in_({"unmatched", "review_required"}),
+                    PaymentReceipt.status.in_({"unmatched", "review_required", "review_pending"}),
                 )
                 .order_by(PaymentReceipt.received_at.desc())
+                .limit(100)
+            )
+        )
+        reconciliations = list(
+            db.scalars(
+                select(PaymentReconciliation)
+                .where(PaymentReconciliation.tenant_id == context.tenant_id)
+                .order_by(PaymentReconciliation.proposed_at.desc())
                 .limit(100)
             )
         )
@@ -629,6 +645,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             recovery_ledger=[RecoveryLedgerEntryOut.model_validate(row) for row in recoveries],
             commission_ledger=[CommissionLedgerEntryOut.model_validate(row) for row in commissions],
             pending_receipts=[payment_receipt_out(row) for row in pending],
+            reconciliations=[PaymentReconciliationOut.model_validate(row) for row in reconciliations],
             webhook_ready=bool(config and config.secret_ref and secret_status.resolvable),
             webhook_provider=config.provider if config else None,
             sandbox_enabled=payment_sandbox_enabled(),
@@ -733,7 +750,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         context: Context,
         db: Database,
     ) -> RecoveryLedgerEntryOut:
-        require_role(context, "operator", "admin")
+        require_role(context, "admin")
+        if os.getenv("ALLOW_LEGACY_PAYMENT_MATCH", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="单步回执匹配已停用；请使用提案与独立复核流程",
+            )
         if not payload.acknowledged:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认回执匹配")
         receipt = db.scalar(
@@ -749,6 +771,116 @@ def create_app(database_url: str | None = None) -> FastAPI:
         except FinancialLedgerError as exc:
             raise_financial_error(exc)
         return RecoveryLedgerEntryOut.model_validate(entry)
+
+    @app.get(
+        "/api/v1/payments/receipts/{receipt_id}/candidates",
+        response_model=list[PaymentMatchCandidateOut],
+        tags=["payments"],
+    )
+    def get_payment_match_candidates(
+        receipt_id: str,
+        context: Context,
+        db: Database,
+    ) -> list[PaymentMatchCandidateOut]:
+        receipt = db.scalar(
+            select(PaymentReceipt).where(
+                PaymentReceipt.id == receipt_id,
+                PaymentReceipt.tenant_id == context.tenant_id,
+            )
+        )
+        if not receipt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="支付回执不存在")
+        if receipt.status == "matched":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="支付回执已经匹配入账")
+        return [PaymentMatchCandidateOut(**row) for row in payment_match_candidates(db, receipt)]
+
+    @app.get(
+        "/api/v1/payments/reconciliations",
+        response_model=list[PaymentReconciliationOut],
+        tags=["payments"],
+    )
+    def list_payment_reconciliations(
+        context: Context,
+        db: Database,
+        review_status: str | None = Query(default=None, alias="status"),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> list[PaymentReconciliationOut]:
+        statement = select(PaymentReconciliation).where(
+            PaymentReconciliation.tenant_id == context.tenant_id
+        )
+        if review_status:
+            statement = statement.where(PaymentReconciliation.status == review_status)
+        rows = db.scalars(statement.order_by(PaymentReconciliation.proposed_at.desc()).limit(limit))
+        return [PaymentReconciliationOut.model_validate(row) for row in rows]
+
+    @app.post(
+        "/api/v1/payments/receipts/{receipt_id}/reconciliations",
+        response_model=PaymentReconciliationOut,
+        tags=["payments"],
+    )
+    def create_payment_reconciliation(
+        receipt_id: str,
+        payload: PaymentReconciliationCreateRequest,
+        context: Context,
+        db: Database,
+    ) -> PaymentReconciliationOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须确认仅创建匹配提案，不直接入账")
+        receipt = db.scalar(
+            select(PaymentReceipt).where(
+                PaymentReceipt.id == receipt_id,
+                PaymentReceipt.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not receipt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="支付回执不存在")
+        try:
+            review = propose_payment_reconciliation(
+                db,
+                receipt,
+                payload.case_id,
+                payload.reason,
+                context.actor_id,
+            )
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return PaymentReconciliationOut.model_validate(review)
+
+    @app.post(
+        "/api/v1/payments/reconciliations/{reconciliation_id}/decision",
+        response_model=PaymentReconciliationOut,
+        tags=["payments"],
+    )
+    def decide_reconciliation(
+        reconciliation_id: str,
+        payload: PaymentReconciliationDecisionRequest,
+        context: Context,
+        db: Database,
+    ) -> PaymentReconciliationOut:
+        require_role(context, "admin")
+        if not payload.acknowledged:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认复核决定")
+        review = db.scalar(
+            select(PaymentReconciliation).where(
+                PaymentReconciliation.id == reconciliation_id,
+                PaymentReconciliation.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not review:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="对账提案不存在")
+        try:
+            decided = decide_payment_reconciliation(
+                db,
+                review,
+                payload.decision,
+                payload.review_note,
+                payload.expected_version,
+                context.actor_id,
+            )
+        except FinancialLedgerError as exc:
+            raise_financial_error(exc)
+        return PaymentReconciliationOut.model_validate(decided)
 
     @app.post(
         "/api/v1/commissions/events",

@@ -10,9 +10,11 @@ from sqlalchemy import func, select
 from app.financial_ledger import sign_payment_webhook
 from app.main import create_app
 from app.models import (
+    AuditEvent,
     CommissionLedgerEntry,
     ManagedSecret,
     PaymentReceipt,
+    PaymentReconciliation,
     RecoveryLedgerEntry,
 )
 
@@ -175,37 +177,149 @@ def test_signed_payment_is_atomic_idempotent_and_conflict_safe(client: TestClien
     assert sum(row["entry_id"] == "sandbox-amc:PAY-ATOMIC-1" for row in overview["recovery_ledger"]) == 1
 
 
-def test_unmatched_receipt_requires_scoped_human_confirmation(client: TestClient) -> None:
+def test_unmatched_receipt_requires_scoped_maker_checker_reconciliation(client: TestClient) -> None:
     accepted = signed_event(client, payment_payload("PAY-UNMATCHED-1", case_id="C999"))
     assert accepted.status_code == 200
     receipt = accepted.json()["receipt"]
     assert receipt["status"] == "unmatched"
     assert receipt["failure_code"] == "case_unmatched"
 
-    path = f"/api/v1/payments/receipts/{receipt['id']}/match"
-    viewer = client.post(path, headers=auth_headers(role="viewer"), json={"case_id": "C002", "acknowledged": True})
+    legacy_path = f"/api/v1/payments/receipts/{receipt['id']}/match"
+    viewer = client.post(
+        legacy_path,
+        headers=auth_headers(role="viewer"),
+        json={"case_id": "C002", "acknowledged": True},
+    )
     assert viewer.status_code == 403
+    assert client.post(
+        legacy_path,
+        headers=auth_headers(),
+        json={"case_id": "C002", "acknowledged": True},
+    ).status_code == 409
+
+    candidates_path = f"/api/v1/payments/receipts/{receipt['id']}/candidates"
+    candidates = client.get(candidates_path, headers=auth_headers(role="viewer"))
+    assert candidates.status_code == 200
+    c002 = next(row for row in candidates.json() if row["case_id"] == "C002")
+    assert c002["has_signed_plan"] is True
+    assert c002["score"] < 100
+
+    proposal_path = f"/api/v1/payments/receipts/{receipt['id']}/reconciliations"
     cross_tenant = client.post(
-        path,
+        proposal_path,
         headers=auth_headers("TENANT_B", "operator"),
-        json={"case_id": "C021", "acknowledged": True},
+        json={"case_id": "C021", "reason": "已核对银行附言与合同编号", "acknowledged": True},
     )
     assert cross_tenant.status_code == 404
     missing_ack = client.post(
-        path,
+        proposal_path,
         headers=auth_headers(role="operator"),
-        json={"case_id": "C002", "acknowledged": False},
+        json={"case_id": "C002", "reason": "已核对银行附言与合同编号", "acknowledged": False},
     )
     assert missing_ack.status_code == 422
-    matched = client.post(
-        path,
+    proposed = client.post(
+        proposal_path,
         headers=auth_headers(role="operator"),
-        json={"case_id": "C002", "acknowledged": True},
+        json={"case_id": "C002", "reason": "已核对银行附言与合同编号", "acknowledged": True},
+    )
+    assert proposed.status_code == 200, proposed.text
+    review = proposed.json()
+    assert review["status"] == "pending_review"
+    assert review["proposed_by"] == "test-operator"
+    assert review["proposed_case_id"] == "C002"
+    assert len(review["evidence_digest"]) == 64
+    repeated_proposal = client.post(
+        proposal_path,
+        headers=auth_headers(role="operator"),
+        json={"case_id": "C002", "reason": "已核对银行附言与合同编号", "acknowledged": True},
+    )
+    assert repeated_proposal.status_code == 200
+    assert repeated_proposal.json()["id"] == review["id"]
+    assert repeated_proposal.json()["version"] == 1
+
+    decision_path = f"/api/v1/payments/reconciliations/{review['id']}/decision"
+    wrong_version = client.post(
+        decision_path,
+        headers=auth_headers(),
+        json={"decision": "approve", "review_note": "复核凭证一致", "expected_version": 2, "acknowledged": True},
+    )
+    assert wrong_version.status_code == 409
+    matched = client.post(
+        decision_path,
+        headers=auth_headers(),
+        json={"decision": "approve", "review_note": "复核凭证一致", "expected_version": 1, "acknowledged": True},
     )
     assert matched.status_code == 200, matched.text
-    assert matched.json()["case_id"] == "C002"
+    assert matched.json()["status"] == "approved"
+    assert matched.json()["reviewed_by"] == "test-user"
+    assert matched.json()["recovery_entry_id"] == "sandbox-amc:PAY-UNMATCHED-1"
     overview = client.get("/api/v1/payments/overview", headers=auth_headers()).json()
     assert overview["summary"]["pending_receipt_count"] == 0
+    assert overview["reconciliations"][0]["status"] == "approved"
+
+    with client.app.state.Session() as db:
+        stored = db.scalar(select(PaymentReconciliation).where(PaymentReconciliation.id == review["id"]))
+        actions = set(
+            db.scalars(
+                select(AuditEvent.action).where(
+                    AuditEvent.resource_id == review["id"],
+                )
+            )
+        )
+        assert stored and stored.version == 2
+        assert {"payment.reconciliation.proposed", "payment.reconciliation.approved"} <= actions
+
+
+def test_reconciliation_rejects_self_review_and_keeps_money_out_of_ledger(client: TestClient) -> None:
+    receipt = signed_event(client, payment_payload("PAY-REVIEW-SELF", case_id="C999")).json()["receipt"]
+    proposal = client.post(
+        f"/api/v1/payments/receipts/{receipt['id']}/reconciliations",
+        headers=auth_headers(),
+        json={"case_id": "C002", "reason": "管理员创建的人工匹配提案", "acknowledged": True},
+    ).json()
+    decision_path = f"/api/v1/payments/reconciliations/{proposal['id']}/decision"
+    same_actor = client.post(
+        decision_path,
+        headers=auth_headers(),
+        json={"decision": "approve", "review_note": "尝试自我复核", "expected_version": 1, "acknowledged": True},
+    )
+    assert same_actor.status_code == 409
+    assert "maker_checker_conflict" in same_actor.json()["detail"]
+
+    with client.app.state.Session() as db:
+        assert db.scalar(
+            select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:PAY-REVIEW-SELF")
+        ) is None
+
+
+def test_rejected_reconciliation_stays_out_of_metrics_and_can_be_resubmitted(client: TestClient) -> None:
+    receipt = signed_event(client, payment_payload("PAY-REVIEW-REJECT", case_id="C999")).json()["receipt"]
+    proposal_path = f"/api/v1/payments/receipts/{receipt['id']}/reconciliations"
+    proposal = client.post(
+        proposal_path,
+        headers=auth_headers(role="operator"),
+        json={"case_id": "C002", "reason": "首次核对付款附言后提交复核", "acknowledged": True},
+    ).json()
+    rejected = client.post(
+        f"/api/v1/payments/reconciliations/{proposal['id']}/decision",
+        headers=auth_headers(),
+        json={"decision": "reject", "review_note": "付款附言证据不足", "expected_version": 1, "acknowledged": True},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["version"] == 2
+    overview = client.get("/api/v1/payments/overview", headers=auth_headers()).json()
+    assert overview["summary"]["pending_receipt_count"] == 0
+    assert not any(row["entry_id"] == "sandbox-amc:PAY-REVIEW-REJECT" for row in overview["recovery_ledger"])
+
+    resubmitted = client.post(
+        proposal_path,
+        headers=auth_headers(role="operator"),
+        json={"case_id": "C002", "reason": "补充银行流水编号后重新提交复核", "acknowledged": True},
+    )
+    assert resubmitted.status_code == 200
+    assert resubmitted.json()["status"] == "pending_review"
+    assert resubmitted.json()["version"] == 3
 
 
 def test_refund_uses_original_rate_and_cannot_exceed_original_payment(client: TestClient) -> None:

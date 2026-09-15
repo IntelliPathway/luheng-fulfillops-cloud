@@ -419,6 +419,47 @@ class PaymentReceiptMatchRequest(BaseModel):
     acknowledged: bool
 
 
+class PaymentMatchCandidateOut(BaseModel):
+    case_id: str
+    package_id: str
+    score: int
+    signals: list[str]
+    blocked: bool
+    has_signed_plan: bool
+
+
+class PaymentReconciliationCreateRequest(BaseModel):
+    case_id: str = Field(pattern=r"^C[0-9]{3,12}$")
+    reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class PaymentReconciliationDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    review_note: str = Field(min_length=4, max_length=500)
+    expected_version: int = Field(ge=1)
+    acknowledged: bool
+
+
+class PaymentReconciliationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    receipt_id: str
+    proposed_case_id: str
+    candidate_snapshot: list[dict[str, Any]]
+    evidence_digest: str
+    reason: str
+    status: str
+    version: int
+    proposed_by: str
+    proposed_at: datetime
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    review_note: str | None
+    recovery_entry_id: str | None
+
+
 class PaymentSandboxReceiptRequest(BaseModel):
     case_id: str = Field(default="C002", pattern=r"^C[0-9]{3,12}$")
     amount_cents: int = Field(default=101_600, gt=0, le=100_000_000)
@@ -477,6 +518,7 @@ class FinancialOverviewOut(BaseModel):
     recovery_ledger: list[RecoveryLedgerEntryOut]
     commission_ledger: list[CommissionLedgerEntryOut]
     pending_receipts: list[PaymentReceiptOut]
+    reconciliations: list[PaymentReconciliationOut] = Field(default_factory=list)
     webhook_ready: bool
     webhook_provider: str | None
     sandbox_enabled: bool
