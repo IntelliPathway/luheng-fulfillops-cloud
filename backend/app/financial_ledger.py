@@ -194,10 +194,10 @@ def _commission_cents(amount_cents: int, rate_bps: int) -> int:
     return sign * ((abs(amount_cents) * rate_bps + 5_000) // 10_000)
 
 
-def _financial_profile(db: Session, tenant_id: str, case_id: str) -> tuple[CaseRecord, CaseFinancialProfile, CommissionRule]:
-    case = db.scalar(
-        select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id)
-    )
+def _financial_profile(
+    db: Session, tenant_id: str, case_id: str
+) -> tuple[CaseRecord, CaseFinancialProfile, CommissionRule]:
+    case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
     profile = db.scalar(
         select(CaseFinancialProfile).where(
             CaseFinancialProfile.tenant_id == tenant_id,
@@ -207,12 +207,14 @@ def _financial_profile(db: Session, tenant_id: str, case_id: str) -> tuple[CaseR
     if not case or not profile:
         raise FinancialLedgerError("case_unmatched", "回执未匹配到当前租户的完整案件财务档案")
     rule = db.scalar(
-        select(CommissionRule).where(
+        select(CommissionRule)
+        .where(
             CommissionRule.tenant_id == tenant_id,
             CommissionRule.rule_id == profile.commission_rule_id,
             CommissionRule.package_id == case.package_id,
             CommissionRule.status == "active",
-        ).order_by(CommissionRule.version.desc())
+        )
+        .order_by(CommissionRule.version.desc())
     )
     if not rule:
         raise FinancialLedgerError("commission_rule_missing", "案件缺少有效佣金规则")
@@ -293,11 +295,13 @@ def _reconcile_receipt(db: Session, receipt: PaymentReceipt, created_by: str) ->
         if not original_receipt or not original_receipt.recovery_entry_id:
             raise FinancialLedgerError("original_payment_missing", "退款引用的原支付事件不存在或尚未匹配")
         original = db.scalar(
-            select(RecoveryLedgerEntry).where(
+            select(RecoveryLedgerEntry)
+            .where(
                 RecoveryLedgerEntry.tenant_id == receipt.tenant_id,
                 RecoveryLedgerEntry.entry_id == original_receipt.recovery_entry_id,
                 RecoveryLedgerEntry.event_type == "PAYMENT",
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not original or original.case_id != case_id:
             raise FinancialLedgerError("refund_case_mismatch", "退款案件与原支付事件不一致")
@@ -501,9 +505,7 @@ def payment_match_candidates(
 
     profiles = {
         row.case_id: row
-        for row in db.scalars(
-            select(CaseFinancialProfile).where(CaseFinancialProfile.tenant_id == receipt.tenant_id)
-        )
+        for row in db.scalars(select(CaseFinancialProfile).where(CaseFinancialProfile.tenant_id == receipt.tenant_id))
     }
     original_case_id: str | None = None
     if receipt.event_type == "refund" and receipt.original_provider_event_id:
@@ -518,11 +520,7 @@ def payment_match_candidates(
         original_case_id = original.case_id if original else None
 
     candidates: list[dict[str, Any]] = []
-    cases = db.scalars(
-        select(CaseRecord)
-        .where(CaseRecord.tenant_id == receipt.tenant_id)
-        .order_by(CaseRecord.case_id)
-    )
+    cases = db.scalars(select(CaseRecord).where(CaseRecord.tenant_id == receipt.tenant_id).order_by(CaseRecord.case_id))
     for case in cases:
         if case.case_id not in profiles:
             continue
@@ -680,10 +678,12 @@ def decide_payment_reconciliation(
         raise FinancialLedgerError("invalid_reconciliation_decision", "复核决定无效")
 
     receipt = db.scalar(
-        select(PaymentReceipt).where(
+        select(PaymentReceipt)
+        .where(
             PaymentReceipt.id == review.receipt_id,
             PaymentReceipt.tenant_id == review.tenant_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if not receipt:
         raise FinancialLedgerError("receipt_missing", "对账提案关联的回执不存在", 409)
@@ -776,7 +776,9 @@ def refresh_business_metrics(db: Session, tenant_id: str) -> dict[str, int]:
             )
         )
         if not metric:
-            metric = BusinessMetricSnapshot(tenant_id=tenant_id, metric_key=key, value=value, source="不可变回款与佣金账簿")
+            metric = BusinessMetricSnapshot(
+                tenant_id=tenant_id, metric_key=key, value=value, source="不可变回款与佣金账簿"
+            )
             db.add(metric)
         metric.value = value
         metric.source = "不可变回款与佣金账簿"
@@ -798,15 +800,18 @@ def record_commission_event(
         raise FinancialLedgerError("invalid_commission_event", "只允许登记结算或实收佣金事件")
     occurred_at = _naive_utc(occurred_at)
     digest = _canonical_digest(
-        {"event_type": event_type, "amount_cents": amount_cents, "reference": reference, "occurred_at": occurred_at.isoformat()}
+        {
+            "event_type": event_type,
+            "amount_cents": amount_cents,
+            "reference": reference,
+            "occurred_at": occurred_at.isoformat(),
+        }
     )
     # PostgreSQL serializes balance checks for a tenant by locking its existing
     # commission history. SQLite ignores FOR UPDATE and remains the local-only path.
     list(
         db.scalars(
-            select(CommissionLedgerEntry.id)
-            .where(CommissionLedgerEntry.tenant_id == tenant_id)
-            .with_for_update()
+            select(CommissionLedgerEntry.id).where(CommissionLedgerEntry.tenant_id == tenant_id).with_for_update()
         )
     )
     existing = db.scalar(

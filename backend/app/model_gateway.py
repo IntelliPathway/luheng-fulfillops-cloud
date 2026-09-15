@@ -89,11 +89,7 @@ def _setting_float(settings: dict[str, Any], key: str, default: float, minimum: 
 
 def _allowed_hosts() -> set[str]:
     configured = os.getenv("MODEL_EGRESS_ALLOWLIST", "").strip()
-    hosts = {
-        item.strip().lower().rstrip(".")
-        for item in configured.split(",")
-        if item.strip()
-    }
+    hosts = {item.strip().lower().rstrip(".") for item in configured.split(",") if item.strip()}
     return hosts or DEFAULT_EGRESS_HOSTS
 
 
@@ -303,7 +299,9 @@ def invoke_json_model(
     if len(system_prompt) + len(user_prompt) > 12_000:
         raise ModelGatewayError("input_too_large", "模型输入超过受控调用上限")
     estimated_input_tokens = math.ceil((len(system_prompt) + len(user_prompt)) / 2)
-    reserved_cost = (estimated_input_tokens + policy.max_output_tokens) * policy.cost_ceiling_per_million_tokens / 1_000_000
+    reserved_cost = (
+        (estimated_input_tokens + policy.max_output_tokens) * policy.cost_ceiling_per_million_tokens / 1_000_000
+    )
     if reserved_cost > policy.max_cost_usd:
         raise ModelGatewayError("budget_exceeded", "模型调用的保守费用预估超过单次预算")
     payload = {
@@ -391,7 +389,7 @@ def test_model_runtime(db: Session, config: ServiceConfig) -> tuple[int, str]:
         config,
         credential or "",
         config.tenant_id,
-        "Return only a JSON object matching this example: {\"status\":\"ok\"}.",
+        'Return only a JSON object matching this example: {"status":"ok"}.',
         "Connectivity probe. Do not use tools. Return JSON now.",
     )
     if result.content.get("status") != "ok":

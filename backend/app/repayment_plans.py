@@ -182,21 +182,25 @@ def create_plan_proposal(
         }
     )
     existing = db.scalar(
-        select(RepaymentPlan).where(
+        select(RepaymentPlan)
+        .where(
             RepaymentPlan.tenant_id == tenant_id,
             RepaymentPlan.plan_id == plan_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if existing:
         if existing.evidence_digest == evidence_digest:
             return existing
         raise RepaymentPlanError("plan_id_conflict", "同一方案编号已绑定不同条款或证据", 409)
     in_progress = db.scalar(
-        select(RepaymentPlan).where(
+        select(RepaymentPlan)
+        .where(
             RepaymentPlan.tenant_id == tenant_id,
             RepaymentPlan.case_id == case_id,
             RepaymentPlan.status.in_({"pending_review", *ACTIVE_PLAN_STATUSES}),
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if in_progress:
         raise RepaymentPlanError("case_plan_in_progress", "案件已有待复核或执行中的履约方案", 409)
@@ -301,8 +305,7 @@ def decide_plan(
     case, profile, package = _plan_context(db, plan.tenant_id, plan.case_id, lock=True)
     rows = _installments(db, plan, lock=True)
     schedule = [
-        {"installment_no": row.installment_no, "due_date": row.due_date, "due_cents": row.due_cents}
-        for row in rows
+        {"installment_no": row.installment_no, "due_date": row.due_date, "due_cents": row.due_cents} for row in rows
     ]
     if decision == "approve":
         if package.policy_version != plan.policy_version:
@@ -317,12 +320,14 @@ def decide_plan(
             plan.signed_at,
         )
         active = db.scalar(
-            select(RepaymentPlan).where(
+            select(RepaymentPlan)
+            .where(
                 RepaymentPlan.tenant_id == plan.tenant_id,
                 RepaymentPlan.case_id == plan.case_id,
                 RepaymentPlan.status.in_(ACTIVE_PLAN_STATUSES),
                 RepaymentPlan.id != plan.id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if active:
             raise RepaymentPlanError("active_plan_exists", "案件已经存在生效中的履约方案", 409)
@@ -423,17 +428,22 @@ def allocate_recovery_to_plan(db: Session, recovery: RecoveryLedgerEntry) -> lis
                 )
             )
         )
-        plan = db.scalar(
-            select(RepaymentPlan).where(RepaymentPlan.id == originals[0].plan_row_id).with_for_update()
-        ) if originals else None
+        plan = (
+            db.scalar(select(RepaymentPlan).where(RepaymentPlan.id == originals[0].plan_row_id).with_for_update())
+            if originals
+            else None
+        )
     else:
         plan = db.scalar(
-            select(RepaymentPlan).where(
+            select(RepaymentPlan)
+            .where(
                 RepaymentPlan.tenant_id == recovery.tenant_id,
                 RepaymentPlan.case_id == recovery.case_id,
                 RepaymentPlan.status.in_(ACTIVE_PLAN_STATUSES),
                 RepaymentPlan.signed_at <= recovery.booked_at,
-            ).order_by(RepaymentPlan.activated_at.desc()).with_for_update()
+            )
+            .order_by(RepaymentPlan.activated_at.desc())
+            .with_for_update()
         )
     if not plan:
         return []
@@ -562,9 +572,7 @@ def plan_view(db: Session, plan: RepaymentPlan) -> dict[str, Any]:
 def repayment_overview(db: Session, tenant_id: str) -> dict[str, Any]:
     plans = list(
         db.scalars(
-            select(RepaymentPlan)
-            .where(RepaymentPlan.tenant_id == tenant_id)
-            .order_by(RepaymentPlan.proposed_at.desc())
+            select(RepaymentPlan).where(RepaymentPlan.tenant_id == tenant_id).order_by(RepaymentPlan.proposed_at.desc())
         )
     )
     views = [plan_view(db, plan) for plan in plans]

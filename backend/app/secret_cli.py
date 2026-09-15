@@ -13,9 +13,7 @@ def main() -> int:
     parser.add_argument("command", choices=("status", "rotate"))
     parser.add_argument("--tenant", help="只检查或重包裹一个租户")
     args = parser.parse_args()
-    session_factory = build_session_factory(
-        build_engine(os.getenv("DATABASE_URL", "sqlite:///./luheng-dev.db"))
-    )
+    session_factory = build_session_factory(build_engine(os.getenv("DATABASE_URL", "sqlite:///./luheng-dev.db")))
     with session_factory() as db:
         if args.command == "rotate":
             count = rewrap_active_secrets(db, args.tenant)

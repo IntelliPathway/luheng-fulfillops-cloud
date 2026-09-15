@@ -1,16 +1,19 @@
 # 履衡 AI FulfillOps API
 
-`v0.12.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。Sites 测试部署只承载前端交互沙箱；完整 FastAPI、Worker 和 PostgreSQL 服务使用 ECS/1Panel Compose。
+`v0.13.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
 
 ## 本地运行
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvicorn app.main:app --reload --port 8000
+APP_ENV=development SEED_DEMO_DATA=true DATABASE_URL=sqlite:///./luheng-dev.db \
+  .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-接口文档：`http://127.0.0.1:8000/api/docs`。
+接口文档：`http://127.0.0.1:8000/api/docs`。`/api/v1/health/live` 检查进程，`/api/v1/health/ready` 会查询数据库。
+
+生产必须设置 `APP_ENV=production`，关闭 `AUTO_CREATE_SCHEMA`、`SEED_DEMO_DATA` 和两个开发认证开关。完整变量见 `docs/configuration.md`。
 
 前端开发服务器通过 `/api` 代理到 `127.0.0.1:8000`。也可以从项目根目录运行 `docker compose up --build`，同时启动 PostgreSQL、API 和前端。
 
@@ -21,7 +24,7 @@ JOB_EXECUTION_MODE=external DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/uvi
 JOB_EXECUTION_MODE=external DATABASE_URL=sqlite:///./luheng-dev.db .venv/bin/python -m app.worker
 ```
 
-Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default` 队列。`postgres-notify` 通过事务提交后的通知唤醒 Worker，数据库轮询仍负责恢复丢失通知。现有 PostgreSQL 数据卷启动 API 时会按 `migrations/` 自动执行尚未登记的事务迁移。
+Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default` 队列。`postgres-notify` 通过事务提交后的通知唤醒 Worker，数据库轮询仍负责恢复丢失通知。现有 PostgreSQL 数据卷启动 API 时会按 `migrations/` 自动执行尚未登记的事务迁移。生产不调用 SQLAlchemy `create_all`；SQLite 建表和兼容升级只属于开发/测试路径。
 
 ## 请求上下文
 
@@ -124,4 +127,4 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh` 和 `./scripts/smoke-v12-repayment-plans.sh`。v0.12 冒烟覆盖保护案件阻断、方案提案、自审与陈旧版本阻断、独立批准、最早到期期次分摊和退款逆向冲销。
 
-当前本地基线为 77 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 78 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前共收集 90 项后端测试：本地 89 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 17 后执行完整 90 项。覆盖启动失败关闭、显式种子、首租户初始化、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

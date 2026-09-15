@@ -115,19 +115,25 @@ def enqueue_job(
 def _connection_test(db: Session, job: AsyncJob) -> dict[str, Any]:
     service_type = str(job.payload.get("service_type") or "")
     config = db.scalar(
-        select(ServiceConfig).where(ServiceConfig.tenant_id == job.tenant_id, ServiceConfig.service_type == service_type)
+        select(ServiceConfig).where(
+            ServiceConfig.tenant_id == job.tenant_id, ServiceConfig.service_type == service_type
+        )
     )
     if not config:
         raise ValueError("请先保存服务配置")
     validate_service_settings(service_type, config.settings)
     if not config.secret_ref:
         raise ValueError("服务凭证尚未托管")
-    model_config = db.scalar(
-        select(ServiceConfig).where(
-            ServiceConfig.tenant_id == job.tenant_id,
-            ServiceConfig.service_type == "model",
+    model_config = (
+        db.scalar(
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == job.tenant_id,
+                ServiceConfig.service_type == "model",
+            )
         )
-    ) if service_type == "agent" else None
+        if service_type == "agent"
+        else None
+    )
     if service_type == "agent":
         latency, detail = test_agent_runtime(config, model_config, db)
     elif service_type == "model":

@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .domain import utcnow
 from .job_broker import broker_health
 from .models import AgentRun, AsyncJob, AuditEvent, JobWorker
+from .version import APP_VERSION
 
 DEFAULT_QUEUE = "default"
-WORKER_VERSION = "0.12.0"
+WORKER_VERSION = APP_VERSION
 
 
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -216,9 +217,7 @@ def recover_stale_jobs(session_factory: sessionmaker, recovered_by: str, *, limi
             )
             if recovered_row.rowcount != 1:
                 continue
-            for run in db.scalars(
-                select(AgentRun).where(AgentRun.job_id == job.id, AgentRun.status == "running")
-            ):
+            for run in db.scalars(select(AgentRun).where(AgentRun.job_id == job.id, AgentRun.status == "running")):
                 run.status = "failed"
                 run.error = "Worker 租约过期，运行已由队列恢复"
                 run.completed_at = now
@@ -279,20 +278,26 @@ def queue_health(db: Session, tenant_id: str) -> dict[str, Any]:
     tenant_jobs = AsyncJob.tenant_id == tenant_id
     queued_jobs = db.scalar(select(func.count(AsyncJob.id)).where(tenant_jobs, AsyncJob.status == "queued")) or 0
     running_jobs = db.scalar(select(func.count(AsyncJob.id)).where(tenant_jobs, AsyncJob.status == "running")) or 0
-    stale_jobs = db.scalar(
-        select(func.count(AsyncJob.id)).where(
-            tenant_jobs,
-            AsyncJob.status == "running",
-            AsyncJob.lease_expires_at.is_not(None),
-            AsyncJob.lease_expires_at <= now,
+    stale_jobs = (
+        db.scalar(
+            select(func.count(AsyncJob.id)).where(
+                tenant_jobs,
+                AsyncJob.status == "running",
+                AsyncJob.lease_expires_at.is_not(None),
+                AsyncJob.lease_expires_at <= now,
+            )
         )
-    ) or 0
-    active_workers = db.scalar(
-        select(func.count(JobWorker.id)).where(
-            JobWorker.status.in_(("starting", "idle", "running")),
-            JobWorker.heartbeat_at >= stale_cutoff,
+        or 0
+    )
+    active_workers = (
+        db.scalar(
+            select(func.count(JobWorker.id)).where(
+                JobWorker.status.in_(("starting", "idle", "running")),
+                JobWorker.heartbeat_at >= stale_cutoff,
+            )
         )
-    ) or 0
+        or 0
+    )
     latest_heartbeat = db.scalar(select(func.max(JobWorker.heartbeat_at)))
     mode = job_execution_mode()
     return {

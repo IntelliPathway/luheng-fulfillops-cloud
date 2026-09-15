@@ -185,7 +185,9 @@ def execute_controlled_tool(
         if not 1 <= len(query) <= 500:
             raise ValueError("query 长度必须为 1 到 500 个字符")
         packages = list(
-            db.scalars(select(AssetPackage).where(AssetPackage.tenant_id == tenant_id).order_by(AssetPackage.package_id))
+            db.scalars(
+                select(AssetPackage).where(AssetPackage.tenant_id == tenant_id).order_by(AssetPackage.package_id)
+            )
         )
         return _result(
             "知识检索结果",

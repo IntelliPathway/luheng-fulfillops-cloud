@@ -111,11 +111,7 @@ def test_provider_event_ids_and_derived_entries_are_unique_within_each_tenant(cl
     assert tenant_b.json()["receipt"]["status"] == "matched"
     with client.app.state.Session() as db:
         recoveries = list(
-            db.scalars(
-                select(RecoveryLedgerEntry).where(
-                    RecoveryLedgerEntry.entry_id == f"sandbox-amc:{event_id}"
-                )
-            )
+            db.scalars(select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == f"sandbox-amc:{event_id}"))
         )
         commissions = list(
             db.scalars(
@@ -191,11 +187,14 @@ def test_unmatched_receipt_requires_scoped_maker_checker_reconciliation(client: 
         json={"case_id": "C002", "acknowledged": True},
     )
     assert viewer.status_code == 403
-    assert client.post(
-        legacy_path,
-        headers=auth_headers(),
-        json={"case_id": "C002", "acknowledged": True},
-    ).status_code == 409
+    assert (
+        client.post(
+            legacy_path,
+            headers=auth_headers(),
+            json={"case_id": "C002", "acknowledged": True},
+        ).status_code
+        == 409
+    )
 
     candidates_path = f"/api/v1/payments/receipts/{receipt['id']}/candidates"
     candidates = client.get(candidates_path, headers=auth_headers(role="viewer"))
@@ -287,9 +286,10 @@ def test_reconciliation_rejects_self_review_and_keeps_money_out_of_ledger(client
     assert "maker_checker_conflict" in same_actor.json()["detail"]
 
     with client.app.state.Session() as db:
-        assert db.scalar(
-            select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:PAY-REVIEW-SELF")
-        ) is None
+        assert (
+            db.scalar(select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:PAY-REVIEW-SELF"))
+            is None
+        )
 
 
 def test_rejected_reconciliation_stays_out_of_metrics_and_can_be_resubmitted(client: TestClient) -> None:
@@ -347,9 +347,12 @@ def test_refund_uses_original_rate_and_cannot_exceed_original_payment(client: Te
     assert review["status"] == "review_required"
     assert review["failure_code"] == "refund_exceeds_payment"
     with client.app.state.Session() as db:
-        assert db.scalar(
-            select(func.count(RecoveryLedgerEntry.id)).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:REFUND-2")
-        ) == 0
+        assert (
+            db.scalar(
+                select(func.count(RecoveryLedgerEntry.id)).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:REFUND-2")
+            )
+            == 0
+        )
 
 
 def test_commission_settlement_and_collection_are_bounded_and_idempotent(client: TestClient) -> None:
@@ -361,7 +364,10 @@ def test_commission_settlement_and_collection_are_bounded_and_idempotent(client:
         "occurred_at": "2026-09-14T14:00:00Z",
         "acknowledged": True,
     }
-    assert client.post("/api/v1/commissions/events", headers=auth_headers(role="viewer"), json=settlement).status_code == 403
+    assert (
+        client.post("/api/v1/commissions/events", headers=auth_headers(role="viewer"), json=settlement).status_code
+        == 403
+    )
     created = client.post("/api/v1/commissions/events", headers=auth_headers(), json=settlement)
     assert created.status_code == 200, created.text
     assert created.json()["duplicate"] is False
@@ -404,7 +410,9 @@ def test_commission_settlement_and_collection_are_bounded_and_idempotent(client:
     assert summary["uncollected_settlement_cents"] == 40_000
 
 
-def test_sandbox_endpoint_uses_same_signature_and_ledger_path(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sandbox_endpoint_uses_same_signature_and_ledger_path(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     request = {"case_id": "C002", "amount_cents": 101_600, "idempotency_key": "ui-demo-payment-1"}
     created = client.post("/api/v1/payments/sandbox-receipts", headers=auth_headers(role="operator"), json=request)
     assert created.status_code == 200, created.text

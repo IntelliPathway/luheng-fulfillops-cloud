@@ -146,6 +146,7 @@
 
 /* v0.3 identity, persistent jobs and Agent Gateway status. */
 .demo-tag.server-connected{color:var(--green);background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 25%,var(--border))}
+.startup-blocked{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--surface)}.startup-blocked>section{width:min(520px,100%);padding:36px;border:1px solid var(--border);border-radius:18px;background:var(--bg);box-shadow:var(--shadow);text-align:center}.startup-blocked svg{color:var(--primary);margin-bottom:14px}.startup-blocked h1{font-size:25px;margin-bottom:12px}.startup-blocked p{color:var(--muted);line-height:1.7}.startup-blocked .notice{margin:22px 0;text-align:left}.startup-blocked .btn{min-width:128px}
 .gateway-runtime-strip{display:grid;grid-template-columns:36px minmax(190px,.65fr) auto minmax(260px,1fr);gap:12px;align-items:center;border:1px solid var(--border);border-radius:14px;padding:11px 14px;margin-bottom:14px;background:linear-gradient(90deg,var(--tint),var(--bg));box-shadow:var(--soft-shadow)}
 .gateway-runtime-icon{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--primary);background:var(--bg)}
 .gateway-runtime-strip b,.gateway-runtime-strip small{display:block}.gateway-runtime-strip b{font-size:11px}.gateway-runtime-strip small{font-size:9px;color:var(--muted)}

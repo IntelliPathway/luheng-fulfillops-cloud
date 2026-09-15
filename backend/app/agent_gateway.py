@@ -100,12 +100,14 @@ def _trace(tool: str, status: str = "completed", detail: str = "租户范围与�
     return {"tool": tool, "status": status, "detail": detail}
 
 
-def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str, scope_id: str | None) -> dict[str, Any]:
+def build_agent_result(
+    db: Session, tenant_id: str, query: str, scope_type: str, scope_id: str | None
+) -> dict[str, Any]:
     text = query.strip()
     case_match = re.search(r"C\d{3}", text, re.IGNORECASE)
     activity_match = re.search(r"ACT-\d{3}", text, re.IGNORECASE)
     scoped_activity = scope_id if scope_type == "activity" else None
-    activity_id = (activity_match.group(0).upper() if activity_match else scoped_activity)
+    activity_id = activity_match.group(0).upper() if activity_match else scoped_activity
 
     if activity_id and re.search(r"暂停|恢复", text):
         activity = db.scalar(
@@ -164,9 +166,10 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
             facts: list[dict[str, str]] = []
             evidence: list[dict[str, Any]] = []
         else:
-            body = (
-                f"案件当前状态为“{case.status}”。"
-                + ("案件处于保护暂停，Agent 不会安排新的触达。" if case.blocked else "案件可继续由策略与状态机评估下一允许动作。")
+            body = f"案件当前状态为“{case.status}”。" + (
+                "案件处于保护暂停，Agent 不会安排新的触达。"
+                if case.blocked
+                else "案件可继续由策略与状态机评估下一允许动作。"
             )
             facts = [
                 {"label": "资产包", "value": case.package_id},
@@ -230,9 +233,13 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
     if re.search(r"创建|启动|下达|安排", text):
         package_match = re.search(r"PKG_[A-Z]", text, re.IGNORECASE)
         package_id = package_match.group(0).upper() if package_match else None
-        package = db.scalar(
-            select(AssetPackage).where(AssetPackage.tenant_id == tenant_id, AssetPackage.package_id == package_id)
-        ) if package_id else None
+        package = (
+            db.scalar(
+                select(AssetPackage).where(AssetPackage.tenant_id == tenant_id, AssetPackage.package_id == package_id)
+            )
+            if package_id
+            else None
+        )
         return {
             "answer": {
                 "title": "已生成结构化活动草案",
@@ -244,7 +251,8 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
                 ],
                 "sources": [
                     _source("资产包授权", "asset_package", package.package_id, f"v{package.policy_version}")
-                    if package else _source("活动创建规则", "workflow", "activity.create", "v0.3")
+                    if package
+                    else _source("活动创建规则", "workflow", "activity.create", "v0.3")
                 ],
                 "navigation_hint": f"create:{package.package_id}" if package else "create",
             },
@@ -252,7 +260,9 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
                 _trace("policy.read"),
                 _trace("activity.propose", "draft_only", "聊天未执行活动创建，仅生成向导草案"),
             ],
-            "evidence": [{"package_id": package.package_id, "policy_version": package.policy_version}] if package else [],
+            "evidence": [{"package_id": package.package_id, "policy_version": package.policy_version}]
+            if package
+            else [],
             "proposal": None,
         }
 
@@ -298,7 +308,10 @@ def build_agent_result(db: Session, tenant_id: str, query: str, scope_type: str,
                 "navigation_hint": "strategy",
             },
             "tool_trace": [_trace("policy.read")],
-            "evidence": [{"package_id": row.package_id, "policy_status": row.policy_status, "policy_version": row.policy_version} for row in packages],
+            "evidence": [
+                {"package_id": row.package_id, "policy_status": row.policy_status, "policy_version": row.policy_version}
+                for row in packages
+            ],
             "proposal": None,
         }
 

@@ -142,7 +142,9 @@ def _case_result(db: Session, replay: ModelReplayRun, case: dict[str, Any]) -> d
     }
 
 
-def _provider_evaluation(db: Session, replay: ModelReplayRun, results: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _provider_evaluation(
+    db: Session, replay: ModelReplayRun, results: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     config = db.scalar(
         select(ServiceConfig).where(
             ServiceConfig.tenant_id == replay.tenant_id,
@@ -164,14 +166,8 @@ def _provider_evaluation(db: Session, replay: ModelReplayRun, results: list[dict
             {
                 "case_id": result["case_id"],
                 "status": result["status"],
-                "checks": [
-                    {"name": check["name"], "passed": check["passed"]}
-                    for check in result["checks"]
-                ],
-                "tools": [
-                    {"tool": row.get("tool"), "status": row.get("status")}
-                    for row in result["tool_trace"]
-                ],
+                "checks": [{"name": check["name"], "passed": check["passed"]} for check in result["checks"]],
+                "tools": [{"tool": row.get("tool"), "status": row.get("status")} for row in result["tool_trace"]],
             }
             for result in results
         ],
@@ -203,9 +199,24 @@ def _provider_evaluation(db: Session, replay: ModelReplayRun, results: list[dict
         "case_id": "provider-evaluation",
         "status": "passed" if safe_verdict else "failed",
         "checks": [
-            {"name": "response_schema", "passed": schema_valid, "expected": "valid", "actual": "valid" if schema_valid else "invalid"},
-            {"name": "reviewed_cases", "passed": reviewed_all, "expected": len(case_ids), "actual": len(reviewed) if isinstance(reviewed, list) else 0},
-            {"name": "safe_verdict", "passed": safe_verdict, "expected": "pass/no-risk", "actual": verdict if schema_valid else "invalid"},
+            {
+                "name": "response_schema",
+                "passed": schema_valid,
+                "expected": "valid",
+                "actual": "valid" if schema_valid else "invalid",
+            },
+            {
+                "name": "reviewed_cases",
+                "passed": reviewed_all,
+                "expected": len(case_ids),
+                "actual": len(reviewed) if isinstance(reviewed, list) else 0,
+            },
+            {
+                "name": "safe_verdict",
+                "passed": safe_verdict,
+                "expected": "pass/no-risk",
+                "actual": verdict if schema_valid else "invalid",
+            },
         ],
         "tool_trace": [
             {

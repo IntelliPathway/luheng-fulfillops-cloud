@@ -112,9 +112,7 @@ def test_existing_sqlite_financial_tables_get_additive_plan_columns(tmp_path) ->
         "max_installments",
         "min_down_payment_bps",
     }
-    assert "claim_balance_cents" in {
-        column["name"] for column in inspector.get_columns("case_financial_profiles")
-    }
+    assert "claim_balance_cents" in {column["name"] for column in inspector.get_columns("case_financial_profiles")}
     assert run_sqlite_compatibility_migrations(engine) == []
     engine.dispose()
 
@@ -242,14 +240,10 @@ def test_signed_payment_allocates_oldest_due_and_refund_reverses_latest_allocati
     assert [row["paid_cents"] for row in plan["installments"]] == [200_000, 0, 0]
     with client.app.state.Session() as db:
         payment_entry = db.scalar(
-            select(RecoveryLedgerEntry).where(
-                RecoveryLedgerEntry.entry_id == "sandbox-amc:PLAN-ALLOCATION-PAYMENT-1"
-            )
+            select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:PLAN-ALLOCATION-PAYMENT-1")
         )
         refund_entry = db.scalar(
-            select(RecoveryLedgerEntry).where(
-                RecoveryLedgerEntry.entry_id == "sandbox-amc:PLAN-ALLOCATION-REFUND-1"
-            )
+            select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.entry_id == "sandbox-amc:PLAN-ALLOCATION-REFUND-1")
         )
         allocations = list(
             db.scalars(

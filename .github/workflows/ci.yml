@@ -51,6 +51,7 @@ jobs:
           TEST_POSTGRES_URL: postgresql+psycopg://luheng:luheng@127.0.0.1:5432/luheng_test
         run: |
           python -m ruff check app tests
+          python -m ruff format --check app tests
           python -m pytest -q
       - name: Smoke signed financial ledger
         run: ./scripts/smoke-v09-financial-ledger.sh
@@ -63,9 +64,16 @@ jobs:
       - name: Validate ECS and 1Panel Compose
         env:
           APP_HTTP_PORT: "18080"
+          APP_ENV: production
           POSTGRES_PASSWORD: ci-password
           DATABASE_URL: postgresql+psycopg://luheng:ci-password@postgres:5432/luheng
-          AUTH_JWT_SECRET: ci-auth-secret-long-enough-for-compose-validation
+          AUTH_MODE: oidc
+          ALLOW_DEV_HEADER_AUTH: "false"
+          ALLOW_DEV_TOKEN: "false"
+          OIDC_ISSUER: https://idp.example.test/
+          OIDC_AUDIENCE: luheng-fulfillops
+          OIDC_JWKS_URL: https://idp.example.test/.well-known/jwks.json
+          CORS_ORIGINS: https://fulfillops.example.test
           RUNTIME_JWT_SECRET: ci-runtime-secret-long-enough-for-compose-validation
           SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
         run: docker compose -f deploy/1panel/docker-compose.yml config --quiet
@@ -73,10 +81,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: Test and build frontend
-        run: |
-          npm run test:domain
-          npm run build
-          npm run test:sites
+        run: npm test
       - name: Verify generated hosting artifacts
         run: |
           test -f dist/client/index.html

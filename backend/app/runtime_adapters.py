@@ -63,7 +63,12 @@ def _blocked_runtime_request(query: str) -> dict[str, Any] | None:
                 {"label": "最终裁决", "value": "确定性业务服务"},
             ],
             "sources": [
-                {"label": "Agent 工具权限策略", "entity_type": "tool_policy", "entity_id": "fulfillops-safe", "version": "v0.4"}
+                {
+                    "label": "Agent 工具权限策略",
+                    "entity_type": "tool_policy",
+                    "entity_id": "fulfillops-safe",
+                    "version": "v0.4",
+                }
             ],
             "navigation_hint": "integrations",
         },
@@ -143,11 +148,15 @@ def runtime_settings_for(db: Session, session: AgentSession) -> dict[str, Any]:
             ServiceConfig.provider == session.runtime_provider,
         )
     )
-    settings = dict(config.settings) if config else {
-        "transport": "sandbox-contract",
-        "safetyPreset": "fulfillops-safe",
-        "sessionPersistence": "database-checkpoint",
-    }
+    settings = (
+        dict(config.settings)
+        if config
+        else {
+            "transport": "sandbox-contract",
+            "safetyPreset": "fulfillops-safe",
+            "sessionPersistence": "database-checkpoint",
+        }
+    )
     model_config = db.scalar(
         select(ServiceConfig).where(
             ServiceConfig.tenant_id == session.tenant_id,
@@ -162,7 +171,9 @@ def runtime_settings_for(db: Session, session: AgentSession) -> dict[str, Any]:
     return settings
 
 
-def run_runtime_turn(db: Session, session: AgentSession, query: str) -> tuple[dict[str, Any], AgentRuntimeCheckpoint, dict[str, Any]]:
+def run_runtime_turn(
+    db: Session, session: AgentSession, query: str
+) -> tuple[dict[str, Any], AgentRuntimeCheckpoint, dict[str, Any]]:
     settings = runtime_settings_for(db, session)
     checkpoint = db.scalar(
         select(AgentRuntimeCheckpoint).where(

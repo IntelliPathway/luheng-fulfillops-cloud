@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
+from .version import APP_VERSION
 
 
 def utcnow() -> datetime:
@@ -237,7 +238,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.12.0")
+    version: Mapped[str] = mapped_column(String(24), default=APP_VERSION)
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

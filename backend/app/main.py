@@ -22,7 +22,9 @@ from sqlalchemy.orm import Session
 
 from .agent_gateway import gateway_overview, gateway_profile
 from .agent_tools import execute_controlled_tool
-from .db import Base, build_engine, build_session_factory
+from .bootstrap import bootstrap_database
+from .config import StartupSettings
+from .db import build_engine, build_session_factory
 from .domain import (
     SERVICE_TYPES,
     activity_preflight,
@@ -50,7 +52,6 @@ from .financial_ledger import (
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
-from .migrations import run_postgres_migrations, run_sqlite_compatibility_migrations
 from .model_gateway import (
     LIVE_MODE,
     ModelGatewayError,
@@ -174,7 +175,7 @@ from .security import (
     require_at_least,
     require_role,
 )
-from .seed import seed_demo_data
+from .version import APP_VERSION
 
 Context = Annotated[RequestContext, Depends(request_context)]
 
@@ -243,7 +244,9 @@ def overview(db: Session, tenant_id: str) -> IntegrationOverviewOut:
     )
 
 
-def audit(db: Session, context: RequestContext, action: str, resource_type: str, resource_id: str, detail: dict) -> None:
+def audit(
+    db: Session, context: RequestContext, action: str, resource_type: str, resource_id: str, detail: dict
+) -> None:
     db.add(
         AuditEvent(
             tenant_id=context.tenant_id,
@@ -288,34 +291,40 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
         background_tasks.add_task(execute_job, session_factory, job_id)
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
+def create_app(database_url: str | None = None, *, seed_demo_data: bool | None = None) -> FastAPI:
+    startup = StartupSettings.from_environment(database_url, seed_demo_data=seed_demo_data)
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.12.0",
+        version=APP_VERSION,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:4177,http://localhost:5173").split(",")],
+        allow_origins=[
+            origin.strip()
+            for origin in os.getenv("CORS_ORIGINS", "http://localhost:4177,http://localhost:5173").split(",")
+        ],
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Tenant-ID", "X-Actor-ID"],
     )
-    url = database_url or os.getenv("DATABASE_URL", "sqlite:///./luheng-dev.db")
-    engine = build_engine(url)
+    engine = build_engine(startup.database_url)
     app.state.engine = engine
     app.state.Session = build_session_factory(engine)
-    run_postgres_migrations(engine)
-    Base.metadata.create_all(engine)
-    run_sqlite_compatibility_migrations(engine)
-    with app.state.Session() as db:
-        seed_demo_data(db)
+    app.state.startup = startup
+    app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
-    def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.12.0")
+    @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
+    def health(db: Database) -> HealthOut:
+        db.execute(select(1))
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version=APP_VERSION)
+
+    @app.get("/api/v1/health/live", response_model=HealthOut, tags=["system"])
+    def liveness() -> HealthOut:
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version=APP_VERSION)
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -360,7 +369,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return overview(db, context.tenant_id)
 
     @app.put("/api/v1/integrations/{service_type}", response_model=IntegrationOverviewOut, tags=["integrations"])
-    def save_service(service_type: str, payload: ServiceConfigUpsert, context: Context, db: Database) -> IntegrationOverviewOut:
+    def save_service(
+        service_type: str, payload: ServiceConfigUpsert, context: Context, db: Database
+    ) -> IntegrationOverviewOut:
         require_role(context, "admin")
         validate_service_settings(service_type, payload.settings)
         if service_type == "model":
@@ -369,10 +380,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
             except ModelGatewayError as exc:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         config = db.scalar(
-            select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type)
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type
+            )
         )
         if not config:
-            config = ServiceConfig(tenant_id=context.tenant_id, service_type=service_type, provider=payload.provider, settings={})
+            config = ServiceConfig(
+                tenant_id=context.tenant_id, service_type=service_type, provider=payload.provider, settings={}
+            )
             db.add(config)
             db.flush()
         if payload.credential:
@@ -398,29 +413,44 @@ def create_app(database_url: str | None = None) -> FastAPI:
         state = db.get(IntegrationState, context.tenant_id) or IntegrationState(tenant_id=context.tenant_id)
         db.add(state)
         invalidate_integration(state, f"{service_type} 配置已更新到 v{config.version}，需重新连接测试与沙箱自测")
-        audit(db, context, "integration.config.updated", "service_config", service_type, {"version": config.version, "provider": config.provider})
+        audit(
+            db,
+            context,
+            "integration.config.updated",
+            "service_config",
+            service_type,
+            {"version": config.version, "provider": config.provider},
+        )
         db.commit()
         return overview(db, context.tenant_id)
 
-    @app.post("/api/v1/integrations/{service_type}/connection-test", response_model=ConnectionTestOut, tags=["integrations"])
+    @app.post(
+        "/api/v1/integrations/{service_type}/connection-test", response_model=ConnectionTestOut, tags=["integrations"]
+    )
     def run_connection_test(service_type: str, context: Context, db: Database) -> ConnectionTestOut:
         require_role(context, "admin")
         if service_type not in SERVICE_TYPES:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未知服务类型")
         config = db.scalar(
-            select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type)
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type
+            )
         )
         if not config:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先保存服务配置")
         validate_service_settings(service_type, config.settings)
         if not config.secret_ref:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="服务凭证尚未托管")
-        model_config = db.scalar(
-            select(ServiceConfig).where(
-                ServiceConfig.tenant_id == context.tenant_id,
-                ServiceConfig.service_type == "model",
+        model_config = (
+            db.scalar(
+                select(ServiceConfig).where(
+                    ServiceConfig.tenant_id == context.tenant_id,
+                    ServiceConfig.service_type == "model",
+                )
             )
-        ) if service_type == "agent" else None
+            if service_type == "agent"
+            else None
+        )
         try:
             if service_type == "agent":
                 latency, detail = test_agent_runtime(config, model_config, db)
@@ -429,7 +459,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
             else:
                 latency, detail = test_detail(service_type)
         except ModelGatewayError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"模型连接测试失败（{exc.code}）") from exc
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"模型连接测试失败（{exc.code}）"
+            ) from exc
         tested_at = utcnow()
         result = ConnectionTest(
             tenant_id=context.tenant_id,
@@ -444,7 +476,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         config.latency_ms = latency
         config.connection_tested_at = tested_at
         db.add(result)
-        audit(db, context, "integration.connection_test.passed", "service_config", service_type, {"version": config.version, "latency_ms": latency})
+        audit(
+            db,
+            context,
+            "integration.connection_test.passed",
+            "service_config",
+            service_type,
+            {"version": config.version, "latency_ms": latency},
+        )
         db.commit()
         db.refresh(result)
         return ConnectionTestOut.model_validate(result)
@@ -466,7 +505,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if service_type not in SERVICE_TYPES:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未知服务类型")
         config = db.scalar(
-            select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type)
+            select(ServiceConfig).where(
+                ServiceConfig.tenant_id == context.tenant_id, ServiceConfig.service_type == service_type
+            )
         )
         if not config:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先保存服务配置")
@@ -527,7 +568,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
             db,
             context,
             "integration.self_test",
-            {"service_versions": service_versions(list(db.scalars(select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id))))},
+            {
+                "service_versions": service_versions(
+                    list(db.scalars(select(ServiceConfig).where(ServiceConfig.tenant_id == context.tenant_id)))
+                )
+            },
             payload.idempotency_key,
         )
         if created:
@@ -549,7 +594,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         state.enabled_by = context.actor_id
         state.enabled_service_versions = service_versions(configs)
         state.invalidated_reason = None
-        audit(db, context, "integration.enabled", "integration_state", context.tenant_id, {"service_versions": state.enabled_service_versions})
+        audit(
+            db,
+            context,
+            "integration.enabled",
+            "integration_state",
+            context.tenant_id,
+            {"service_versions": state.enabled_service_versions},
+        )
         db.commit()
         return overview(db, context.tenant_id)
 
@@ -712,7 +764,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 webhook_signature,
             )
         except ValidationError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="支付回执载荷格式无效") from exc
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="支付回执载荷格式无效"
+            ) from exc
         except FinancialLedgerError as exc:
             raise_financial_error(exc)
         return PaymentReceiptAcceptanceOut(receipt=payment_receipt_out(accepted.receipt), duplicate=accepted.duplicate)
@@ -743,7 +797,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         try:
             secret = resolve_secret(db, config.secret_ref, context.tenant_id, f"payment-{provider}")
         except SecretStoreError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="支付回执沙箱密钥不可用") from exc
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="支付回执沙箱密钥不可用"
+            ) from exc
         if not secret:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="支付回执沙箱密钥不可解析")
         now = datetime.now(UTC)
@@ -792,10 +848,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if not payload.acknowledged:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认回执匹配")
         receipt = db.scalar(
-            select(PaymentReceipt).where(
+            select(PaymentReceipt)
+            .where(
                 PaymentReceipt.id == receipt_id,
                 PaymentReceipt.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not receipt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="支付回执不存在")
@@ -838,9 +896,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         review_status: str | None = Query(default=None, alias="status"),
         limit: int = Query(default=100, ge=1, le=200),
     ) -> list[PaymentReconciliationOut]:
-        statement = select(PaymentReconciliation).where(
-            PaymentReconciliation.tenant_id == context.tenant_id
-        )
+        statement = select(PaymentReconciliation).where(PaymentReconciliation.tenant_id == context.tenant_id)
         if review_status:
             statement = statement.where(PaymentReconciliation.status == review_status)
         rows = db.scalars(statement.order_by(PaymentReconciliation.proposed_at.desc()).limit(limit))
@@ -859,12 +915,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
     ) -> PaymentReconciliationOut:
         require_role(context, "operator", "admin")
         if not payload.acknowledged:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须确认仅创建匹配提案，不直接入账")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须确认仅创建匹配提案，不直接入账"
+            )
         receipt = db.scalar(
-            select(PaymentReceipt).where(
+            select(PaymentReceipt)
+            .where(
                 PaymentReceipt.id == receipt_id,
                 PaymentReceipt.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not receipt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="支付回执不存在")
@@ -895,10 +955,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if not payload.acknowledged:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="必须明确确认复核决定")
         review = db.scalar(
-            select(PaymentReconciliation).where(
+            select(PaymentReconciliation)
+            .where(
                 PaymentReconciliation.id == reconciliation_id,
                 PaymentReconciliation.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not review:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="对账提案不存在")
@@ -962,9 +1024,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         incident_status: str | None = Query(default=None, alias="status"),
         limit: int = Query(default=100, ge=1, le=200),
     ) -> list[ProtectionIncidentOut]:
-        statement = select(ProtectionIncident).where(
-            ProtectionIncident.tenant_id == context.tenant_id
-        )
+        statement = select(ProtectionIncident).where(ProtectionIncident.tenant_id == context.tenant_id)
         if incident_status:
             statement = statement.where(ProtectionIncident.status == incident_status)
         rows = db.scalars(statement.order_by(ProtectionIncident.opened_at.desc()).limit(limit))
@@ -1022,10 +1082,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 detail="必须确认本次只创建解除提案，不直接恢复触达",
             )
         incident = db.scalar(
-            select(ProtectionIncident).where(
+            select(ProtectionIncident)
+            .where(
                 ProtectionIncident.id == incident_id,
                 ProtectionIncident.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not incident:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="保护事件不存在")
@@ -1059,10 +1121,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 detail="必须明确确认保护复核决定",
             )
         incident = db.scalar(
-            select(ProtectionIncident).where(
+            select(ProtectionIncident)
+            .where(
                 ProtectionIncident.id == incident_id,
                 ProtectionIncident.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not incident:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="保护事件不存在")
@@ -1162,10 +1226,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 detail="必须明确确认方案复核决定",
             )
         plan = db.scalar(
-            select(RepaymentPlan).where(
+            select(RepaymentPlan)
+            .where(
                 RepaymentPlan.id == plan_row_id,
                 RepaymentPlan.tenant_id == context.tenant_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if not plan:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="履约方案不存在")
@@ -1284,7 +1350,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         profile = metadata["profile"]
         if payload.mode == LIVE_MODE:
             if not payload.acknowledged_external_call:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="真实模型回放必须明确确认外部调用")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="真实模型回放必须明确确认外部调用"
+                )
             if not live_model_calls_enabled():
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="部署环境未启用真实模型调用")
             model_config = db.scalar(
@@ -1294,7 +1362,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 )
             )
             if not model_config or not model_config.connected:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="真实模型回放要求模型配置已通过连接测试")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="真实模型回放要求模型配置已通过连接测试"
+                )
             try:
                 model_snapshot = policy_snapshot(model_config)
             except ModelGatewayError as exc:
@@ -1418,19 +1488,27 @@ def create_app(database_url: str | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    @app.post("/api/v1/agents/sessions", response_model=AgentSessionOut, status_code=status.HTTP_201_CREATED, tags=["agents"])
+    @app.post(
+        "/api/v1/agents/sessions", response_model=AgentSessionOut, status_code=status.HTTP_201_CREATED, tags=["agents"]
+    )
     def create_agent_session(payload: AgentSessionCreate, context: Context, db: Database) -> AgentSessionOut:
         if payload.scope_type != "global" and not payload.scope_id:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="活动或案件会话必须指定 scope_id")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="活动或案件会话必须指定 scope_id"
+            )
         if payload.scope_type == "activity":
             exists = db.scalar(
-                select(Activity.id).where(Activity.tenant_id == context.tenant_id, Activity.activity_id == payload.scope_id)
+                select(Activity.id).where(
+                    Activity.tenant_id == context.tenant_id, Activity.activity_id == payload.scope_id
+                )
             )
             if not exists:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
         if payload.scope_type == "case":
             exists = db.scalar(
-                select(CaseRecord.id).where(CaseRecord.tenant_id == context.tenant_id, CaseRecord.case_id == payload.scope_id)
+                select(CaseRecord.id).where(
+                    CaseRecord.tenant_id == context.tenant_id, CaseRecord.case_id == payload.scope_id
+                )
             )
             if not exists:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="案件不存在")
@@ -1446,7 +1524,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         )
         db.add(session)
         db.flush()
-        audit(db, context, "agent.session.created", "agent_session", session.id, {"scope_type": session.scope_type, "scope_id": session.scope_id})
+        audit(
+            db,
+            context,
+            "agent.session.created",
+            "agent_session",
+            session.id,
+            {"scope_type": session.scope_type, "scope_id": session.scope_id},
+        )
         db.commit()
         return AgentSessionOut.model_validate(session)
 
@@ -1463,7 +1548,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
             select(AgentMessage).where(AgentMessage.session_id == session.id).order_by(AgentMessage.created_at)
         )
         return [
-            {"id": row.id, "role": row.role, "content": row.content, "structured": row.structured, "created_at": row.created_at}
+            {
+                "id": row.id,
+                "role": row.role,
+                "content": row.content,
+                "structured": row.structured,
+                "created_at": row.created_at,
+            }
             for row in messages
         ]
 
@@ -1565,11 +1656,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="目标活动不存在")
         if proposal.action_type == "activity.pause":
             if activity.status in {"completed", "blocked"}:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="完成或保护阻断的活动不能用普通暂停操作修改")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="完成或保护阻断的活动不能用普通暂停操作修改"
+                )
             activity.status = "paused"
         elif proposal.action_type == "activity.resume":
             if activity.status != "paused":
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="只有普通暂停活动可以恢复；保护阻断需走异常处理")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="只有普通暂停活动可以恢复；保护阻断需走异常处理"
+                )
             activity.status = "running"
         else:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该行动类型不支持直接确认执行")
@@ -1582,7 +1677,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "agent.proposal.confirmed",
             "agent_proposal",
             proposal.id,
-            {"action_type": proposal.action_type, "activity_id": activity.activity_id, "result_status": activity.status},
+            {
+                "action_type": proposal.action_type,
+                "activity_id": activity.activity_id,
+                "result_status": activity.status,
+            },
         )
         db.commit()
         return ProposalOut.model_validate(proposal)
@@ -1592,7 +1691,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_role(context, "operator", "admin")
         return ActivityPreflightOut(**activity_preflight(db, context.tenant_id, payload))
 
-    @app.post("/api/v1/activities", response_model=ActivityOut, status_code=status.HTTP_201_CREATED, tags=["activities"])
+    @app.post(
+        "/api/v1/activities", response_model=ActivityOut, status_code=status.HTTP_201_CREATED, tags=["activities"]
+    )
     def create_activity(payload: ActivityRequest, context: Context, db: Database) -> ActivityOut:
         require_role(context, "operator", "admin")
         preflight = activity_preflight(db, context.tenant_id, payload)
@@ -1623,14 +1724,23 @@ def create_app(database_url: str | None = None) -> FastAPI:
             preflight=preflight,
         )
         db.add(activity)
-        audit(db, context, "activity.created", "activity", activity.activity_id, {"mode": activity.mode, "case_count": len(activity.case_ids)})
+        audit(
+            db,
+            context,
+            "activity.created",
+            "activity",
+            activity.activity_id,
+            {"mode": activity.mode, "case_count": len(activity.case_ids)},
+        )
         db.commit()
         db.refresh(activity)
         return ActivityOut.model_validate(activity)
 
     @app.get("/api/v1/activities", response_model=list[ActivityOut], tags=["activities"])
     def list_activities(context: Context, db: Database) -> list[ActivityOut]:
-        rows = db.scalars(select(Activity).where(Activity.tenant_id == context.tenant_id).order_by(Activity.created_at.desc()))
+        rows = db.scalars(
+            select(Activity).where(Activity.tenant_id == context.tenant_id).order_by(Activity.created_at.desc())
+        )
         return [ActivityOut.model_validate(row) for row in rows]
 
     return app

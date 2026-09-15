@@ -9,6 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
+from .version import APP_VERSION
+
 MCP_PROTOCOL_VERSION = "2025-06-18"
 PUBLIC_TO_INTERNAL = {
     "case_read": "case.read",
@@ -37,14 +39,44 @@ def _tool(name: str, title: str, description: str, properties: dict[str, Any], r
 
 
 MCP_TOOLS = [
-    _tool("case_read", "读取案件", "读取当前租户案件事实与保护状态。", {"case_id": {"type": "string", "pattern": "^C[0-9]{3,12}$"}}, ["case_id"]),
-    _tool("activity_read", "读取活动", "读取活动状态、范围与服务快照。", {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}}, ["activity_id"]),
+    _tool(
+        "case_read",
+        "读取案件",
+        "读取当前租户案件事实与保护状态。",
+        {"case_id": {"type": "string", "pattern": "^C[0-9]{3,12}$"}},
+        ["case_id"],
+    ),
+    _tool(
+        "activity_read",
+        "读取活动",
+        "读取活动状态、范围与服务快照。",
+        {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}},
+        ["activity_id"],
+    ),
     _tool("metrics_query", "查询经营指标", "查询带口径与来源的回款和佣金指标。", {}, []),
     _tool("policy_read", "读取策略", "读取当前租户已登记的授权策略版本。", {"package_id": {"type": "string"}}, []),
-    _tool("knowledge_search", "检索知识", "检索租户策略与操作知识并返回版本化来源。", {"query": {"type": "string", "minLength": 1, "maxLength": 500}}, ["query"]),
+    _tool(
+        "knowledge_search",
+        "检索知识",
+        "检索租户策略与操作知识并返回版本化来源。",
+        {"query": {"type": "string", "minLength": 1, "maxLength": 500}},
+        ["query"],
+    ),
     _tool("run_read", "读取运行", "读取当前租户 Agent 运行与工具结果。", {"run_id": {"type": "string"}}, ["run_id"]),
-    _tool("activity_pause_propose", "生成暂停提案", "仅生成活动暂停提案，不直接修改活动。", {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}}, ["activity_id"]),
-    _tool("activity_resume_propose", "生成恢复提案", "仅生成活动恢复提案，不直接修改活动。", {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}}, ["activity_id"]),
+    _tool(
+        "activity_pause_propose",
+        "生成暂停提案",
+        "仅生成活动暂停提案，不直接修改活动。",
+        {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}},
+        ["activity_id"],
+    ),
+    _tool(
+        "activity_resume_propose",
+        "生成恢复提案",
+        "仅生成活动恢复提案，不直接修改活动。",
+        {"activity_id": {"type": "string", "pattern": "^ACT-[0-9]{3,12}$"}},
+        ["activity_id"],
+    ),
 ]
 
 
@@ -108,7 +140,7 @@ def handle_request(
             {
                 "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "luheng-fulfillops-safe-tools", "version": "0.12.0"},
+                "serverInfo": {"name": "luheng-fulfillops-safe-tools", "version": APP_VERSION},
                 "instructions": "仅允许租户范围内只读查询与活动暂停/恢复提案；所有业务写入由 FulfillOps API 复核。",
             },
         )

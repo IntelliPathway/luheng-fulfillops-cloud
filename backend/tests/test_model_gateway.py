@@ -51,13 +51,49 @@ def test_model_policy_fails_closed_for_endpoint_and_model(monkeypatch: pytest.Mo
     monkeypatch.delenv("MODEL_ALLOWED_MODELS", raising=False)
 
     with pytest.raises(ModelGatewayError, match="HTTPS"):
-        model_policy(_config({"endpoint": "http://api.deepseek.com", "model": "deepseek-flash", "executionMode": "contract-only", "timeout": "20"}))
+        model_policy(
+            _config(
+                {
+                    "endpoint": "http://api.deepseek.com",
+                    "model": "deepseek-flash",
+                    "executionMode": "contract-only",
+                    "timeout": "20",
+                }
+            )
+        )
     with pytest.raises(ModelGatewayError, match="本地或私有"):
-        model_policy(_config({"endpoint": "https://169.254.169.254", "model": "deepseek-flash", "executionMode": "contract-only", "timeout": "20"}))
+        model_policy(
+            _config(
+                {
+                    "endpoint": "https://169.254.169.254",
+                    "model": "deepseek-flash",
+                    "executionMode": "contract-only",
+                    "timeout": "20",
+                }
+            )
+        )
     with pytest.raises(ModelGatewayError, match="白名单"):
-        model_policy(_config({"endpoint": "https://model.attacker.test", "model": "deepseek-flash", "executionMode": "contract-only", "timeout": "20"}))
+        model_policy(
+            _config(
+                {
+                    "endpoint": "https://model.attacker.test",
+                    "model": "deepseek-flash",
+                    "executionMode": "contract-only",
+                    "timeout": "20",
+                }
+            )
+        )
     with pytest.raises(ModelGatewayError, match="模型名称"):
-        model_policy(_config({"endpoint": "https://api.deepseek.com", "model": "retired-model", "executionMode": "live-provider", "timeout": "20"}))
+        model_policy(
+            _config(
+                {
+                    "endpoint": "https://api.deepseek.com",
+                    "model": "retired-model",
+                    "executionMode": "live-provider",
+                    "timeout": "20",
+                }
+            )
+        )
 
 
 def test_json_model_call_enforces_schema_budget_and_safe_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,7 +142,9 @@ def test_model_gateway_sanitizes_provider_errors_and_rejects_empty_json(monkeypa
         return httpx.Response(429, json={"error": {"message": "secret upstream detail"}})
 
     with pytest.raises(ModelGatewayError) as captured:
-        invoke_json_model(_config(), "secret-key", "TENANT_A", "Return JSON.", "test", transport=httpx.MockTransport(limited))
+        invoke_json_model(
+            _config(), "secret-key", "TENANT_A", "Return JSON.", "test", transport=httpx.MockTransport(limited)
+        )
     assert captured.value.code == "rate_limited"
     assert captured.value.retriable is True
     assert "secret upstream detail" not in str(captured.value)
@@ -115,18 +153,22 @@ def test_model_gateway_sanitizes_provider_errors_and_rejects_empty_json(monkeypa
         return httpx.Response(200, json={"choices": [{"message": {"content": ""}}], "usage": {}})
 
     with pytest.raises(ModelGatewayError) as captured:
-        invoke_json_model(_config(), "secret-key", "TENANT_A", "Return JSON.", "test", transport=httpx.MockTransport(empty))
+        invoke_json_model(
+            _config(), "secret-key", "TENANT_A", "Return JSON.", "test", transport=httpx.MockTransport(empty)
+        )
     assert captured.value.code == "invalid_response"
 
 
 def test_contract_health_never_claims_live_provider_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ENABLE_LIVE_MODEL_CALLS", raising=False)
-    config = _config({
-        "endpoint": "https://api.deepseek.com/v1",
-        "model": "deepseek-chat",
-        "timeout": "30",
-        "executionMode": "contract-only",
-    })
+    config = _config(
+        {
+            "endpoint": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "timeout": "30",
+            "executionMode": "contract-only",
+        }
+    )
     health = model_gateway_health(config)
     assert health["status"] == "contract"
     assert health["endpoint_host"] == "api.deepseek.com"

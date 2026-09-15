@@ -104,7 +104,9 @@ def test_open_is_idempotent_tenant_scoped_and_immediately_blocks_execution(clien
 
     with client.app.state.Session() as db:
         case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == "TENANT_A", CaseRecord.case_id == "C002"))
-        activity = db.scalar(select(Activity).where(Activity.tenant_id == "TENANT_A", Activity.activity_id == "ACT-001"))
+        activity = db.scalar(
+            select(Activity).where(Activity.tenant_id == "TENANT_A", Activity.activity_id == "ACT-001")
+        )
         assert case is not None and case.blocked is True and case.status == "异议暂停"
         assert activity is not None and activity.status == "blocked"
         assert activity.preflight["protection_event_id"] == "GUARD-OPEN-001"
@@ -116,10 +118,13 @@ def test_viewer_cannot_open_or_change_protection(client: TestClient) -> None:
     overview = client.get("/api/v1/protections/overview", headers=headers(actor="test-viewer"))
     assert overview.status_code == 200
     assert all(row["case_id"] != "C021" for row in overview.json()["incidents"])
-    assert client.get(
-        "/api/v1/protections/incidents",
-        headers=headers("TENANT_B", "test-viewer"),
-    ).json() == []
+    assert (
+        client.get(
+            "/api/v1/protections/incidents",
+            headers=headers("TENANT_B", "test-viewer"),
+        ).json()
+        == []
+    )
 
 
 def test_resolution_requires_evidence_version_and_independent_admin(client: TestClient) -> None:

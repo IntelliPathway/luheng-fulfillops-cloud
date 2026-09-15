@@ -38,7 +38,9 @@ def validate_service_settings(service_type: str, settings: dict[str, Any]) -> No
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="凭证必须通过 credential 字段提交")
     missing = [key for key in REQUIRED_SETTINGS[service_type] if not str(settings.get(key, "")).strip()]
     if missing:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"缺少必填配置：{', '.join(missing)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"缺少必填配置：{', '.join(missing)}"
+        )
 
 
 def service_versions(configs: list[ServiceConfig]) -> dict[str, int]:
@@ -105,7 +107,12 @@ def build_self_test_items(configs: list[ServiceConfig]) -> list[dict[str, str]]:
         ("e2e", "端到端沙箱通话", all_connected, "白名单脚本回放完成；未发起真实外呼"),
     ]
     return [
-        {"id": item_id, "title": title, "status": "passed" if ok else "blocked", "detail": detail if ok else "前置服务连接测试未通过"}
+        {
+            "id": item_id,
+            "title": title,
+            "status": "passed" if ok else "blocked",
+            "detail": detail if ok else "前置服务连接测试未通过",
+        }
         for item_id, title, ok, detail in specs
     ]
 
@@ -139,7 +146,11 @@ def activity_preflight(db: Session, tenant_id: str, payload: Any) -> dict[str, A
         )
     )
     found_ids = {item.case_id for item in selected}
-    excluded = [{"case_id": case_id, "reason": "案件不存在或不属于当前租户资产包"} for case_id in payload.case_ids if case_id not in found_ids]
+    excluded = [
+        {"case_id": case_id, "reason": "案件不存在或不属于当前租户资产包"}
+        for case_id in payload.case_ids
+        if case_id not in found_ids
+    ]
     in_flight_ids = {
         case_id
         for activity in db.scalars(

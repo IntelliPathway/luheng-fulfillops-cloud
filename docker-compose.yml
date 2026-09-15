@@ -23,7 +23,10 @@ services:
         INSTALL_HARNESS: ${INSTALL_HARNESS:-false}
         INSTALL_AWS: ${INSTALL_AWS:-false}
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql+psycopg://luheng:luheng-dev-only@postgres:5432/luheng
+      AUTO_CREATE_SCHEMA: "true"
+      SEED_DEMO_DATA: "true"
       CORS_ORIGINS: http://localhost:4177
       ALLOW_DEV_HEADER_AUTH: "true"
       ALLOW_DEV_TOKEN: "true"
@@ -72,7 +75,10 @@ services:
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql+psycopg://luheng:luheng-dev-only@postgres:5432/luheng
+      AUTO_CREATE_SCHEMA: "true"
+      SEED_DEMO_DATA: "true"
       JOB_EXECUTION_MODE: external
       JOB_BROKER_BACKEND: postgres-notify
       JOB_BROKER_CHANNEL: luheng_jobs
@@ -116,6 +122,7 @@ services:
     command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 4177"
     environment:
       VITE_API_BASE_URL: http://localhost:8000/api/v1
+      VITE_ENABLE_DEV_AUTH: "true"
     volumes:
       - .:/workspace
       - web_modules:/workspace/node_modules

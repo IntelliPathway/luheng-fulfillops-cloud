@@ -109,10 +109,12 @@ def open_protection_incident(
     if not policy:
         raise ProtectionWorkflowError("invalid_protection_category", "保护事件类别无效")
     case = db.scalar(
-        select(CaseRecord).where(
+        select(CaseRecord)
+        .where(
             CaseRecord.tenant_id == tenant_id,
             CaseRecord.case_id == case_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if not case:
         raise ProtectionWorkflowError("case_not_found", "案件不存在或不属于当前工作空间", 404)
@@ -132,10 +134,12 @@ def open_protection_incident(
         }
     )
     existing = db.scalar(
-        select(ProtectionIncident).where(
+        select(ProtectionIncident)
+        .where(
             ProtectionIncident.tenant_id == tenant_id,
             ProtectionIncident.source_event_id == normalized_source,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if existing:
         if existing.opening_digest == opening_digest:
@@ -317,10 +321,12 @@ def decide_protection_resolution(
         raise ProtectionWorkflowError("invalid_resolution_decision", "复核决定无效")
 
     case = db.scalar(
-        select(CaseRecord).where(
+        select(CaseRecord)
+        .where(
             CaseRecord.tenant_id == incident.tenant_id,
             CaseRecord.case_id == incident.case_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if not case:
         raise ProtectionWorkflowError("case_not_found", "保护事件关联案件不存在", 409)
@@ -338,12 +344,14 @@ def decide_protection_resolution(
         incident.resolved_at = now
         db.flush()
         remaining = db.scalar(
-            select(ProtectionIncident.id).where(
+            select(ProtectionIncident.id)
+            .where(
                 ProtectionIncident.tenant_id == incident.tenant_id,
                 ProtectionIncident.case_id == incident.case_id,
                 ProtectionIncident.id != incident.id,
                 ProtectionIncident.status.in_(ACTIVE_PROTECTION_STATUSES),
-            ).limit(1)
+            )
+            .limit(1)
         )
         if not remaining:
             case.blocked = False

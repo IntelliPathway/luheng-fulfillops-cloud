@@ -353,12 +353,15 @@ def rewrap_active_secrets(db: Session, tenant_id: str | None = None) -> int:
 
 def secret_store_status(db: Session, tenant_id: str) -> SecretStoreStatus:
     backend = secret_store_backend()
-    active = db.scalar(
-        select(func.count(ManagedSecret.id)).where(
-            ManagedSecret.tenant_id == tenant_id,
-            ManagedSecret.status == "active",
+    active = (
+        db.scalar(
+            select(func.count(ManagedSecret.id)).where(
+                ManagedSecret.tenant_id == tenant_id,
+                ManagedSecret.status == "active",
+            )
         )
-    ) or 0
+        or 0
+    )
     if backend == REFERENCE_BACKEND:
         return SecretStoreStatus(
             backend=backend,
@@ -371,12 +374,15 @@ def secret_store_status(db: Session, tenant_id: str) -> SecretStoreStatus:
             detail="只保存外部 KMS 引用；运行凭证需由部署环境注入",
         )
     if backend == AWS_SECRETS_BACKEND:
-        active_external = db.scalar(
-            select(func.count(ServiceConfig.id)).where(
-                ServiceConfig.tenant_id == tenant_id,
-                ServiceConfig.secret_ref.like("aws-sm://%"),
+        active_external = (
+            db.scalar(
+                select(func.count(ServiceConfig.id)).where(
+                    ServiceConfig.tenant_id == tenant_id,
+                    ServiceConfig.secret_ref.like("aws-sm://%"),
+                )
             )
-        ) or 0
+            or 0
+        )
         try:
             _, _, kms_key_id, _ = _aws_settings()
             if not _boto3_available():
@@ -415,13 +421,16 @@ def secret_store_status(db: Session, tenant_id: str) -> SecretStoreStatus:
             rotation_pending=active,
             detail=str(exc),
         )
-    rotation_pending = db.scalar(
-        select(func.count(ManagedSecret.id)).where(
-            ManagedSecret.tenant_id == tenant_id,
-            ManagedSecret.status == "active",
-            ManagedSecret.key_version != key_version,
+    rotation_pending = (
+        db.scalar(
+            select(func.count(ManagedSecret.id)).where(
+                ManagedSecret.tenant_id == tenant_id,
+                ManagedSecret.status == "active",
+                ManagedSecret.key_version != key_version,
+            )
         )
-    ) or 0
+        or 0
+    )
     return SecretStoreStatus(
         backend=backend,
         status="ready",

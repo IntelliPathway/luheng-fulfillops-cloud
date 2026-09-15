@@ -58,7 +58,12 @@ def test_plaintext_credentials_are_rejected_inside_settings(client: TestClient) 
         headers=headers(),
         json={
             "provider": "DeepSeek",
-            "settings": {"endpoint": "https://example.test", "model": "chat", "timeout": "30", "apiKey": "should-not-be-here"},
+            "settings": {
+                "endpoint": "https://example.test",
+                "model": "chat",
+                "timeout": "30",
+                "apiKey": "should-not-be-here",
+            },
             "credential": "safe-input-channel",
         },
     )
@@ -103,7 +108,10 @@ def test_activity_preflight_excludes_completed_and_inflight_cases(client: TestCl
     assert response.status_code == 200
     result = response.json()
     assert result["eligible_case_ids"] == ["C008"]
-    assert {item["case_id"]: item["reason"] for item in result["excluded"]} == {"C001": "已完成", "C002": "重复在途任务"}
+    assert {item["case_id"]: item["reason"] for item in result["excluded"]} == {
+        "C001": "已完成",
+        "C002": "重复在途任务",
+    }
     assert result["resolved_mode"] == "sandbox"
 
 
@@ -232,7 +240,9 @@ def test_agent_write_action_requires_structured_confirmation(client: TestClient)
         headers=headers(role="operator"),
     ).json()
     assert messages[-1]["structured"]["proposal"]["id"] == proposal["id"]
-    before = {row["activity_id"]: row for row in client.get("/api/v1/activities", headers=headers(role="operator")).json()}
+    before = {
+        row["activity_id"]: row for row in client.get("/api/v1/activities", headers=headers(role="operator")).json()
+    }
     assert before["ACT-001"]["status"] == "running"
     denied = client.post(
         f"/api/v1/agents/proposals/{proposal['id']}/confirm",
@@ -247,7 +257,9 @@ def test_agent_write_action_requires_structured_confirmation(client: TestClient)
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["status"] == "confirmed"
-    after = {row["activity_id"]: row for row in client.get("/api/v1/activities", headers=headers(role="operator")).json()}
+    after = {
+        row["activity_id"]: row for row in client.get("/api/v1/activities", headers=headers(role="operator")).json()
+    }
     assert after["ACT-001"]["status"] == "paused"
 
 
@@ -339,10 +351,13 @@ def test_deepseek_harness_contract_resumes_session_and_blocks_dangerous_tools(cl
     assert checkpoint.status_code == 200
     assert checkpoint.json()["turn_count"] == 3
     assert checkpoint.json()["provider_session_id"] == provider_session_id
-    assert client.get(
-        f"/api/v1/agents/sessions/{session['id']}/runtime",
-        headers=headers("TENANT_B", "viewer"),
-    ).status_code == 404
+    assert (
+        client.get(
+            f"/api/v1/agents/sessions/{session['id']}/runtime",
+            headers=headers("TENANT_B", "viewer"),
+        ).status_code
+        == 404
+    )
 
 
 def test_deepseek_harness_sdk_mode_does_not_fake_a_successful_connection(client: TestClient) -> None:

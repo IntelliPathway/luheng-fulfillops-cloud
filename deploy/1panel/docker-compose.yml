@@ -1,15 +1,18 @@
 x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-production}
   DATABASE_URL: ${DATABASE_URL:?请在 .env 中配置 DATABASE_URL}
-  AUTH_MODE: ${AUTH_MODE:-development}
-  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?请配置 AUTH_JWT_SECRET}
-  OIDC_ISSUER: ${OIDC_ISSUER:-luheng-ecs-acceptance}
-  OIDC_AUDIENCE: ${OIDC_AUDIENCE:-luheng-fulfillops}
-  OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+  AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-false}
+  SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+  AUTH_MODE: ${AUTH_MODE:-oidc}
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
+  OIDC_ISSUER: ${OIDC_ISSUER:?请配置 OIDC_ISSUER}
+  OIDC_AUDIENCE: ${OIDC_AUDIENCE:?请配置 OIDC_AUDIENCE}
+  OIDC_JWKS_URL: ${OIDC_JWKS_URL:?请配置 OIDC_JWKS_URL}
   OIDC_ALLOWED_ALGORITHMS: ${OIDC_ALLOWED_ALGORITHMS:-RS256}
   OIDC_REQUIRED_CLAIMS: ${OIDC_REQUIRED_CLAIMS:-sub,exp,iat,jti}
   OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-}
-  ALLOW_DEV_HEADER_AUTH: ${ALLOW_DEV_HEADER_AUTH:-true}
-  ALLOW_DEV_TOKEN: ${ALLOW_DEV_TOKEN:-true}
+  ALLOW_DEV_HEADER_AUTH: ${ALLOW_DEV_HEADER_AUTH:-false}
+  ALLOW_DEV_TOKEN: ${ALLOW_DEV_TOKEN:-false}
   RUNTIME_JWT_SECRET: ${RUNTIME_JWT_SECRET:?请配置 RUNTIME_JWT_SECRET}
   JOB_EXECUTION_MODE: external
   JOB_BROKER_BACKEND: postgres-notify
@@ -74,12 +77,12 @@ services:
       args:
         INSTALL_HARNESS: ${INSTALL_HARNESS:-false}
         INSTALL_AWS: ${INSTALL_AWS:-false}
-    image: luheng-fulfillops-api:0.12.0
+    image: luheng-fulfillops-api:0.13.0
     restart: unless-stopped
     init: true
     environment:
       <<: *app-environment
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:?请配置站点 HTTPS 来源}
       FULFILLOPS_INTERNAL_URL: http://api:8000
       FULFILLOPS_DSH_ROOT: /var/lib/luheng/dsh
     expose:
@@ -88,7 +91,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 8
@@ -103,7 +106,7 @@ services:
     logging: *bounded-logging
 
   worker:
-    image: luheng-fulfillops-api:0.12.0
+    image: luheng-fulfillops-api:0.13.0
     restart: unless-stopped
     init: true
     command: ["python", "-m", "app.worker"]
@@ -140,7 +143,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         VITE_API_BASE_URL: /api/v1
-    image: luheng-fulfillops-web:0.12.0
+    image: luheng-fulfillops-web:0.13.0
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_HTTP_PORT:-18080}:80"

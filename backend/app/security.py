@@ -70,6 +70,10 @@ def _truthy(value: str | None, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _development_default() -> bool:
+    return os.getenv("APP_ENV", "development").strip().lower() == "development"
+
+
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int(os.getenv(name, str(default)))
@@ -93,16 +97,12 @@ def _auth_mode() -> str:
         return "oidc"
     if os.getenv("AUTH_JWT_SECRET", "").strip():
         return "shared-secret"
-    return "development" if _truthy(os.getenv("ALLOW_DEV_TOKEN"), True) else "unconfigured"
+    return "development" if _truthy(os.getenv("ALLOW_DEV_TOKEN"), _development_default()) else "unconfigured"
 
 
 def _oidc_algorithms() -> tuple[str, ...]:
     algorithms = tuple(
-        dict.fromkeys(
-            item.strip()
-            for item in os.getenv("OIDC_ALLOWED_ALGORITHMS", "RS256").split(",")
-            if item.strip()
-        )
+        dict.fromkeys(item.strip() for item in os.getenv("OIDC_ALLOWED_ALGORITHMS", "RS256").split(",") if item.strip())
     )
     if not algorithms or any(item not in OIDC_ASYMMETRIC_ALGORITHMS for item in algorithms):
         raise HTTPException(
@@ -115,9 +115,7 @@ def _oidc_algorithms() -> tuple[str, ...]:
 def _required_claims() -> tuple[str, ...]:
     claims = tuple(
         dict.fromkeys(
-            item.strip()
-            for item in os.getenv("OIDC_REQUIRED_CLAIMS", "sub,exp,iat").split(",")
-            if item.strip()
+            item.strip() for item in os.getenv("OIDC_REQUIRED_CLAIMS", "sub,exp,iat").split(",") if item.strip()
         )
     )
     required = {"sub", "exp", "iat"}
@@ -196,8 +194,8 @@ def auth_configuration() -> AuthConfiguration:
         tenant_claim=tenant_claim,
         leeway_seconds=leeway,
         jwks_cache_seconds=cache_seconds,
-        dev_header_enabled=_truthy(os.getenv("ALLOW_DEV_HEADER_AUTH"), True),
-        dev_token_enabled=_truthy(os.getenv("ALLOW_DEV_TOKEN"), True) and mode != "oidc",
+        dev_header_enabled=_truthy(os.getenv("ALLOW_DEV_HEADER_AUTH"), _development_default()),
+        dev_token_enabled=_truthy(os.getenv("ALLOW_DEV_TOKEN"), _development_default()) and mode != "oidc",
         detail=detail,
     )
 
@@ -230,7 +228,9 @@ def _decode_bearer(token: str) -> tuple[dict[str, Any], str]:
         except jwt.PyJWTError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="身份令牌无效或已过期") from exc
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OIDC 签名密钥暂时不可用") from exc
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OIDC 签名密钥暂时不可用"
+            ) from exc
 
     if mode not in {"shared-secret", "development"}:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Bearer 认证尚未配置")
@@ -238,7 +238,7 @@ def _decode_bearer(token: str) -> tuple[dict[str, Any], str]:
     if mode == "development":
         issuer = issuer or "luheng-local"
         audience = audience or "luheng-fulfillops"
-        if not shared_secret and _truthy(os.getenv("ALLOW_DEV_TOKEN"), True):
+        if not shared_secret and _truthy(os.getenv("ALLOW_DEV_TOKEN"), _development_default()):
             shared_secret = "luheng-local-development-secret-change-me"
     if not (shared_secret and issuer and audience):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer 认证尚未配置")
@@ -257,7 +257,7 @@ def _decode_bearer(token: str) -> tuple[dict[str, Any], str]:
 
 
 def issue_dev_token(actor_id: str, expires_minutes: int = 60) -> str:
-    if not _truthy(os.getenv("ALLOW_DEV_TOKEN"), True) or _auth_mode() == "oidc":
+    if not _truthy(os.getenv("ALLOW_DEV_TOKEN"), _development_default()) or _auth_mode() == "oidc":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="开发令牌入口未启用")
     secret = os.getenv("AUTH_JWT_SECRET", "").strip() or "luheng-local-development-secret-change-me"
     now = datetime.now(UTC)
@@ -275,7 +275,7 @@ def _runtime_secret() -> str:
     secret = os.getenv("RUNTIME_JWT_SECRET") or os.getenv("AUTH_JWT_SECRET")
     if secret:
         return secret
-    if _truthy(os.getenv("ALLOW_DEV_TOKEN"), True):
+    if _truthy(os.getenv("ALLOW_DEV_TOKEN"), _development_default()):
         return "luheng-local-runtime-secret-change-me"
     raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Runtime 工具令牌密钥尚未配置")
 
@@ -351,7 +351,7 @@ def request_context(
             if x_tenant_id not in {str(item) for item in allowed_tenants if item is not None}:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="身份令牌不允许访问当前工作空间")
     else:
-        if not _truthy(os.getenv("ALLOW_DEV_HEADER_AUTH"), True):
+        if not _truthy(os.getenv("ALLOW_DEV_HEADER_AUTH"), _development_default()):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="需要 Bearer 身份令牌")
         actor_id = x_actor_id or ""
         auth_mode = "development-header"

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import sessionmaker
 
+from .config import StartupSettings
 from .db import build_engine, build_session_factory
 from .domain import utcnow
 from .harness_runtime import close_harness_runtimes
@@ -117,8 +118,8 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="最多处理一个作业后退出")
     parser.add_argument("--healthcheck", action="store_true", help="检查当前 WORKER_ID 心跳")
     args = parser.parse_args()
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./luheng-dev.db")
-    session_factory = build_session_factory(build_engine(database_url))
+    startup = StartupSettings.from_environment()
+    session_factory = build_session_factory(build_engine(startup.database_url))
     worker_id = _worker_id()
     if args.healthcheck:
         return 0 if worker_is_healthy(session_factory, worker_id) else 1

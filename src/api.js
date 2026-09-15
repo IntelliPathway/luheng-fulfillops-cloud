@@ -1,11 +1,16 @@
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api/v1';
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, details = {}) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
+
+const devHeaderAuthEnabled = () => (
+  import.meta.env?.DEV === true || import.meta.env?.VITE_ENABLE_DEV_AUTH === 'true'
+);
 
 const authToken = () => {
   try { return typeof localStorage === 'undefined' ? '' : localStorage.getItem('luheng.auth.token') || ''; }
@@ -17,7 +22,7 @@ const headers = tenant => {
   return {
     'Content-Type': 'application/json',
     'X-Tenant-ID': tenant,
-    ...(token ? {Authorization: `Bearer ${token}`} : {'X-Actor-ID': 'Terry'}),
+    ...(token ? {Authorization: `Bearer ${token}`} : devHeaderAuthEnabled() ? {'X-Actor-ID': 'Terry'} : {}),
   };
 };
 
@@ -28,13 +33,21 @@ async function request(path, tenant, options = {}) {
   });
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
+    let body = {};
     try {
-      const body = await response.json();
+      body = await response.json();
       message = body.detail || message;
     } catch {}
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, body);
   }
   return response.json();
+}
+
+export function classifyApiFailure(error) {
+  if (error instanceof ApiError && error.details?.mode === 'sites-demo') return 'offline';
+  if (error instanceof ApiError && [401, 403].includes(error.status)) return 'auth-required';
+  if (error instanceof ApiError) return 'api-error';
+  return 'offline';
 }
 
 const jobKey = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;

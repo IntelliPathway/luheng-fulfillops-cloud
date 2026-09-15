@@ -32,16 +32,66 @@ from .repayment_plans import allocate_recovery_to_plan
 from .secret_store import store_secret
 
 FINANCIAL_CASES = [
-    ("TENANT_A", "C001", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 1), date(2026, 8, 6), True),
-    ("TENANT_A", "C002", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 1), date(2027, 1, 10), True),
-    ("TENANT_A", "C003", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), date(2026, 8, 20), date(2026, 9, 5), True),
+    (
+        "TENANT_A",
+        "C001",
+        "PKG_A",
+        "COM_A_V1",
+        date(2026, 8, 1),
+        date(2026, 12, 31),
+        date(2026, 8, 1),
+        date(2026, 8, 6),
+        True,
+    ),
+    (
+        "TENANT_A",
+        "C002",
+        "PKG_A",
+        "COM_A_V1",
+        date(2026, 8, 1),
+        date(2026, 12, 31),
+        date(2026, 8, 1),
+        date(2027, 1, 10),
+        True,
+    ),
+    (
+        "TENANT_A",
+        "C003",
+        "PKG_A",
+        "COM_A_V1",
+        date(2026, 8, 1),
+        date(2026, 12, 31),
+        date(2026, 8, 20),
+        date(2026, 9, 5),
+        True,
+    ),
     ("TENANT_A", "C004", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_A", "C005", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_A", "C006", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_A", "C008", "PKG_A", "COM_A_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_A", "C010", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
-    ("TENANT_A", "C014", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 8, 31), date(2026, 8, 20), date(2027, 1, 25), True),
-    ("TENANT_A", "C015", "PKG_B", "COM_B_V1", date(2026, 1, 1), date(2026, 7, 31), date(2026, 7, 20), date(2026, 12, 25), False),
+    (
+        "TENANT_A",
+        "C014",
+        "PKG_B",
+        "COM_B_V1",
+        date(2026, 8, 1),
+        date(2026, 8, 31),
+        date(2026, 8, 20),
+        date(2027, 1, 25),
+        True,
+    ),
+    (
+        "TENANT_A",
+        "C015",
+        "PKG_B",
+        "COM_B_V1",
+        date(2026, 1, 1),
+        date(2026, 7, 31),
+        date(2026, 7, 20),
+        date(2026, 12, 25),
+        False,
+    ),
     ("TENANT_A", "C016", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_B", "C021", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_B", "C024", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
@@ -163,18 +213,186 @@ SEED_REPAYMENT_PLANS = [
 
 
 SEED_RECOVERIES = [
-    ("TENANT_A", "TX001", "C001", "PKG_A", "2026-08-06", "PAYMENT", 1_000_000, 1_000_000, "COM_A_V1", 1500, 150_000, "IN_MANDATE", None),
-    ("TENANT_A", "TX002", "C002", "PKG_A", "2026-08-10", "PAYMENT", 252_000, 252_000, "COM_A_V1", 1500, 37_800, "IN_MANDATE", None),
-    ("TENANT_A", "TX003", "C002", "PKG_A", "2026-09-10", "PAYMENT", 100_000, 100_000, "COM_A_V1", 1500, 15_000, "IN_MANDATE", None),
-    ("TENANT_A", "TX004", "C003", "PKG_A", "2026-09-05", "PAYMENT", 300_000, 300_000, "COM_A_V1", 1500, 45_000, "IN_MANDATE", None),
-    ("TENANT_A", "TX005", "C004", "PKG_A", "2026-09-07", "PAYMENT", 60_000, 60_000, "COM_A_V1", 1500, 9_000, "IN_MANDATE", None),
-    ("TENANT_A", "RF005", "C004", "PKG_A", "2026-09-08", "REFUND", -20_000, -20_000, "COM_A_V1", 1500, -3_000, "REFUND_ORIGINAL_RATE", "seed:TX005"),
-    ("TENANT_A", "TX006", "C005", "PKG_A", "2026-09-04", "PAYMENT", 100_000, 100_000, "COM_A_V1", 1500, 15_000, "IN_MANDATE", None),
-    ("TENANT_A", "TX008", "C014", "PKG_B", "2026-09-10", "PAYMENT", 50_000, 50_000, "COM_B_V1", 1800, 9_000, "SIGNED_PLAN_TAIL", None),
-    ("TENANT_A", "TX009", "C015", "PKG_B", "2026-09-10", "PAYMENT", 80_000, 0, "COM_B_V1", 1800, 0, "OUTSIDE_TAIL", None),
-    ("TENANT_A", "TX010", "C016", "PKG_B", "2026-07-31", "PAYMENT", 70_000, 0, "COM_B_V1", 1800, 0, "PRE_MANDATE", None),
-    ("TENANT_B", "TX012", "C021", "PKG_C", "2026-09-09", "PAYMENT", 50_000, 50_000, "COM_C_V1", 2000, 10_000, "IN_MANDATE", None),
-    ("TENANT_B", "TX013", "C021", "PKG_C", "2026-09-10", "PAYMENT", 30_000, 30_000, "COM_C_V1", 2000, 6_000, "IN_MANDATE", None),
+    (
+        "TENANT_A",
+        "TX001",
+        "C001",
+        "PKG_A",
+        "2026-08-06",
+        "PAYMENT",
+        1_000_000,
+        1_000_000,
+        "COM_A_V1",
+        1500,
+        150_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX002",
+        "C002",
+        "PKG_A",
+        "2026-08-10",
+        "PAYMENT",
+        252_000,
+        252_000,
+        "COM_A_V1",
+        1500,
+        37_800,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX003",
+        "C002",
+        "PKG_A",
+        "2026-09-10",
+        "PAYMENT",
+        100_000,
+        100_000,
+        "COM_A_V1",
+        1500,
+        15_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX004",
+        "C003",
+        "PKG_A",
+        "2026-09-05",
+        "PAYMENT",
+        300_000,
+        300_000,
+        "COM_A_V1",
+        1500,
+        45_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX005",
+        "C004",
+        "PKG_A",
+        "2026-09-07",
+        "PAYMENT",
+        60_000,
+        60_000,
+        "COM_A_V1",
+        1500,
+        9_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "RF005",
+        "C004",
+        "PKG_A",
+        "2026-09-08",
+        "REFUND",
+        -20_000,
+        -20_000,
+        "COM_A_V1",
+        1500,
+        -3_000,
+        "REFUND_ORIGINAL_RATE",
+        "seed:TX005",
+    ),
+    (
+        "TENANT_A",
+        "TX006",
+        "C005",
+        "PKG_A",
+        "2026-09-04",
+        "PAYMENT",
+        100_000,
+        100_000,
+        "COM_A_V1",
+        1500,
+        15_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX008",
+        "C014",
+        "PKG_B",
+        "2026-09-10",
+        "PAYMENT",
+        50_000,
+        50_000,
+        "COM_B_V1",
+        1800,
+        9_000,
+        "SIGNED_PLAN_TAIL",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX009",
+        "C015",
+        "PKG_B",
+        "2026-09-10",
+        "PAYMENT",
+        80_000,
+        0,
+        "COM_B_V1",
+        1800,
+        0,
+        "OUTSIDE_TAIL",
+        None,
+    ),
+    (
+        "TENANT_A",
+        "TX010",
+        "C016",
+        "PKG_B",
+        "2026-07-31",
+        "PAYMENT",
+        70_000,
+        0,
+        "COM_B_V1",
+        1800,
+        0,
+        "PRE_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_B",
+        "TX012",
+        "C021",
+        "PKG_C",
+        "2026-09-09",
+        "PAYMENT",
+        50_000,
+        50_000,
+        "COM_C_V1",
+        2000,
+        10_000,
+        "IN_MANDATE",
+        None,
+    ),
+    (
+        "TENANT_B",
+        "TX013",
+        "C021",
+        "PKG_C",
+        "2026-09-10",
+        "PAYMENT",
+        30_000,
+        30_000,
+        "COM_C_V1",
+        2000,
+        6_000,
+        "IN_MANDATE",
+        None,
+    ),
 ]
 
 
@@ -223,7 +441,21 @@ def _seed_financial_data(db: Session) -> None:
             profile.claim_balance_cents = claim_balance_cents
     db.flush()
     for row in SEED_RECOVERIES:
-        tenant_id, transaction_id, case_id, package_id, booked, event_type, amount, eligible, rule_id, rate, commission, reason, original = row
+        (
+            tenant_id,
+            transaction_id,
+            case_id,
+            package_id,
+            booked,
+            event_type,
+            amount,
+            eligible,
+            rule_id,
+            rate,
+            commission,
+            reason,
+            original,
+        ) = row
         entry_id = f"seed:{transaction_id}"
         exists = db.scalar(
             select(RecoveryLedgerEntry.id).where(
@@ -474,7 +706,11 @@ def _seed_protection_data(db: Session) -> None:
 
 
 def seed_demo_data(db: Session) -> None:
-    if db.scalar(select(Tenant.id).limit(1)):
+    existing_tenants = set(db.scalars(select(Tenant.id)))
+    demo_tenants = {"TENANT_A", "TENANT_B"}
+    if existing_tenants and not demo_tenants.issubset(existing_tenants):
+        raise RuntimeError("数据库已包含非演示租户，拒绝隐式混入 AMC 演示数据")
+    if existing_tenants:
         demo_users = {
             "Terry": ("terry@example.test", "Terry"),
             "test-user": ("admin@example.test", "测试管理员"),
@@ -486,7 +722,12 @@ def seed_demo_data(db: Session) -> None:
                 db.add(User(id=user_id, email=email, display_name=display_name))
         db.flush()
         for tenant_id in ("TENANT_A", "TENANT_B"):
-            for user_id, role in (("Terry", "admin"), ("test-user", "admin"), ("test-operator", "operator"), ("test-viewer", "viewer")):
+            for user_id, role in (
+                ("Terry", "admin"),
+                ("test-user", "admin"),
+                ("test-operator", "operator"),
+                ("test-viewer", "viewer"),
+            ):
                 exists = db.scalar(
                     select(TenantMembership.id).where(
                         TenantMembership.tenant_id == tenant_id,
@@ -496,8 +737,20 @@ def seed_demo_data(db: Session) -> None:
                 if not exists:
                     db.add(TenantMembership(tenant_id=tenant_id, user_id=user_id, role=role))
         metric_values = {
-            "TENANT_A": {"confirmed_net_recovery": 19920, "commission_eligible_recovery": 18420, "accrued_commission": 2778, "settled_commission": 0, "collected_commission": 0},
-            "TENANT_B": {"confirmed_net_recovery": 800, "commission_eligible_recovery": 800, "accrued_commission": 160, "settled_commission": 0, "collected_commission": 0},
+            "TENANT_A": {
+                "confirmed_net_recovery": 19920,
+                "commission_eligible_recovery": 18420,
+                "accrued_commission": 2778,
+                "settled_commission": 0,
+                "collected_commission": 0,
+            },
+            "TENANT_B": {
+                "confirmed_net_recovery": 800,
+                "commission_eligible_recovery": 800,
+                "accrued_commission": 160,
+                "settled_commission": 0,
+                "collected_commission": 0,
+            },
         }
         for tenant_id, values in metric_values.items():
             for key, value in values.items():
@@ -508,7 +761,11 @@ def seed_demo_data(db: Session) -> None:
                     )
                 )
                 if not exists:
-                    db.add(BusinessMetricSnapshot(tenant_id=tenant_id, metric_key=key, value=value, source="已确认回款与佣金账本（演示快照）"))
+                    db.add(
+                        BusinessMetricSnapshot(
+                            tenant_id=tenant_id, metric_key=key, value=value, source="已确认回款与佣金账本（演示快照）"
+                        )
+                    )
         upgrade_activities = [
             ("TENANT_A", "ACT-003", "已结清归档", "PKG_A", "履约归档", "completed", ["C001"]),
             ("TENANT_A", "ACT-004", "异议案件保护", "PKG_B", "异议保护", "blocked", ["C010"]),
@@ -516,9 +773,26 @@ def seed_demo_data(db: Session) -> None:
             ("TENANT_B", "ACT-006", "确认回款归集", "PKG_C", "回款自动核对", "running", ["C021"]),
         ]
         for tenant_id, activity_id, name, package_id, goal, activity_status, case_ids in upgrade_activities:
-            exists = db.scalar(select(Activity.id).where(Activity.tenant_id == tenant_id, Activity.activity_id == activity_id))
+            exists = db.scalar(
+                select(Activity.id).where(Activity.tenant_id == tenant_id, Activity.activity_id == activity_id)
+            )
             if not exists:
-                db.add(Activity(tenant_id=tenant_id, activity_id=activity_id, name=name, package_id=package_id, goal=goal, status=activity_status, mode="sandbox", budget_yuan=30, case_ids=case_ids, policy_version=1, service_snapshot={}, preflight={"seed": True}))
+                db.add(
+                    Activity(
+                        tenant_id=tenant_id,
+                        activity_id=activity_id,
+                        name=name,
+                        package_id=package_id,
+                        goal=goal,
+                        status=activity_status,
+                        mode="sandbox",
+                        budget_yuan=30,
+                        case_ids=case_ids,
+                        policy_version=1,
+                        service_snapshot={},
+                        preflight={"seed": True},
+                    )
+                )
         _seed_financial_data(db)
         _seed_repayment_data(db)
         _seed_protection_data(db)
@@ -546,20 +820,50 @@ def seed_demo_data(db: Session) -> None:
         )
     db.add_all(
         [
-            AssetPackage(tenant_id="TENANT_A", package_id="PKG_A", title="长龄个贷一期", policy_status="published", policy_version=1, budget_limit_yuan=30),
-            AssetPackage(tenant_id="TENANT_A", package_id="PKG_B", title="长龄个贷二期", policy_status="published", policy_version=1, budget_limit_yuan=30),
-            AssetPackage(tenant_id="TENANT_B", package_id="PKG_C", title="消费个贷三期", policy_status="published", policy_version=1, budget_limit_yuan=30),
+            AssetPackage(
+                tenant_id="TENANT_A",
+                package_id="PKG_A",
+                title="长龄个贷一期",
+                policy_status="published",
+                policy_version=1,
+                budget_limit_yuan=30,
+            ),
+            AssetPackage(
+                tenant_id="TENANT_A",
+                package_id="PKG_B",
+                title="长龄个贷二期",
+                policy_status="published",
+                policy_version=1,
+                budget_limit_yuan=30,
+            ),
+            AssetPackage(
+                tenant_id="TENANT_B",
+                package_id="PKG_C",
+                title="消费个贷三期",
+                policy_status="published",
+                policy_version=1,
+                budget_limit_yuan=30,
+            ),
         ]
     )
     db.add_all(
         [
             CaseRecord(tenant_id="TENANT_A", case_id="C001", package_id="PKG_A", status="已结清", has_signed_plan=True),
             CaseRecord(tenant_id="TENANT_A", case_id="C002", package_id="PKG_A", status="履约中", has_signed_plan=True),
-            CaseRecord(tenant_id="TENANT_A", case_id="C003", package_id="PKG_A", status="部分履约", has_signed_plan=True),
+            CaseRecord(
+                tenant_id="TENANT_A", case_id="C003", package_id="PKG_A", status="部分履约", has_signed_plan=True
+            ),
             CaseRecord(tenant_id="TENANT_A", case_id="C006", package_id="PKG_A", status="到账待匹配"),
             CaseRecord(tenant_id="TENANT_A", case_id="C008", package_id="PKG_A", status="待联系"),
             CaseRecord(tenant_id="TENANT_A", case_id="C010", package_id="PKG_B", status="异议暂停", blocked=True),
-            CaseRecord(tenant_id="TENANT_A", case_id="C014", package_id="PKG_B", status="委托到期", blocked=True, has_signed_plan=True),
+            CaseRecord(
+                tenant_id="TENANT_A",
+                case_id="C014",
+                package_id="PKG_B",
+                status="委托到期",
+                blocked=True,
+                has_signed_plan=True,
+            ),
             CaseRecord(tenant_id="TENANT_B", case_id="C021", package_id="PKG_C", status="已确认回款"),
             CaseRecord(tenant_id="TENANT_B", case_id="C024", package_id="PKG_C", status="待联系"),
         ]
@@ -570,7 +874,11 @@ def seed_demo_data(db: Session) -> None:
             tenant_id="TENANT_A",
             service_type="agent",
             provider="Hermes Agent",
-            settings={"endpoint": "http://agent-gateway.internal/v1", "profile": "fulfill-agent-v3", "approval": "高影响动作需确认"},
+            settings={
+                "endpoint": "http://agent-gateway.internal/v1",
+                "profile": "fulfill-agent-v3",
+                "approval": "高影响动作需确认",
+            },
             secret_ref="kms://luheng/TENANT_A/agent/seed",
             credential_last4="DEMO",
             version=3,
@@ -599,7 +907,12 @@ def seed_demo_data(db: Session) -> None:
             tenant_id="TENANT_A",
             service_type="voice",
             provider="阿里云智能语音",
-            settings={"region": "华东 2（上海）", "asr": "Paraformer 实时版", "tts": "CosyVoice · 龙橙", "sampleRate": "16 kHz"},
+            settings={
+                "region": "华东 2（上海）",
+                "asr": "Paraformer 实时版",
+                "tts": "CosyVoice · 龙橙",
+                "sampleRate": "16 kHz",
+            },
             secret_ref="kms://luheng/TENANT_A/voice/seed",
             credential_last4="DEMO",
             version=1,
@@ -609,7 +922,12 @@ def seed_demo_data(db: Session) -> None:
             tenant_id="TENANT_A",
             service_type="phone",
             provider="LiveKit SIP",
-            settings={"sipHost": "sip.example.test:5061", "trunk": "amc-demo-trunk", "callerId": "010****8800", "callback": "https://example.test/telephony/events"},
+            settings={
+                "sipHost": "sip.example.test:5061",
+                "trunk": "amc-demo-trunk",
+                "callerId": "010****8800",
+                "callback": "https://example.test/telephony/events",
+            },
             secret_ref="kms://luheng/TENANT_A/phone/seed",
             credential_last4="DEMO",
             version=1,

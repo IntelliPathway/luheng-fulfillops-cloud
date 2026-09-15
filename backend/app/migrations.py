@@ -34,7 +34,9 @@ def run_postgres_migrations(engine: Engine) -> list[str]:
             for statement in statements:
                 if statement:
                     connection.exec_driver_sql(statement)
-            connection.execute(text("INSERT INTO schema_migrations (version) VALUES (:version)"), {"version": path.name})
+            connection.execute(
+                text("INSERT INTO schema_migrations (version) VALUES (:version)"), {"version": path.name}
+            )
             applied_now.append(path.name)
     return applied_now
 

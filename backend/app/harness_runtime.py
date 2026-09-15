@@ -221,10 +221,15 @@ def project_run_result(result: Any) -> tuple[dict[str, Any], dict[str, Any]]:
             source = message.get("source") if isinstance(message.get("source"), dict) else {}
             call_id = str(source.get("callId") or "")
             wrappers = message.get("content") if isinstance(message.get("content"), list) else []
-            is_error = any(isinstance(item, dict) and item.get("type") == "tool-result" and item.get("isError") for item in wrappers)
+            is_error = any(
+                isinstance(item, dict) and item.get("type") == "tool-result" and item.get("isError")
+                for item in wrappers
+            )
             if call_id in calls:
                 calls[call_id]["status"] = "failed" if is_error else "completed"
-                calls[call_id]["detail"] = "MCP 工具返回错误" if is_error else "工具结果已由 FulfillOps API 在租户范围内生成"
+                calls[call_id]["detail"] = (
+                    "MCP 工具返回错误" if is_error else "工具结果已由 FulfillOps API 在租户范围内生成"
+                )
             structured = _json_from_tool_result(event)
             if structured is not None:
                 verified_results.append(structured)
@@ -236,7 +241,9 @@ def project_run_result(result: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         answer = dict(candidate["answer"])
         if final_response:
             answer["body"] = final_response
-        evidence = [entry for item in verified_results for entry in (item.get("evidence") or []) if isinstance(entry, dict)]
+        evidence = [
+            entry for item in verified_results for entry in (item.get("evidence") or []) if isinstance(entry, dict)
+        ]
         proposal = next((item.get("proposal") for item in reversed(verified_results) if item.get("proposal")), None)
     else:
         answer = {

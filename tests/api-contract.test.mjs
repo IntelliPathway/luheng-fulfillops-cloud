@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, classifyApiFailure, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -92,6 +92,7 @@ test('calls assurance health and governed replay endpoints with tenant context',
   }
   assert.equal(calls[0].url, '/api/v1/security/auth/health');
   assert.equal(calls[0].options.headers['X-Tenant-ID'], 'TENANT_A');
+  assert.equal('X-Actor-ID' in calls[0].options.headers, false);
   assert.equal(calls[1].url, '/api/v1/models/gateway/health');
   assert.equal(calls[2].url, '/api/v1/agents/replays/jobs');
   const replayBody = JSON.parse(calls[2].options.body);
@@ -99,6 +100,14 @@ test('calls assurance health and governed replay endpoints with tenant context',
   assert.equal(replayBody.mode, 'deterministic-contract');
   assert.equal(replayBody.acknowledged_external_call, false);
   assert.match(replayBody.idempotency_key, /^model-replay-TENANT_A-/);
+});
+
+test('distinguishes authentication and API failures from a genuine offline demo', () => {
+  assert.equal(classifyApiFailure(new ApiError('需要身份', 401)), 'auth-required');
+  assert.equal(classifyApiFailure(new ApiError('禁止访问', 403)), 'auth-required');
+  assert.equal(classifyApiFailure(new ApiError('服务异常', 503)), 'api-error');
+  assert.equal(classifyApiFailure(new ApiError('Sites 演示', 503, {mode: 'sites-demo'})), 'offline');
+  assert.equal(classifyApiFailure(new TypeError('fetch failed')), 'offline');
 });
 
 test('normalizes integer-cent financial ledgers for display without losing evidence', () => {
