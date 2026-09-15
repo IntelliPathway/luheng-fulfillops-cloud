@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, securityApi, servicePayload} from '../src/api.js';
+import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -199,4 +199,34 @@ test('uses evidence-bound maker-checker protection endpoints without direct rele
     decision: 'approve', review_note: '独立复核证据一致', expected_version: 2, acknowledged: true,
   });
   assert.equal(calls.some(call => String(call.url).includes('/release')), false);
+});
+
+test('submits only plan evidence digests and uses maker-checker activation', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({id: 'RPLAN-1', version: 1})};
+  };
+  const payload = {
+    plan_id: 'PLAN-C008-001', total_cents: 1200000, down_payment_cents: 240000,
+    installments: [{installment_no: 1, due_date: '2026-09-20', due_cents: 240000}],
+    agreement_reference: 'AGREEMENT-C008-001', agreement_digest: 'a'.repeat(64),
+    signed_at: '2026-09-15T08:00:00Z', proposal_reason: '外部签署回执已经核验',
+  };
+  try {
+    await repaymentApi.overview('TENANT_A');
+    await repaymentApi.propose('TENANT_A', 'C008', payload);
+    await repaymentApi.decide('TENANT_A', 'RPLAN-1', 'approve', '独立复核条款与证据一致', 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/repayment-plans/overview');
+  assert.equal(calls[1].url, '/api/v1/cases/C008/repayment-plans');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {...payload, acknowledged: true});
+  assert.equal(JSON.stringify(calls).includes('agreement_content'), false);
+  assert.equal(calls[2].url, '/api/v1/repayment-plans/RPLAN-1/decision');
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    decision: 'approve', review_note: '独立复核条款与证据一致', expected_version: 1, acknowledged: true,
+  });
 });

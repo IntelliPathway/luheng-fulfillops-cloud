@@ -27,8 +27,14 @@ export ENABLE_LIVE_MODEL_CALLS=false
 export MODEL_EGRESS_ALLOWLIST=api.deepseek.com
 export PYTHONPATH="$PROJECT_ROOT/backend"
 
+if [[ -x "$PROJECT_ROOT/backend/.venv/bin/python" ]]; then
+  PYTHON_BIN="$PROJECT_ROOT/backend/.venv/bin/python"
+else
+  PYTHON_BIN=python
+fi
+
 cd "$PROJECT_ROOT/backend"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8019 >"$RUN_DIR/api.log" 2>&1 &
+"$PYTHON_BIN" -m uvicorn app.main:app --host 127.0.0.1 --port 8019 >"$RUN_DIR/api.log" 2>&1 &
 API_PID=$!
 
 for _ in $(seq 1 40); do
@@ -42,7 +48,12 @@ HEADERS=(-H 'Content-Type: application/json' -H 'X-Tenant-ID: TENANT_A' -H 'X-Ac
 HEALTH="$(curl --silent --fail "${HEADERS[@]}" http://127.0.0.1:8019/api/v1/models/gateway/health)"
 QUEUED="$(curl --silent --fail "${HEADERS[@]}" -X POST -d '{"mode":"deterministic-contract","idempotency_key":"v08-smoke-replay"}' http://127.0.0.1:8019/api/v1/agents/replays/jobs)"
 JOB_ID="$(jq -r '.id' <<<"$QUEUED")"
-JOB="$(curl --silent --fail "${HEADERS[@]}" "http://127.0.0.1:8019/api/v1/jobs/$JOB_ID")"
+JOB="$QUEUED"
+for _ in $(seq 1 40); do
+  JOB="$(curl --silent --fail "${HEADERS[@]}" "http://127.0.0.1:8019/api/v1/jobs/$JOB_ID")"
+  if [[ "$(jq -r '.status' <<<"$JOB")" =~ ^(succeeded|failed|cancelled)$ ]]; then break; fi
+  sleep 0.1
+done
 LIVE_STATUS="$(curl --silent -o "$RUN_DIR/live.json" -w '%{http_code}' "${HEADERS[@]}" -X POST -d '{"mode":"live-provider","acknowledged_external_call":true}' http://127.0.0.1:8019/api/v1/agents/replays/jobs)"
 
 test "$(jq -r '.status' <<<"$HEALTH")" = "contract"

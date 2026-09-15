@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.11.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账，以及证据约束的保护事件处置工作流。Sites 测试部署只承载前端交互沙箱；完整 FastAPI、Worker 和 PostgreSQL 服务使用 ECS/1Panel Compose。
+`v0.12.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。Sites 测试部署只承载前端交互沙箱；完整 FastAPI、Worker 和 PostgreSQL 服务使用 ECS/1Panel Compose。
 
 ## 本地运行
 
@@ -107,12 +107,21 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 正式环境应配置 `PAYMENT_WEBHOOK_TOLERANCE_SECONDS=300`（允许范围 60—900），保持 `ENABLE_PAYMENT_SANDBOX=false`，并通过 KMS/Secrets Manager 提供各租户 Provider 密钥。系统不保存原始支付请求体或签名，只保存 SHA-256 摘要、验签版本和不可变业务事件。
 
+## 签约方案与分期履约
+
+- `GET /api/v1/repayment-plans/overview`：读取当前租户的待复核、生效、完成、逾期及临近到期方案。
+- `GET /api/v1/cases/{case_id}/repayment-plans`：读取案件的版本化签约与期次事实。
+- `POST /api/v1/cases/{case_id}/repayment-plans`：运营人员或管理员提交方案、外部协议引用和 SHA-256 摘要，不保存协议正文。
+- `POST /api/v1/repayment-plans/{id}/decision`：由不同账号的管理员批准或驳回；批准时锁定案件、档案和资产包并重新校验当前策略。
+
+方案金额使用整数分。服务端强制校验债权余额、最低结算比例、最低首付比例、最大期数、连续期次、期次合计、签署时间和有效委托期；保护案件、陈旧版本、自审及同案重复生效方案均失败关闭。已验签回款只会分摊到签署时间不晚于回款的生效方案，并按最早到期顺序入账；退款引用原回款并从其最近期次分摊逆向冲销，方案全额履行或退款回退时同步调整案件状态。
+
 ## 测试
 
 ```bash
 .venv/bin/python -m pytest
 ```
 
-生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh` 和 `./scripts/smoke-v10-reconciliation.sh`。v0.10 冒烟覆盖未匹配回执、候选建议、旧单步路径关闭、提案、陈旧版本阻断、独立批准和原子入账。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh` 和 `./scripts/smoke-v12-repayment-plans.sh`。v0.12 冒烟覆盖保护案件阻断、方案提案、自审与陈旧版本阻断、独立批准、最早到期期次分摊和退款逆向冲销。
 
-当前本地基线为 65 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 66 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、跨租户同号事件隔离、退款与佣金账簿，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前本地基线为 77 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 后执行完整 78 项。覆盖 MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

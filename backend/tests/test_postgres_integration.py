@@ -59,6 +59,9 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             "payment_receipts",
             "payment_reconciliations",
             "protection_incidents",
+            "repayment_allocations",
+            "repayment_installments",
+            "repayment_plans",
             "recovery_ledger_entries",
             "commission_ledger_entries",
         } <= set(inspector.get_table_names())
@@ -75,8 +78,16 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             "heartbeat_at",
             "recovery_count",
         }
+        assert {column["name"] for column in inspector.get_columns("asset_packages")} >= {
+            "min_settlement_bps",
+            "max_installments",
+            "min_down_payment_bps",
+        }
+        assert "claim_balance_cents" in {
+            column["name"] for column in inspector.get_columns("case_financial_profiles")
+        }
         with app.state.engine.connect() as connection:
-            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 10
+            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 11
 
         broker = PostgresNotifyBroker(scoped_url)
         broker.start()

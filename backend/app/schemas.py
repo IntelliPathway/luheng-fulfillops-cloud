@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -534,6 +534,82 @@ class ProtectionOverviewOut(BaseModel):
     overdue_count: int
     permanent_hold_count: int
     incidents: list[ProtectionIncidentOut]
+
+
+class RepaymentInstallmentRequest(BaseModel):
+    installment_no: int = Field(ge=1, le=24)
+    due_date: date
+    due_cents: int = Field(gt=0, le=1_000_000_000)
+
+
+class RepaymentPlanCreateRequest(BaseModel):
+    plan_id: str = Field(min_length=4, max_length=80, pattern=r"^[A-Za-z0-9._:-]+$")
+    total_cents: int = Field(gt=0, le=1_000_000_000)
+    down_payment_cents: int = Field(gt=0, le=1_000_000_000)
+    installments: list[RepaymentInstallmentRequest] = Field(min_length=1, max_length=24)
+    agreement_reference: EvidenceReference
+    agreement_digest: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    signed_at: datetime
+    proposal_reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class RepaymentPlanDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    review_note: str = Field(min_length=4, max_length=500)
+    expected_version: int = Field(ge=1)
+    acknowledged: bool
+
+
+class RepaymentInstallmentOut(BaseModel):
+    installment_id: str
+    installment_no: int
+    due_date: date
+    due_cents: int
+    paid_cents: int
+    remaining_cents: int
+    status: str
+    last_payment_at: datetime | None
+
+
+class RepaymentPlanOut(BaseModel):
+    id: str
+    plan_id: str
+    case_id: str
+    status: str
+    version: int
+    currency: str
+    claim_balance_cents: int
+    total_cents: int
+    down_payment_cents: int
+    installment_count: int
+    policy_version: int
+    policy_snapshot: dict[str, Any]
+    agreement_reference: str
+    agreement_digest: str
+    signed_at: datetime
+    evidence_digest: str
+    proposal_reason: str
+    proposed_by: str
+    proposed_at: datetime
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    review_note: str | None
+    activated_at: datetime | None
+    completed_at: datetime | None
+    paid_cents: int
+    remaining_cents: int
+    overdue_cents: int
+    installments: list[RepaymentInstallmentOut]
+
+
+class RepaymentOverviewOut(BaseModel):
+    active_count: int
+    pending_review_count: int
+    completed_count: int
+    overdue_plan_count: int
+    due_soon_count: int
+    plans: list[RepaymentPlanOut]
 
 
 class PaymentSandboxReceiptRequest(BaseModel):

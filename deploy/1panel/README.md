@@ -37,7 +37,7 @@
 5. 确认四个服务健康：`postgres`、`api`、`worker`、`web`。
 6. 在“网站 → 反向代理”中新建域名，代理到 `http://127.0.0.1:18080`，申请 HTTPS 证书并启用强制 HTTPS。
 7. 外网验收档必须在 1Panel 启用访问密码或 IP 白名单；不得把开发身份模式作为正式生产认证。
-8. 访问 `/api/v1/health`、`/api/v1/jobs/queue/health`，并执行 v0.11 保护工作流冒烟测试。
+8. 访问 `/api/v1/health`、`/api/v1/jobs/queue/health`，并执行 v0.11 保护工作流与 v0.12 履约计划冒烟测试。
 
 如果 1Panel 要求 Compose 文件与 `.env` 同目录，可在创建编排时把二者一并粘贴/上传，构建上下文仍需指向完整仓库。
 

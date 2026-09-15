@@ -21,11 +21,14 @@ from .models import (
     PaymentWebhookConfig,
     ProtectionIncident,
     RecoveryLedgerEntry,
+    RepaymentInstallment,
+    RepaymentPlan,
     ServiceConfig,
     Tenant,
     TenantMembership,
     User,
 )
+from .repayment_plans import allocate_recovery_to_plan
 from .secret_store import store_secret
 
 FINANCIAL_CASES = [
@@ -42,6 +45,120 @@ FINANCIAL_CASES = [
     ("TENANT_A", "C016", "PKG_B", "COM_B_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_B", "C021", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
     ("TENANT_B", "C024", "PKG_C", "COM_C_V1", date(2026, 8, 1), date(2026, 12, 31), None, None, False),
+]
+
+CLAIM_BALANCE_CENTS = {
+    ("TENANT_A", "C001"): 1_200_000,
+    ("TENANT_A", "C002"): 1_440_000,
+    ("TENANT_A", "C003"): 960_000,
+    ("TENANT_A", "C004"): 720_000,
+    ("TENANT_A", "C005"): 1_500_000,
+    ("TENANT_A", "C006"): 1_560_000,
+    ("TENANT_A", "C008"): 1_680_000,
+    ("TENANT_A", "C010"): 1_800_000,
+    ("TENANT_A", "C014"): 2_040_000,
+    ("TENANT_A", "C015"): 2_100_000,
+    ("TENANT_A", "C016"): 2_160_000,
+    ("TENANT_B", "C021"): 2_460_000,
+    ("TENANT_B", "C024"): 2_640_000,
+}
+
+SEED_REPAYMENT_PLANS = [
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN001",
+        "case_id": "C001",
+        "total_cents": 1_000_000,
+        "down_payment_cents": 1_000_000,
+        "policy_version": 1,
+        "signed_at": datetime(2026, 8, 5, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [(date(2026, 8, 6), 1_000_000)],
+        "tail_eligible": True,
+    },
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN002",
+        "case_id": "C002",
+        "total_cents": 1_260_000,
+        "down_payment_cents": 252_000,
+        "policy_version": 1,
+        "signed_at": datetime(2026, 8, 5, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [
+            (date(2026, 8, 10), 252_000),
+            (date(2026, 9, 10), 201_600),
+            (date(2026, 10, 10), 201_600),
+            (date(2026, 11, 10), 201_600),
+            (date(2026, 12, 10), 201_600),
+            (date(2027, 1, 10), 201_600),
+        ],
+        "tail_eligible": True,
+    },
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN003",
+        "case_id": "C003",
+        "total_cents": 800_000,
+        "down_payment_cents": 800_000,
+        "policy_version": 1,
+        "signed_at": datetime(2026, 8, 20, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [(date(2026, 9, 5), 800_000)],
+        "tail_eligible": True,
+    },
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN006-PENDING",
+        "case_id": "C006",
+        "status": "pending_review",
+        "total_cents": 1_248_000,
+        "down_payment_cents": 249_600,
+        "policy_version": 1,
+        "signed_at": datetime(2026, 9, 14, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [
+            (date(2026, 9, 17), 249_600),
+            (date(2026, 10, 17), 199_680),
+            (date(2026, 11, 17), 199_680),
+            (date(2026, 12, 17), 199_680),
+            (date(2027, 1, 17), 199_680),
+            (date(2027, 2, 17), 199_680),
+        ],
+        "tail_eligible": True,
+    },
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN014",
+        "case_id": "C014",
+        "total_cents": 1_785_000,
+        "down_payment_cents": 357_000,
+        "policy_version": 1,
+        "signed_at": datetime(2026, 8, 20, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [
+            (date(2026, 8, 25), 357_000),
+            (date(2026, 9, 25), 285_600),
+            (date(2026, 10, 25), 285_600),
+            (date(2026, 11, 25), 285_600),
+            (date(2026, 12, 25), 285_600),
+            (date(2027, 1, 25), 285_600),
+        ],
+        "tail_eligible": True,
+    },
+    {
+        "tenant_id": "TENANT_A",
+        "plan_id": "PLAN015",
+        "case_id": "C015",
+        "total_cents": 1_837_500,
+        "down_payment_cents": 367_500,
+        "policy_version": 0,
+        "signed_at": datetime(2026, 7, 20, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+        "schedule": [
+            (date(2026, 7, 25), 367_500),
+            (date(2026, 8, 25), 294_000),
+            (date(2026, 9, 25), 294_000),
+            (date(2026, 10, 25), 294_000),
+            (date(2026, 11, 25), 294_000),
+            (date(2026, 12, 25), 294_000),
+        ],
+        "tail_eligible": False,
+    },
 ]
 
 
@@ -81,18 +198,20 @@ def _seed_financial_data(db: Session) -> None:
         case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
         if not case:
             db.add(CaseRecord(tenant_id=tenant_id, case_id=case_id, package_id=package_id, status="已确认回款"))
-        exists = db.scalar(
-            select(CaseFinancialProfile.id).where(
+        profile = db.scalar(
+            select(CaseFinancialProfile).where(
                 CaseFinancialProfile.tenant_id == tenant_id,
                 CaseFinancialProfile.case_id == case_id,
             )
         )
-        if not exists:
+        claim_balance_cents = CLAIM_BALANCE_CENTS[(tenant_id, case_id)]
+        if not profile:
             db.add(
                 CaseFinancialProfile(
                     tenant_id=tenant_id,
                     case_id=case_id,
                     commission_rule_id=rule_id,
+                    claim_balance_cents=claim_balance_cents,
                     mandate_start=start,
                     mandate_end=end,
                     signed_plan_at=signed_at,
@@ -100,6 +219,8 @@ def _seed_financial_data(db: Session) -> None:
                     signed_plan_tail_eligible=tail_eligible,
                 )
             )
+        elif profile.claim_balance_cents <= 1:
+            profile.claim_balance_cents = claim_balance_cents
     db.flush()
     for row in SEED_RECOVERIES:
         tenant_id, transaction_id, case_id, package_id, booked, event_type, amount, eligible, rule_id, rate, commission, reason, original = row
@@ -173,6 +294,92 @@ def _seed_financial_data(db: Session) -> None:
     db.flush()
     refresh_business_metrics(db, "TENANT_A")
     refresh_business_metrics(db, "TENANT_B")
+
+
+def _seed_repayment_data(db: Session) -> None:
+    for item in SEED_REPAYMENT_PLANS:
+        plan_status = item.get("status", "active")
+        plan = db.scalar(
+            select(RepaymentPlan).where(
+                RepaymentPlan.tenant_id == item["tenant_id"],
+                RepaymentPlan.plan_id == item["plan_id"],
+            )
+        )
+        if not plan:
+            evidence_digest = hashlib.sha256(f"seed-plan:{item['tenant_id']}:{item['plan_id']}".encode()).hexdigest()
+            agreement_digest = hashlib.sha256(f"mock-agreement:{item['plan_id']}".encode()).hexdigest()
+            plan = RepaymentPlan(
+                tenant_id=item["tenant_id"],
+                plan_id=item["plan_id"],
+                case_id=item["case_id"],
+                status=plan_status,
+                version=1 if plan_status == "pending_review" else 2,
+                claim_balance_cents=CLAIM_BALANCE_CENTS[(item["tenant_id"], item["case_id"])],
+                total_cents=item["total_cents"],
+                down_payment_cents=item["down_payment_cents"],
+                installment_count=len(item["schedule"]),
+                policy_version=item["policy_version"],
+                policy_snapshot={
+                    "package_id": "PKG_A" if item["case_id"] in {"C001", "C002", "C003", "C006"} else "PKG_B",
+                    "policy_version": item["policy_version"],
+                    "min_settlement_bps": 7000,
+                    "max_installments": 6,
+                    "min_down_payment_bps": 2000,
+                    "seed": True,
+                },
+                agreement_reference=f"AGREEMENT-{item['plan_id']}",
+                agreement_digest=agreement_digest,
+                signed_at=item["signed_at"],
+                evidence_digest=evidence_digest,
+                proposal_reason="既有已签方案迁移为服务端权威台账",
+                proposed_by="system:seed",
+                proposed_at=item["signed_at"],
+                reviewed_by=None if plan_status == "pending_review" else "system:migration",
+                reviewed_at=None if plan_status == "pending_review" else item["signed_at"],
+                review_note=None if plan_status == "pending_review" else "迁移已核验的演示协议摘要",
+                activated_at=None if plan_status == "pending_review" else item["signed_at"],
+            )
+            db.add(plan)
+            db.flush()
+            for index, (due_date, due_cents) in enumerate(item["schedule"], start=1):
+                db.add(
+                    RepaymentInstallment(
+                        tenant_id=item["tenant_id"],
+                        plan_row_id=plan.id,
+                        installment_id=f"{item['plan_id']}-{index:02d}",
+                        installment_no=index,
+                        due_date=due_date,
+                        due_cents=due_cents,
+                    )
+                )
+        case = db.scalar(
+            select(CaseRecord).where(
+                CaseRecord.tenant_id == item["tenant_id"],
+                CaseRecord.case_id == item["case_id"],
+            )
+        )
+        profile = db.scalar(
+            select(CaseFinancialProfile).where(
+                CaseFinancialProfile.tenant_id == item["tenant_id"],
+                CaseFinancialProfile.case_id == item["case_id"],
+            )
+        )
+        if case and plan_status != "pending_review":
+            case.has_signed_plan = True
+        if profile and plan_status != "pending_review":
+            profile.signed_plan_at = item["signed_at"].date()
+            profile.signed_plan_last_due = item["schedule"][-1][0]
+            profile.signed_plan_tail_eligible = item["tail_eligible"]
+    db.flush()
+    recoveries = list(
+        db.scalars(
+            select(RecoveryLedgerEntry)
+            .where(RecoveryLedgerEntry.tenant_id == "TENANT_A")
+            .order_by(RecoveryLedgerEntry.booked_at, RecoveryLedgerEntry.created_at)
+        )
+    )
+    for recovery in recoveries:
+        allocate_recovery_to_plan(db, recovery)
 
 
 def _seed_protection_data(db: Session) -> None:
@@ -313,6 +520,7 @@ def seed_demo_data(db: Session) -> None:
             if not exists:
                 db.add(Activity(tenant_id=tenant_id, activity_id=activity_id, name=name, package_id=package_id, goal=goal, status=activity_status, mode="sandbox", budget_yuan=30, case_ids=case_ids, policy_version=1, service_snapshot={}, preflight={"seed": True}))
         _seed_financial_data(db)
+        _seed_repayment_data(db)
         _seed_protection_data(db)
         db.commit()
         return
@@ -530,5 +738,6 @@ def seed_demo_data(db: Session) -> None:
             for key, value in values.items()
         )
     _seed_financial_data(db)
+    _seed_repayment_data(db)
     _seed_protection_data(db)
     db.commit()

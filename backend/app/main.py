@@ -79,6 +79,7 @@ from .models import (
     PaymentWebhookConfig,
     ProtectionIncident,
     RecoveryLedgerEntry,
+    RepaymentPlan,
     SelfTestReport,
     ServiceConfig,
     User,
@@ -89,6 +90,13 @@ from .protection_workflow import (
     open_protection_incident,
     propose_protection_resolution,
     protection_overview,
+)
+from .repayment_plans import (
+    RepaymentPlanError,
+    create_plan_proposal,
+    decide_plan,
+    plan_view,
+    repayment_overview,
 )
 from .runtime_adapters import test_agent_runtime
 from .schemas import (
@@ -141,6 +149,10 @@ from .schemas import (
     ProtectionResolutionProposalRequest,
     QueueHealthOut,
     RecoveryLedgerEntryOut,
+    RepaymentOverviewOut,
+    RepaymentPlanCreateRequest,
+    RepaymentPlanDecisionRequest,
+    RepaymentPlanOut,
     SecretStoreHealthOut,
     SelfTestItem,
     SelfTestReportOut,
@@ -267,6 +279,10 @@ def raise_protection_error(exc: ProtectionWorkflowError) -> None:
     raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
 
 
+def raise_repayment_plan_error(exc: RepaymentPlanError) -> None:
+    raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
+
+
 def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_id: str) -> None:
     if should_execute_inline():
         background_tasks.add_task(execute_job, session_factory, job_id)
@@ -275,7 +291,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.11.0",
+        version="0.12.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -299,7 +315,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.11.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.12.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -1062,6 +1078,109 @@ def create_app(database_url: str | None = None) -> FastAPI:
         except ProtectionWorkflowError as exc:
             raise_protection_error(exc)
         return ProtectionIncidentOut.model_validate(decided)
+
+    @app.get(
+        "/api/v1/repayment-plans/overview",
+        response_model=RepaymentOverviewOut,
+        tags=["repayment-plans"],
+    )
+    def get_repayment_overview(context: Context, db: Database) -> RepaymentOverviewOut:
+        return RepaymentOverviewOut.model_validate(repayment_overview(db, context.tenant_id))
+
+    @app.get(
+        "/api/v1/cases/{case_id}/repayment-plans",
+        response_model=list[RepaymentPlanOut],
+        tags=["repayment-plans"],
+    )
+    def list_case_repayment_plans(
+        case_id: str,
+        context: Context,
+        db: Database,
+    ) -> list[RepaymentPlanOut]:
+        rows = db.scalars(
+            select(RepaymentPlan)
+            .where(
+                RepaymentPlan.tenant_id == context.tenant_id,
+                RepaymentPlan.case_id == case_id.strip().upper(),
+            )
+            .order_by(RepaymentPlan.proposed_at.desc())
+        )
+        return [RepaymentPlanOut.model_validate(plan_view(db, row)) for row in rows]
+
+    @app.post(
+        "/api/v1/cases/{case_id}/repayment-plans",
+        response_model=RepaymentPlanOut,
+        status_code=status.HTTP_201_CREATED,
+        tags=["repayment-plans"],
+    )
+    def propose_repayment_plan(
+        case_id: str,
+        payload: RepaymentPlanCreateRequest,
+        context: Context,
+        db: Database,
+    ) -> RepaymentPlanOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="必须确认本次只提交签约证据与方案提案，不直接生效",
+            )
+        try:
+            plan = create_plan_proposal(
+                db,
+                context.tenant_id,
+                case_id,
+                payload.plan_id,
+                payload.total_cents,
+                payload.down_payment_cents,
+                [item.model_dump() for item in payload.installments],
+                payload.agreement_reference,
+                payload.agreement_digest,
+                payload.signed_at,
+                payload.proposal_reason,
+                context.actor_id,
+            )
+        except RepaymentPlanError as exc:
+            raise_repayment_plan_error(exc)
+        return RepaymentPlanOut.model_validate(plan_view(db, plan))
+
+    @app.post(
+        "/api/v1/repayment-plans/{plan_row_id}/decision",
+        response_model=RepaymentPlanOut,
+        tags=["repayment-plans"],
+    )
+    def decide_repayment_plan(
+        plan_row_id: str,
+        payload: RepaymentPlanDecisionRequest,
+        context: Context,
+        db: Database,
+    ) -> RepaymentPlanOut:
+        require_role(context, "admin")
+        if not payload.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="必须明确确认方案复核决定",
+            )
+        plan = db.scalar(
+            select(RepaymentPlan).where(
+                RepaymentPlan.id == plan_row_id,
+                RepaymentPlan.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not plan:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="履约方案不存在")
+        try:
+            decided = decide_plan(
+                db,
+                plan,
+                payload.decision,
+                payload.review_note,
+                payload.expected_version,
+                context.actor_id,
+            )
+        except RepaymentPlanError as exc:
+            raise_repayment_plan_error(exc)
+        return RepaymentPlanOut.model_validate(plan_view(db, decided))
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, context: Context, db: Database) -> JobOut:

@@ -1,6 +1,6 @@
 {
   "name": "luheng-fulfillops-cloud",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test": "npm run test:domain && npm run test:deployment && npm run test:sites",
-    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs",
+    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs tests/repayment-state.test.mjs",
     "test:deployment": "node --test tests/deployment-contract.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs"
   },

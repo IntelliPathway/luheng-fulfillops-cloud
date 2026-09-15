@@ -9,7 +9,7 @@ const firstContactStatuses = new Set(['待联系', '方案待签']);
 const paymentStatuses = new Set(['到账待匹配', '支付失败', '支付处理中', '自然回款', '已确认回款']);
 
 export function matchesActivityGoal(caseItem, goal) {
-  if (goal === GOALS.SIGNED_PLAN) return caseItem.plan?.status === 'SIGNED';
+  if (goal === GOALS.SIGNED_PLAN) return ['active', 'completed'].includes(caseItem.governedPlan?.status) || caseItem.plan?.status === 'SIGNED';
   if (goal === GOALS.FIRST_CONTACT) return firstContactStatuses.has(caseItem.status);
   if (goal === GOALS.PAYMENT_RECONCILIATION) return paymentStatuses.has(caseItem.status);
   return false;

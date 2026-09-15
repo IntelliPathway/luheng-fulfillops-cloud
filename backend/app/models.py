@@ -70,6 +70,9 @@ class AssetPackage(Base):
     policy_status: Mapped[str] = mapped_column(String(24), default="published")
     policy_version: Mapped[int] = mapped_column(Integer, default=1)
     budget_limit_yuan: Mapped[float] = mapped_column(Float, default=30)
+    min_settlement_bps: Mapped[int] = mapped_column(Integer, default=7000)
+    max_installments: Mapped[int] = mapped_column(Integer, default=6)
+    min_down_payment_bps: Mapped[int] = mapped_column(Integer, default=2000)
 
 
 class CaseRecord(Base):
@@ -234,7 +237,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.11.0")
+    version: Mapped[str] = mapped_column(String(24), default="0.12.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -385,6 +388,7 @@ class CaseFinancialProfile(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     case_id: Mapped[str] = mapped_column(String(40), index=True)
     commission_rule_id: Mapped[str] = mapped_column(String(80), index=True)
+    claim_balance_cents: Mapped[int] = mapped_column(Integer, default=1)
     mandate_start: Mapped[date] = mapped_column(nullable=False)
     mandate_end: Mapped[date] = mapped_column(nullable=False)
     signed_plan_at: Mapped[date | None] = mapped_column(nullable=True)
@@ -495,6 +499,83 @@ class ProtectionIncident(Base):
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     case_released: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RepaymentPlan(Base):
+    __tablename__ = "repayment_plans"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "plan_id"),
+        Index("ix_repayment_plans_tenant_case_status", "tenant_id", "case_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("RPLAN"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(80), index=True)
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    currency: Mapped[str] = mapped_column(String(3), default="CNY")
+    claim_balance_cents: Mapped[int] = mapped_column(Integer)
+    total_cents: Mapped[int] = mapped_column(Integer)
+    down_payment_cents: Mapped[int] = mapped_column(Integer)
+    installment_count: Mapped[int] = mapped_column(Integer)
+    policy_version: Mapped[int] = mapped_column(Integer)
+    policy_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    agreement_reference: Mapped[str] = mapped_column(String(120))
+    agreement_digest: Mapped[str] = mapped_column(String(64))
+    signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    proposal_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    proposed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class RepaymentInstallment(Base):
+    __tablename__ = "repayment_installments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "installment_id"),
+        UniqueConstraint("plan_row_id", "installment_no"),
+        Index("ix_repayment_installments_tenant_due", "tenant_id", "due_date", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("RINS"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    plan_row_id: Mapped[str] = mapped_column(ForeignKey("repayment_plans.id"), index=True)
+    installment_id: Mapped[str] = mapped_column(String(120), index=True)
+    installment_no: Mapped[int] = mapped_column(Integer)
+    due_date: Mapped[date] = mapped_column(nullable=False, index=True)
+    due_cents: Mapped[int] = mapped_column(Integer)
+    paid_cents: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(24), default="scheduled", index=True)
+    last_payment_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class RepaymentAllocation(Base):
+    __tablename__ = "repayment_allocations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "allocation_id"),
+        UniqueConstraint("tenant_id", "recovery_entry_id", "installment_row_id"),
+        Index("ix_repayment_allocations_tenant_recovery", "tenant_id", "recovery_entry_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("RALL"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    allocation_id: Mapped[str] = mapped_column(String(120), index=True)
+    recovery_entry_id: Mapped[str] = mapped_column(String(120), index=True)
+    plan_row_id: Mapped[str] = mapped_column(ForeignKey("repayment_plans.id"), index=True)
+    installment_row_id: Mapped[str] = mapped_column(ForeignKey("repayment_installments.id"), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    source_allocation_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class RecoveryLedgerEntry(Base):

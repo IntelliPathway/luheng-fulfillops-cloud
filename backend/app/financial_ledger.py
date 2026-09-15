@@ -27,6 +27,7 @@ from .models import (
     PaymentWebhookConfig,
     RecoveryLedgerEntry,
 )
+from .repayment_plans import allocate_recovery_to_plan
 from .secret_store import SecretStoreError, resolve_secret, store_secret
 
 PAYMENT_SIGNATURE_VERSION = "v1"
@@ -350,6 +351,7 @@ def _reconcile_receipt(db: Session, receipt: PaymentReceipt, created_by: str) ->
     db.add(entry)
     db.flush()
     _add_commission_entry(db, receipt.tenant_id, entry, created_by)
+    allocate_recovery_to_plan(db, entry)
     receipt.status = "matched"
     receipt.failure_code = None
     receipt.recovery_entry_id = entry.entry_id

@@ -273,3 +273,16 @@ export const protectionApi = {
     body: JSON.stringify({decision, review_note: reviewNote, expected_version: expectedVersion, acknowledged: true}),
   }),
 };
+
+export const repaymentApi = {
+  overview: tenant => request('/repayment-plans/overview', tenant),
+  casePlans: (tenant, caseId) => request(`/cases/${caseId}/repayment-plans`, tenant),
+  propose: (tenant, caseId, payload) => request(`/cases/${caseId}/repayment-plans`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  decide: (tenant, planRowId, decision, reviewNote, expectedVersion) => request(`/repayment-plans/${planRowId}/decision`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({decision, review_note: reviewNote, expected_version: expectedVersion, acknowledged: true}),
+  }),
+};

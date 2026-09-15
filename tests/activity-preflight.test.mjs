@@ -8,6 +8,7 @@ const cases = [
   {case_id: 'C3', package_id: 'P1', status: '异议暂停', blocked: true},
   {case_id: 'C4', package_id: 'P1', status: '已结清', blocked: false},
   {case_id: 'C5', package_id: 'P1', status: '到账待匹配', blocked: false},
+  {case_id: 'C6', package_id: 'P1', status: '履约中', blocked: false, governedPlan: {status: 'active'}},
 ];
 
 test('excludes protected, completed and in-flight cases before goal matching', () => {
@@ -18,13 +19,13 @@ test('excludes protected, completed and in-flight cases before goal matching', (
     goal: GOALS.FIRST_CONTACT,
   });
   assert.deepEqual(result.eligible, []);
-  assert.deepEqual(result.exclusions, {'保护暂停': 1, '已完成': 1, '在途任务': 1, '目标不匹配': 2});
+  assert.deepEqual(result.exclusions, {'保护暂停': 1, '已完成': 1, '在途任务': 1, '目标不匹配': 3});
 });
 
 test('selects only cases that match the requested operating goal', () => {
   const signed = selectActivityCandidates({cases, activities: [], packageId: 'P1', goal: GOALS.SIGNED_PLAN});
   const payments = selectActivityCandidates({cases, activities: [], packageId: 'P1', goal: GOALS.PAYMENT_RECONCILIATION});
-  assert.deepEqual(signed.eligible.map(item => item.case_id), ['C2']);
+  assert.deepEqual(signed.eligible.map(item => item.case_id), ['C2', 'C6']);
   assert.deepEqual(payments.eligible.map(item => item.case_id), ['C5']);
 });
 

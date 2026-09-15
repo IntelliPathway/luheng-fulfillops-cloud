@@ -21,7 +21,7 @@ function answerFor(query,a){
       body:targetCase.blocked
         ? `案件处于保护暂停：${targetCase.reason}。在解除条件满足前，Agent 不会安排新的触达。`
         : `案件账龄 ${targetCase.ageMonths} 个月，当前状态为“${targetCase.status}”，确认净回款 ${money(targetCase.cash)}，下一允许动作：${targetCase.nextAllowed}。`,
-      facts:[['转让余额',money(targetCase.transfer_balance_yuan)],['数据质量',`${targetCase.dataQuality}%`],['已签方案',targetCase.plan?.status==='SIGNED'?'是':'否']],
+      facts:[['转让余额',money(targetCase.transfer_balance_yuan)],['数据质量',`${targetCase.dataQuality}%`],['已签方案',['active','completed'].includes(targetCase.governedPlan?.status)||targetCase.plan?.status==='SIGNED'?'是':'否']],
       sources:['案件主数据','委托授权','协议与回款账本'],
       action:{label:'打开案件',run:()=>a.openCase(targetCase.case_id)}
     };

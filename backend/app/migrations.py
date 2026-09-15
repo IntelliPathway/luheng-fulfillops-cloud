@@ -51,23 +51,34 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
     if engine.dialect.name != "sqlite":
         return []
     additions = {
-        "model_config_version": "integer",
-        "model_name": "varchar(120)",
-        "policy_snapshot": "json NOT NULL DEFAULT '{}'",
-        "external_call_count": "integer NOT NULL DEFAULT 0",
-        "input_tokens": "integer NOT NULL DEFAULT 0",
-        "output_tokens": "integer NOT NULL DEFAULT 0",
-        "estimated_cost_usd": "float NOT NULL DEFAULT 0",
+        "model_replay_runs": {
+            "model_config_version": "integer",
+            "model_name": "varchar(120)",
+            "policy_snapshot": "json NOT NULL DEFAULT '{}'",
+            "external_call_count": "integer NOT NULL DEFAULT 0",
+            "input_tokens": "integer NOT NULL DEFAULT 0",
+            "output_tokens": "integer NOT NULL DEFAULT 0",
+            "estimated_cost_usd": "float NOT NULL DEFAULT 0",
+        },
+        "asset_packages": {
+            "min_settlement_bps": "integer NOT NULL DEFAULT 7000",
+            "max_installments": "integer NOT NULL DEFAULT 6",
+            "min_down_payment_bps": "integer NOT NULL DEFAULT 2000",
+        },
+        "case_financial_profiles": {
+            "claim_balance_cents": "integer NOT NULL DEFAULT 1",
+        },
     }
     applied: list[str] = []
     with engine.begin() as connection:
         tables = set(connection.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'")).scalars())
-        if "model_replay_runs" not in tables:
-            return []
-        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(model_replay_runs)")}
-        for name, definition in additions.items():
-            if name in columns:
+        for table, columns_to_add in additions.items():
+            if table not in tables:
                 continue
-            connection.exec_driver_sql(f"ALTER TABLE model_replay_runs ADD COLUMN {name} {definition}")
-            applied.append(name)
+            columns = {row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, definition in columns_to_add.items():
+                if name in columns:
+                    continue
+                connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                applied.append(name)
     return applied

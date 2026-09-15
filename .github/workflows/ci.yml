@@ -58,6 +58,8 @@ jobs:
         run: ./scripts/smoke-v10-reconciliation.sh
       - name: Smoke protection incident workflow
         run: ./scripts/smoke-v11-protection.sh
+      - name: Smoke governed repayment plans
+        run: ./scripts/smoke-v12-repayment-plans.sh
       - name: Validate ECS and 1Panel Compose
         env:
           APP_HTTP_PORT: "18080"
