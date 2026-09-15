@@ -119,3 +119,10 @@ final result: passed
 - The layout change is limited to an additional money metric, evidence copy and settlement event table. Production compilation and live HTTP verification cover the new data path; browser-loopback screenshot status is recorded during final runtime verification.
 - A combined runtime check loaded `/payments` through Vite, proxied `/api/v1/health` as API `0.9.0`, and returned the seeded `sandbox-amc` ledger totals from the same port. The local API and Vite development processes were also started on ports 8000 and 4177.
 - The cloud browser again rejected `terminal.local:4177` and `127.0.0.1:4177` with `ERR_BLOCKED_BY_CLIENT`. No new browser screenshot is claimed; the existing approved visual baseline, production compile and live proxy check cover this incremental financial-data change.
+
+## v0.9.1 Sites deployment verification · 2026-09-15
+
+- Hosted-domain detection now labels the product as a Sites interactive demo whenever the business API is unavailable. Agent, integration and payment surfaces consistently state that actions stay in browser state and do not update the server ledger.
+- The Sites Worker returns an explicit JSON 503 for `/api/*`, preserves SPA deep-link fallback only for safe HTML GET/HEAD requests, and attaches CSP, HSTS, nosniff, frame, referrer and browser-permission protections.
+- Frontend/API checks pass 15 cases; Sites Worker/build checks pass 5 cases. The production build emits the required client, Worker and hosting manifest artifacts.
+- This deployment is intended for private product walkthroughs. It does not claim that FastAPI, PostgreSQL, payment providers or model/voice/telephony services are hosted by Sites.

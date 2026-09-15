@@ -1,6 +1,6 @@
 # 履衡 AI FulfillOps API
 
-`v0.9.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway，以及验签支付回执和不可变回款/佣金账簿。
+`v0.9.1` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway，以及验签支付回执和不可变回款/佣金账簿。Sites 测试部署当前只承载前端交互沙箱，不包含本 FastAPI 服务。
 
 ## 本地运行
 

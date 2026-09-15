@@ -16,6 +16,9 @@ test("serves existing static assets without a fallback", async () => {
 
   assert.equal(response.status, 200);
   assert.deepEqual(calls, ["/assets/app.js"]);
+  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  assert.match(response.headers.get("Content-Security-Policy"), /frame-ancestors 'self'/);
+  assert.match(response.headers.get("Strict-Transport-Security"), /max-age=31536000/);
 });
 
 test("falls back to index.html for an unknown app route", async () => {
@@ -41,24 +44,28 @@ test("falls back to index.html for an unknown app route", async () => {
   assert.deepEqual(calls, ["/flow/step-two?source=share", "/index.html"]);
 });
 
-test("does not turn missing API or write requests into the app shell", async () => {
-  for (const request of [
-    new Request("https://example.test/api/missing", { headers: { accept: "application/json" } }),
-    new Request("https://example.test/flow", { method: "POST", headers: { accept: "text/html" } }),
-  ]) {
-    let calls = 0;
-    const response = await worker.fetch(request, {
-      ASSETS: {
-        fetch: async () => {
-          calls += 1;
-          return new Response("missing", { status: 404 });
-        },
-      },
-    });
+test("returns an explicit Sites demo response for unavailable business APIs", async () => {
+  let calls = 0;
+  const response = await worker.fetch(
+    new Request("https://example.test/api/v1/health", {headers: {accept: "application/json"}}),
+    {ASSETS: {fetch: async () => { calls += 1; return new Response("missing", {status: 404}); }}},
+  );
+  assert.equal(response.status, 503);
+  assert.equal(calls, 0);
+  assert.deepEqual(await response.json(), {
+    detail: "Sites 在线交互演示未连接 FulfillOps 业务 API",
+    mode: "sites-demo",
+  });
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+});
 
-    assert.equal(response.status, 404);
-    assert.equal(calls, 1);
-  }
+test("does not turn write requests into the app shell", async () => {
+  let calls = 0;
+  const response = await worker.fetch(new Request("https://example.test/flow", {
+    method: "POST", headers: {accept: "text/html"},
+  }), {ASSETS: {fetch: async () => { calls += 1; return new Response("missing", {status: 404}); }}});
+  assert.equal(response.status, 404);
+  assert.equal(calls, 1);
 });
 
 test("emits the files required by Sites packaging", async () => {

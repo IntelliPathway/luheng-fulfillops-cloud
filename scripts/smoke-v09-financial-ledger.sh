@@ -28,8 +28,14 @@ export ENABLE_PAYMENT_SANDBOX=true
 export PAYMENT_WEBHOOK_TOLERANCE_SECONDS=300
 export PYTHONPATH="$PROJECT_ROOT/backend"
 
+if [[ -x "$PROJECT_ROOT/backend/.venv/bin/python" ]]; then
+  PYTHON_BIN="$PROJECT_ROOT/backend/.venv/bin/python"
+else
+  PYTHON_BIN="python"
+fi
+
 cd "$PROJECT_ROOT/backend"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8020 >"$RUN_DIR/api.log" 2>&1 &
+"$PYTHON_BIN" -m uvicorn app.main:app --host 127.0.0.1 --port 8020 >"$RUN_DIR/api.log" 2>&1 &
 API_PID=$!
 
 for _ in $(seq 1 40); do
@@ -55,7 +61,7 @@ OVER_COLLECTION_STATUS="$(curl --silent -o "$RUN_DIR/over-collection.json" -w '%
 FINAL="$(curl --silent --fail "${HEADERS[@]}" http://127.0.0.1:8020/api/v1/payments/overview)"
 HEALTH="$(curl --silent --fail http://127.0.0.1:8020/api/v1/health)"
 
-test "$(jq -r '.version' <<<"$HEALTH")" = "0.9.0"
+test "$(jq -r '.version' <<<"$HEALTH")" = "0.9.1"
 test "$(jq -r '.duplicate' <<<"$FIRST")" = "false"
 test "$(jq -r '.duplicate' <<<"$DUPLICATE")" = "true"
 test "$(jq -r '.receipt.duplicate_count' <<<"$DUPLICATE")" = "1"

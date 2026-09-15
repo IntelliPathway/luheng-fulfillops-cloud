@@ -250,7 +250,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.9.0",
+        version="0.9.1",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -274,7 +274,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.9.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.9.1")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
