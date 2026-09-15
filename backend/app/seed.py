@@ -415,7 +415,16 @@ def _seed_financial_data(db: Session) -> None:
     for tenant_id, case_id, package_id, rule_id, start, end, signed_at, last_due, tail_eligible in FINANCIAL_CASES:
         case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
         if not case:
-            db.add(CaseRecord(tenant_id=tenant_id, case_id=case_id, package_id=package_id, status="已确认回款"))
+            case = CaseRecord(
+                tenant_id=tenant_id,
+                case_id=case_id,
+                package_id=package_id,
+                status="已确认回款",
+                contact_basis_ref=f"DEMO-CONSENT-{case_id}",
+            )
+            db.add(case)
+        elif not case.contact_basis_ref:
+            case.contact_basis_ref = f"DEMO-CONSENT-{case_id}"
         profile = db.scalar(
             select(CaseFinancialProfile).where(
                 CaseFinancialProfile.tenant_id == tenant_id,

@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from .models import (
     Activity,
     AssetPackage,
+    CaseFinancialProfile,
     CaseRecord,
+    CommissionRule,
     IntegrationState,
     SelfTestReport,
     ServiceConfig,
@@ -158,6 +160,26 @@ def activity_preflight(db: Session, tenant_id: str, payload: Any) -> dict[str, A
         )
         for case_id in activity.case_ids
     }
+    case_ids = {item.case_id for item in selected}
+    profiles = {
+        item.case_id: item
+        for item in db.scalars(
+            select(CaseFinancialProfile).where(
+                CaseFinancialProfile.tenant_id == tenant_id,
+                CaseFinancialProfile.case_id.in_(case_ids),
+            )
+        )
+    }
+    active_rule_ids = set(
+        db.scalars(
+            select(CommissionRule.rule_id).where(
+                CommissionRule.tenant_id == tenant_id,
+                CommissionRule.status == "active",
+                CommissionRule.rule_id.in_({item.commission_rule_id for item in profiles.values()}),
+            )
+        )
+    )
+    today = datetime.now(UTC).date()
 
     eligible: list[str] = []
     for case in selected:
@@ -170,6 +192,18 @@ def activity_preflight(db: Session, tenant_id: str, payload: Any) -> dict[str, A
             reason = "重复在途任务"
         elif not goal_matches(case, payload.goal):
             reason = "目标不匹配"
+        elif not (profile := profiles.get(case.case_id)):
+            reason = "债权与委托资料不完整"
+        elif profile.claim_balance_cents <= 0:
+            reason = "债权余额无效"
+        elif profile.mandate_start > today:
+            reason = "委托尚未生效"
+        elif profile.mandate_end < today:
+            reason = "委托已到期"
+        elif profile.commission_rule_id not in active_rule_ids:
+            reason = "佣金规则未生效"
+        elif not case.contact_basis_ref:
+            reason = "缺少联系依据引用"
         if reason:
             excluded.append({"case_id": case.case_id, "reason": reason})
         else:

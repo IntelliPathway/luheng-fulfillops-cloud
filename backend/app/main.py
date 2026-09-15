@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from .agent_gateway import gateway_overview, gateway_profile
 from .agent_tools import execute_controlled_tool
+from .asset_catalog_routes import router as asset_catalog_router
 from .asset_import_routes import router as asset_import_router
 from .audit import audit
 from .bootstrap import bootstrap_database
@@ -289,6 +290,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.state.Session = build_session_factory(engine)
     app.state.startup = startup
     app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
+    app.include_router(asset_catalog_router)
     app.include_router(asset_import_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])

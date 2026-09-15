@@ -53,7 +53,7 @@ HEALTH="$(curl --silent --fail http://127.0.0.1:8024/api/v1/health)"
 
 DB_COUNTS="$(DATABASE_URL="$DATABASE_URL" "$PYTHON_BIN" -c 'from sqlalchemy import create_engine,text; import os,json; e=create_engine(os.environ["DATABASE_URL"]); c=e.connect(); print(json.dumps({"packages":c.scalar(text("select count(*) from asset_packages where package_id=\"PKG_V15\"")),"cases":c.scalar(text("select count(*) from cases where case_id=\"C915\"")),"profiles":c.scalar(text("select count(*) from case_financial_profiles where case_id=\"C915\"")),"rules":c.scalar(text("select count(*) from commission_rules where rule_id=\"COM_V15_V1\""))})); c.close()')"
 
-test "$(jq -r '.version' <<<"$HEALTH")" = "0.15.0"
+test "$(jq -r '.version' <<<"$HEALTH")" = "0.16.0"
 test "$(jq -r '.status' <<<"$PREVIEW")" = "ready"
 test "$(jq -r '.valid_count' <<<"$PREVIEW")" = "1"
 test "$(jq -r '.idempotent_replay' <<<"$REPLAY")" = "true"

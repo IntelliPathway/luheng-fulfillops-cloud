@@ -1,5 +1,13 @@
 # Design QA · AI 与渠道及 AI Native 工作台
 
+# v0.16.0 server-authoritative catalog · 2026-09-15
+
+- Asset and case screens now expose a visible “server authoritative / offline sandbox” source label.
+- Dedicated server pagination replaces client-side slicing in connected mode; filters show loading, empty and fail-closed error states.
+- Removed invented online debt age, contact time, debt-component and simulated-contribution values; missing facts render as unavailable.
+- Online policy detail is read-only until the governed policy-write API exists; imported draft packages cannot start an activity.
+- Vite production compilation and HTTP/API contract checks validate the layout and state paths. The cloud browser restriction remains, so no new screenshot evidence is claimed.
+
 # v0.15.0 governed asset import · 2026-09-15
 
 - Replaced the static sample-only import dialog with a server-backed CSV preview and maker-checker commit workspace.

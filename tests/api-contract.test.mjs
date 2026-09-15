@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, assetImportApi, classifyApiFailure, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -268,4 +268,42 @@ test('uses preview and maker-checker commit endpoints for asset imports', async 
     expected_version: 1, review_note: '独立复核字段、金额和委托期限一致', acknowledged: true,
   });
   assert.equal(calls.some(call => String(call.url).includes('/cases/C901')), false);
+});
+
+test('queries the server-authoritative asset catalog with encoded filters and pagination', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(url);
+    if (String(url).startsWith('/api/v1/asset-packages')) return {ok: true, json: async () => ({items: [{package_id: 'PKG_A', title: '一期', commission_rate_bps: 1500, mandate_start: '2026-08-01', mandate_end: '2026-12-31', data_source: 'server-authoritative'}], total: 1, page: 1, page_size: 5, pages: 1})};
+    if (url === '/api/v1/cases/C001') return {ok: true, json: async () => ({case_id: 'C001', package_id: 'PKG_A', status: '履约中', claim_balance_cents: 1440000, data_completeness_score: 85, confirmed_net_recovery_cents: 352000, accrued_commission_cents: 52800, next_allowed: '按已签方案核对下一期', data_source: 'server-authoritative', updated_at: '2026-09-15T10:00:00'})};
+    return {ok: true, json: async () => ({items: [{case_id: 'C001', package_id: 'PKG_A', status: '履约中', claim_balance_cents: 1440000, data_completeness_score: 85, confirmed_net_recovery_cents: 352000, accrued_commission_cents: 52800, next_allowed: '按已签方案核对下一期', data_source: 'server-authoritative', updated_at: '2026-09-15T10:00:00'}], total: 1, page: 1, page_size: 8, pages: 1, facets: {all: 1, signed: 1, blocked: 0, quality: 0}})};
+  };
+  try {
+    const packages = await catalogApi.packages('TENANT_A', {query: '长龄 一期', page: 1, page_size: 5});
+    const cases = await catalogApi.cases('TENANT_A', {package_id: 'PKG_A', view: 'signed', sort: 'balance_desc', page: 2, page_size: 8});
+    const detail = await catalogApi.case('TENANT_A', 'C001');
+    assert.equal(packages.items[0].rate, 0.15);
+    assert.equal(packages.items[0].serverAuthoritative, true);
+    assert.equal(cases.items[0].transfer_balance_yuan, 14400);
+    assert.equal(cases.items[0].cash, 3520);
+    assert.equal(cases.items[0].scenario_only, false);
+    assert.equal(detail.commission, 528);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0], '/api/v1/asset-packages?query=%E9%95%BF%E9%BE%84+%E4%B8%80%E6%9C%9F&page=1&page_size=5');
+  assert.equal(calls[1], '/api/v1/cases?package_id=PKG_A&view=signed&sort=balance_desc&page=2&page_size=8');
+  assert.equal(calls[2], '/api/v1/cases/C001');
+});
+
+test('normalizes catalog records without inventing debt-age or contact facts', () => {
+  const packageItem = normalizeCatalogPackage({commission_rate_bps: null, mandate_start: null, mandate_end: null, data_source: 'server-authoritative'}, 'TENANT_A');
+  const caseItem = normalizeCatalogCase({claim_balance_cents: null, data_completeness_score: 20, confirmed_net_recovery_cents: 0, accrued_commission_cents: 0, next_allowed: '补齐资料', data_source: 'server-authoritative'}, 'TENANT_A');
+  assert.equal(packageItem.rate, null);
+  assert.equal(packageItem.start_date, '—');
+  assert.equal(caseItem.transfer_balance_yuan, null);
+  assert.equal(caseItem.ageMonths, null);
+  assert.equal(caseItem.agingBucket, '账龄未接入');
+  assert.equal(caseItem.contactability, '联系依据待补');
 });

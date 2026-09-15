@@ -54,6 +54,15 @@ export function classifyApiFailure(error) {
 
 const jobKey = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+const queryString = values => {
+  const params = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `?${query}` : '';
+};
+
 export async function waitForJob(tenant, initial, onUpdate, options = {}) {
   const interval = options.interval || 160;
   const maxPolls = options.maxPolls || 80;
@@ -209,6 +218,55 @@ const activityPayload = form => ({
 export const activityApi = {
   preflight: (tenant, form) => request('/activities/preflight', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
   create: (tenant, form) => request('/activities', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
+};
+
+export function normalizeCatalogPackage(item, tenant) {
+  return {
+    ...item,
+    tenant_id: tenant,
+    package_name: '服务端权威资产目录',
+    rate: item.commission_rate_bps == null ? null : item.commission_rate_bps / 10000,
+    start_date: item.mandate_start || '—',
+    end_date: item.mandate_end || '—',
+    serverAuthoritative: item.data_source === 'server-authoritative',
+  };
+}
+
+export function normalizeCatalogCase(item, tenant) {
+  const balanceYuan = item.claim_balance_cents == null ? null : item.claim_balance_cents / 100;
+  return {
+    ...item,
+    tenant_id: tenant,
+    transfer_balance_yuan: balanceYuan,
+    principal_yuan: balanceYuan,
+    interest_yuan: null,
+    fees_yuan: null,
+    balance_snapshot_date: item.updated_at?.slice(0, 10) || '—',
+    first_overdue_date: null,
+    ageMonths: null,
+    agingBucket: '账龄未接入',
+    dataQuality: item.data_completeness_score,
+    lastContact: '—',
+    nextAllowed: item.next_allowed,
+    contactability: item.contact_basis_ref ? '联系依据已登记' : '联系依据待补',
+    cash: item.confirmed_net_recovery_cents / 100,
+    commission: item.accrued_commission_cents / 100,
+    reason: item.protection_reason || '',
+    scenario_only: false,
+    serverAuthoritative: item.data_source === 'server-authoritative',
+  };
+}
+
+export const catalogApi = {
+  packages: async (tenant, filters = {}) => {
+    const payload = await request(`/asset-packages${queryString(filters)}`, tenant);
+    return {...payload, items: payload.items.map(item => normalizeCatalogPackage(item, tenant))};
+  },
+  cases: async (tenant, filters = {}) => {
+    const payload = await request(`/cases${queryString(filters)}`, tenant);
+    return {...payload, items: payload.items.map(item => normalizeCatalogCase(item, tenant))};
+  },
+  case: async (tenant, caseId) => normalizeCatalogCase(await request(`/cases/${caseId}`, tenant), tenant),
 };
 
 export const assetImportApi = {

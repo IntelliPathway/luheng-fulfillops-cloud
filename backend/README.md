@@ -1,6 +1,6 @@
 # 履约智控 AI · RepayGuard AI 业务 API
 
-`v0.15.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、资产与案件 CSV 预演导入、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
+`v0.16.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、资产与案件 CSV 预演导入、服务端权威资产目录、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
 
 ## 本地运行
 
@@ -43,6 +43,16 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 - `POST /api/v1/asset-imports/{id}/commit`：由不同账号的管理员确认并原子落库。
 
 导入契约只接受资产包编号/名称、案件编号、整数分债权余额、委托期限、佣金规则、联系依据引用和安全初始状态。姓名、手机号、证件号、地址、邮箱及未声明字段会阻断整批预演。数据库只保存原文件 SHA-256、标准化非敏感行和问题报告，不保存原始 CSV。已有案件被跳过且不覆盖；提交时若预演已陈旧，则整批失败关闭。新资产包默认使用草稿策略，不能直接进入生产触达。
+
+## 服务端权威资产目录
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/v1/asset-packages` | 租户级资产包搜索、策略筛选、分页和业务聚合 |
+| `GET /api/v1/cases` | 案件搜索、资产包/状态视图、排序、分页和分面计数 |
+| `GET /api/v1/cases/{case_id}` | 单案债权、委托、保护、计划、回款和佣金摘要 |
+
+目录只返回非敏感业务字段，并用 `data_source=server-authoritative` 标明来源。数据完整度由财务档案、余额、委托区间、有效佣金规则和联系依据引用确定；账龄、最近联系等未入库事实不会由前端编造。专用列表执行服务端分页，API 在线但目录读取失败时前端失败关闭。
 
 ## Agent 与持久作业
 
@@ -133,6 +143,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 .venv/bin/python -m pytest
 ```
 
-生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh` 和 `./scripts/smoke-v15-asset-import.sh`。v0.15 冒烟覆盖 CSV 预演、自审阻断、独立确认、幂等重放、原子落库和已有案件不覆盖。
+生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh`、`./scripts/smoke-v15-asset-import.sh` 和 `./scripts/smoke-v16-asset-catalog.sh`。v0.16 冒烟覆盖服务端分页、保护视图、钱指标聚合、跨租户 404，以及新导入案件立即进入权威目录。
 
-当前共收集 99 项后端测试：本地 98 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 17 后执行完整 99 项。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前共收集 108 项后端测试：本地 107 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 17 后执行完整 108 项。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

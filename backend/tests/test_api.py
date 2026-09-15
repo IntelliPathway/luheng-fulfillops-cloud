@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import create_app
-from app.models import AgentRun
+from app.models import AgentRun, CaseFinancialProfile
 
 
 @pytest.fixture()
@@ -113,6 +115,33 @@ def test_activity_preflight_excludes_completed_and_inflight_cases(client: TestCl
         "C002": "重复在途任务",
     }
     assert result["resolved_mode"] == "sandbox"
+
+
+def test_activity_preflight_excludes_a_future_mandate(client: TestClient) -> None:
+    with client.app.state.Session() as db:
+        profile = db.scalar(
+            select(CaseFinancialProfile).where(
+                CaseFinancialProfile.tenant_id == "TENANT_A",
+                CaseFinancialProfile.case_id == "C008",
+            )
+        )
+        assert profile is not None
+        profile.mandate_start = date.today() + timedelta(days=1)
+        profile.mandate_end = profile.mandate_start + timedelta(days=30)
+        db.commit()
+
+    payload = {
+        "name": "未来委托门禁",
+        "package_id": "PKG_A",
+        "goal": "首次联络与意愿确认",
+        "budget_yuan": 20,
+        "case_ids": ["C008"],
+        "requested_mode": "channel",
+    }
+    result = client.post("/api/v1/activities/preflight", headers=headers(role="operator"), json=payload).json()
+    assert result["eligible_case_ids"] == []
+    assert result["excluded"] == [{"case_id": "C008", "reason": "委托尚未生效"}]
+    assert result["production_ready"] is False
 
 
 def test_channel_activity_freezes_service_versions_after_gate_passes(client: TestClient) -> None:

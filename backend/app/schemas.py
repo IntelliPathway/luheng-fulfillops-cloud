@@ -11,6 +11,83 @@ ServiceType = Literal["agent", "model", "voice", "phone"]
 ActivityGoal = Literal["已签协议履约", "首次联络与意愿确认", "回款自动核对"]
 
 
+class AssetPackageCatalogItemOut(BaseModel):
+    package_id: str
+    title: str
+    policy_status: str
+    policy_version: int
+    budget_limit_yuan: float
+    min_settlement_bps: int
+    max_installments: int
+    min_down_payment_bps: int
+    source_import_batch_id: str | None
+    created_at: datetime
+    case_count: int
+    executable_count: int
+    protected_count: int
+    data_completeness_score: int
+    total_claim_balance_cents: int
+    confirmed_net_recovery_cents: int
+    accrued_commission_cents: int
+    mandate_start: date | None
+    mandate_end: date | None
+    commission_rate_bps: int | None
+    data_source: Literal["server-authoritative"]
+
+
+class AssetPackagePageOut(BaseModel):
+    items: list[AssetPackageCatalogItemOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class CaseCatalogItemOut(BaseModel):
+    case_id: str
+    package_id: str
+    package_title: str | None
+    status: str
+    blocked: bool
+    has_signed_plan: bool
+    data_completeness_score: int
+    claim_balance_cents: int | None
+    mandate_start: date | None
+    mandate_end: date | None
+    commission_rule_id: str | None
+    commission_rate_bps: int | None
+    contact_basis_ref: str | None
+    source_import_batch_id: str | None
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    confirmed_net_recovery_cents: int
+    accrued_commission_cents: int
+    active_protection_id: str | None
+    protection_category: str | None
+    protection_reason: str | None
+    active_plan_id: str | None
+    active_plan_status: str | None
+    next_allowed: str
+    data_source: Literal["server-authoritative"]
+
+
+class CaseCatalogFacetsOut(BaseModel):
+    all: int
+    signed: int
+    blocked: int
+    quality: int
+
+
+class CaseCatalogPageOut(BaseModel):
+    items: list[CaseCatalogItemOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    facets: CaseCatalogFacetsOut
+
+
 class AssetImportPreviewRequest(BaseModel):
     filename: str = Field(min_length=5, max_length=160, pattern=r"^[^/\\]+\.[cC][sS][vV]$")
     csv_text: str = Field(min_length=1, max_length=1_000_000)
