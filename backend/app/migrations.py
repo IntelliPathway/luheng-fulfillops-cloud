@@ -66,6 +66,14 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
             "min_settlement_bps": "integer NOT NULL DEFAULT 7000",
             "max_installments": "integer NOT NULL DEFAULT 6",
             "min_down_payment_bps": "integer NOT NULL DEFAULT 2000",
+            "source_import_batch_id": "varchar(40)",
+            "created_at": "timestamp NOT NULL DEFAULT '1970-01-01 00:00:00'",
+        },
+        "cases": {
+            "contact_basis_ref": "varchar(120)",
+            "source_import_batch_id": "varchar(40)",
+            "version": "integer NOT NULL DEFAULT 1",
+            "created_at": "timestamp NOT NULL DEFAULT '1970-01-01 00:00:00'",
         },
         "case_financial_profiles": {
             "claim_balance_cents": "integer NOT NULL DEFAULT 1",

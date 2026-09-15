@@ -7,7 +7,6 @@ from typing import Annotated
 
 from fastapi import (
     BackgroundTasks,
-    Depends,
     FastAPI,
     Header,
     HTTPException,
@@ -22,9 +21,12 @@ from sqlalchemy.orm import Session
 
 from .agent_gateway import gateway_overview, gateway_profile
 from .agent_tools import execute_controlled_tool
+from .asset_import_routes import router as asset_import_router
+from .audit import audit
 from .bootstrap import bootstrap_database
 from .config import StartupSettings
 from .db import build_engine, build_session_factory
+from .dependencies import Context, Database
 from .domain import (
     SERVICE_TYPES,
     activity_preflight,
@@ -69,7 +71,6 @@ from .models import (
     AgentRuntimeCheckpoint,
     AgentSession,
     AsyncJob,
-    AuditEvent,
     CaseRecord,
     CommissionLedgerEntry,
     ConnectionTest,
@@ -167,25 +168,13 @@ from .secret_store import (
     store_secret,
 )
 from .security import (
-    RequestContext,
     auth_configuration,
     decode_runtime_token,
     issue_dev_token,
-    request_context,
     require_at_least,
     require_role,
 )
 from .version import APP_VERSION, PRODUCT_ENGLISH_NAME, PRODUCT_NAME
-
-Context = Annotated[RequestContext, Depends(request_context)]
-
-
-def get_db(request: Request):
-    with request.app.state.Session() as db:
-        yield db
-
-
-Database = Annotated[Session, Depends(get_db)]
 
 
 @asynccontextmanager
@@ -241,21 +230,6 @@ def overview(db: Session, tenant_id: str) -> IntegrationOverviewOut:
         ),
         gate=GateOut(**gate_for(db, tenant_id)),
         last_report=report_out(report),
-    )
-
-
-def audit(
-    db: Session, context: RequestContext, action: str, resource_type: str, resource_id: str, detail: dict
-) -> None:
-    db.add(
-        AuditEvent(
-            tenant_id=context.tenant_id,
-            actor_id=context.actor_id,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            detail=detail,
-        )
     )
 
 
@@ -315,6 +289,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.state.Session = build_session_factory(engine)
     app.state.startup = startup
     app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
+    app.include_router(asset_import_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

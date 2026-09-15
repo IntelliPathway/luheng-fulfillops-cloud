@@ -11,6 +11,48 @@ ServiceType = Literal["agent", "model", "voice", "phone"]
 ActivityGoal = Literal["已签协议履约", "首次联络与意愿确认", "回款自动核对"]
 
 
+class AssetImportPreviewRequest(BaseModel):
+    filename: str = Field(min_length=5, max_length=160, pattern=r"^[^/\\]+\.[cC][sS][vV]$")
+    csv_text: str = Field(min_length=1, max_length=1_000_000)
+    idempotency_key: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class AssetImportCommitRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    review_note: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class AssetImportIssueOut(BaseModel):
+    row_number: int | None
+    severity: Literal["error", "warning"]
+    code: str
+    field: str | None
+    message: str
+
+
+class AssetImportBatchOut(BaseModel):
+    id: str
+    source_filename: str
+    source_digest: str
+    schema_version: str
+    status: Literal["ready", "blocked", "committed"]
+    version: int
+    row_count: int
+    valid_count: int
+    invalid_count: int
+    duplicate_count: int
+    package_count: int
+    total_claim_balance_cents: int
+    issues: list[AssetImportIssueOut]
+    created_by: str
+    created_at: datetime
+    committed_by: str | None
+    committed_at: datetime | None
+    review_note: str | None
+    idempotent_replay: bool = False
+
+
 class ServiceConfigUpsert(BaseModel):
     provider: str = Field(min_length=1, max_length=120)
     settings: dict[str, Any]

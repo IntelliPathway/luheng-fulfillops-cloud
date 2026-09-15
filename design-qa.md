@@ -1,5 +1,12 @@
 # Design QA · AI 与渠道及 AI Native 工作台
 
+# v0.15.0 governed asset import · 2026-09-15
+
+- Replaced the static sample-only import dialog with a server-backed CSV preview and maker-checker commit workspace.
+- Reused the approved modal, metrics, status badge, warning and compact list patterns; no new visual language was introduced.
+- Added explicit offline-preview, PII rejection, source-digest, draft-policy and non-overwrite messaging.
+- Vite production compilation and frontend/backend contract tests validate the interaction structure. The cloud browser remains unable to access the local preview, so this pass does not claim new screenshot evidence.
+
 # v0.14.0 brand and documentation system · 2026-09-15
 
 - Replaced the generic diamond mark with an original AI neural-route/control-loop mark.

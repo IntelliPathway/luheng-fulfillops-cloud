@@ -211,6 +211,18 @@ export const activityApi = {
   create: (tenant, form) => request('/activities', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
 };
 
+export const assetImportApi = {
+  list: tenant => request('/asset-imports', tenant),
+  preview: (tenant, filename, csvText, idempotencyKey) => request('/asset-imports/previews', tenant, {
+    method: 'POST',
+    body: JSON.stringify({filename, csv_text: csvText, idempotency_key: idempotencyKey}),
+  }),
+  commit: (tenant, batchId, expectedVersion, reviewNote) => request(`/asset-imports/${batchId}/commit`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({expected_version: expectedVersion, review_note: reviewNote, acknowledged: true}),
+  }),
+};
+
 export function normalizeFinancialOverview(payload, tenant) {
   return {
     summary: payload.summary,

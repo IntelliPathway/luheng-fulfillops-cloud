@@ -61,6 +61,8 @@ jobs:
         run: ./scripts/smoke-v11-protection.sh
       - name: Smoke governed repayment plans
         run: ./scripts/smoke-v12-repayment-plans.sh
+      - name: Smoke governed asset imports
+        run: ./scripts/smoke-v15-asset-import.sh
       - name: Validate ECS and 1Panel Compose
         env:
           APP_HTTP_PORT: "18080"

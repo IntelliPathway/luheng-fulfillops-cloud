@@ -4,8 +4,9 @@ import {
   Robot,ShieldCheck,UploadSimple,WarningCircle
 } from '@phosphor-icons/react';
 import {useApp} from './context';
+import {assetImportApi} from './api';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,Modal,Tabs} from './ui';
-import {installmentSchedules,money,reasonText} from './model';
+import {downloadCSV,installmentSchedules,money,reasonText} from './model';
 import {determineActivityMode,GOALS,selectActivityCandidates} from './activity-preflight';
 
 function PreflightItem({ok,label,note,required=true}){
@@ -230,9 +231,38 @@ export function CaseDrawer({c,tab,setTab,onClose}){
 
 export function ImportModal({onClose}){
   const a=useApp();
-  const [step,setStep]=useState(0);
-  const [loaded,setLoaded]=useState(false);
-  return <Modal title="导入资产包 · 流程演示" subtitle="使用内置虚构样本，体验字段、授权和质量预检。" onClose={onClose} wide footer={<><Button onClick={onClose}>取消</Button>{step===0?<Button variant="primary" disabled={!loaded} onClick={()=>setStep(1)}>核对样本</Button>:<Button variant="primary" onClick={()=>{a.notify('样本资产包已预载，可进入资格预检');onClose();a.navigate('assets')}}>查看资产包</Button>}</>}>
-    {step===0?<><div className="upload-demo"><UploadSimple size={36}/><h3>{loaded?'AMC_样本案件.csv 已选择':'选择内置样本'}</h3><p>此流程不上传真实案件资料。</p><Button onClick={()=>setLoaded(true)}>{loaded?'重新选择样本':'使用内置样本'}</Button></div><Field label="字段映射"><input readOnly value="案件 → case_id；委托 → mandate_id；余额 → transfer_balance_yuan"/></Field></>:<><div className="scope-preview"><CheckCircle size={26}/><div><b>{a.visibleCases.length} 个样本案件已校验并预载</b><p>已识别委托、金额、资料质量、联系依据、重复案件与保护状态。</p></div></div><KeyValue items={[["所属组织",a.organization[a.tenant]],["资产包",a.visiblePackages.map(p=>p.package_id).join('、')],["保护暂停",`${a.visibleCases.filter(c=>c.blocked).length} 个案件`],["低质量资料",`${a.visibleCases.filter(c=>c.dataQuality<70).length} 个案件`],["重复导入","已阻断重复创建"]]}/><div className="notice">原型只展示预检结果；生产导入必须校验租户、委托、债权链、金额和联系方式使用依据。</div></>}
+  const [file,setFile]=useState(null);
+  const [batch,setBatch]=useState(null);
+  const [recent,setRecent]=useState([]);
+  const [ack,setAck]=useState(false);
+  const [reviewNote,setReviewNote]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const sample=[
+    'package_id,package_title,case_id,claim_balance_cents,mandate_start,mandate_end,commission_rule_id,commission_rate_bps,contact_basis_ref,case_status',
+    'PKG_DEMO,演示导入资产包,C901,1200000,2026-09-01,2027-08-31,COM_DEMO_V1,1500,CONSENT-C901,待联系'
+  ].join('\n');
+  useEffect(()=>{if(a.backendStatus==='connected')assetImportApi.list(a.tenant).then(setRecent).catch(()=>setRecent([]))},[a.backendStatus,a.tenant]);
+  const choose=async event=>{const selected=event.target.files?.[0];if(!selected)return;if(selected.size>1000000){setError('单个 CSV 不能超过 1 MB。');return}setFile({name:selected.name,text:await selected.text()});setBatch(null);setError('')};
+  const preview=async()=>{if(!file)return;setBusy(true);setError('');try{const result=a.backendStatus==='connected'?await assetImportApi.preview(a.tenant,file.name,file.text,`asset-import-${Date.now()}`):{id:'DEMO-PREVIEW',source_filename:file.name,source_digest:'offline-demo',schema_version:'asset-case-v1',status:'ready',version:1,row_count:1,valid_count:1,invalid_count:0,duplicate_count:0,package_count:1,total_claim_balance_cents:1200000,issues:[],created_by:'离线演示',created_at:new Date().toISOString(),committed_by:null,committed_at:null};setBatch(result);setRecent(rows=>[result,...rows.filter(row=>row.id!==result.id)])}catch(reason){setError(reason.message)}finally{setBusy(false)}};
+  const commit=async()=>{setBusy(true);setError('');try{const result=await assetImportApi.commit(a.tenant,batch.id,batch.version,reviewNote);setBatch(result);setRecent(rows=>rows.map(row=>row.id===result.id?result:row));a.notify(`${result.valid_count} 个案件已由服务端原子导入`)}catch(reason){setError(reason.message)}finally{setBusy(false)}};
+  const report=()=>downloadCSV(`导入问题_${batch.id}.csv`,['行号','级别','代码','字段','说明'],batch.issues.map(issue=>[issue.row_number||'',issue.severity,issue.code,issue.field||'',issue.message]));
+  const canCommit=a.backendStatus==='connected'&&batch?.status==='ready'&&a.identity.role==='admin'&&batch.created_by!==a.identity.actor_id;
+  const footer=batch?<><Button onClick={()=>{setBatch(null);setAck(false);setReviewNote('');setError('')}}>返回</Button><div className="footer-actions">{batch.issues.length>0&&<Button onClick={report}>下载问题明细</Button>}{batch.status==='ready'&&a.backendStatus==='connected'&&<Button variant="primary" disabled={!canCommit||!ack||reviewNote.trim().length<8||busy} onClick={commit}>{busy?'正在提交…':'确认导入'}</Button>}{batch.status==='committed'&&<Button variant="primary" onClick={onClose}>完成</Button>}{a.backendStatus!=='connected'&&<Button variant="primary" onClick={onClose}>完成演示</Button>}</div></>:<><Button onClick={onClose}>取消</Button><Button variant="primary" disabled={!file||busy} onClick={preview}>{busy?'正在校验…':'生成服务端预演'}</Button></>;
+  return <Modal title="资产与案件导入中心" subtitle="CSV 先预演、后复核；原始文件不写入数据库。" onClose={onClose} wide footer={footer}>
+    {!batch?<>
+      <div className="upload-demo"><UploadSimple size={36}/><h3>{file?.name||'选择 UTF-8 CSV'}</h3><p>只接收业务编号、整数分金额、委托期限、佣金规则与联系依据引用，不接收姓名、手机号、证件号或地址。</p><Field label="选择文件"><input type="file" accept=".csv,text/csv" onChange={choose}/></Field><Button onClick={()=>{setFile({name:'RepayGuard_导入样本.csv',text:sample});setError('')}}>使用脱敏样本</Button></div>
+      <Field label="v1 字段契约"><textarea readOnly rows="4" value="package_id, package_title, case_id, claim_balance_cents, mandate_start, mandate_end, commission_rule_id, commission_rate_bps, contact_basis_ref, case_status（可选）"/><small>金额必须使用整数分；日期使用 YYYY-MM-DD；已有案件只跳过，不覆盖。</small></Field>
+      {recent.length>0&&<><h3 className="section-label"><Files size={19}/>最近导入批次</h3><div className="import-batch-list">{recent.slice(0,4).map(row=><button key={row.id} onClick={()=>{setBatch(row);setAck(false);setError('')}}><span><b>{row.source_filename}</b><small>{row.id} · {row.valid_count} 有效 / {row.invalid_count} 错误</small></span><Badge status={row.status==='committed'?'completed':row.status==='blocked'?'blocked':'paused'}>{row.status==='committed'?'已提交':row.status==='blocked'?'已阻断':'待复核'}</Badge></button>)}</div></>}
+    </>:<>
+      <div className={`scope-preview ${batch.status==='blocked'?'import-blocked':''}`}>{batch.status==='blocked'?<WarningCircle size={26}/>:<CheckCircle size={26}/>}<div><b>{batch.status==='committed'?'导入已完成':batch.status==='blocked'?'预演发现阻断问题':'预演完成，等待独立确认'}</b><p>{batch.source_filename} · {batch.id} · SHA-256 {batch.source_digest.slice(0,12)}…</p></div></div>
+      <Metrics items={[["文件行数",batch.row_count],["可导入",batch.valid_count],["错误行",batch.invalid_count],["已有案件",batch.duplicate_count]]}/>
+      <KeyValue items={[["目标组织",a.organization[a.tenant]],["新资产包",`${batch.package_count} 个 · 默认草稿策略`],["债权余额",money(batch.total_claim_balance_cents/100)],["预演创建人",batch.created_by],["原始文件","仅计算摘要，不持久化"]]}/>
+      {batch.issues.length>0&&<div className="import-issue-list">{batch.issues.slice(0,6).map((issue,index)=><div key={`${issue.code}-${issue.row_number}-${index}`}><Badge status={issue.severity==='error'?'blocked':'neutral'}>{issue.severity==='error'?'错误':'提示'}</Badge><span><b>{issue.code}{issue.row_number?` · 第 ${issue.row_number} 行`:''}</b><small>{issue.field?`${issue.field}：`:''}{issue.message}</small></span></div>)}</div>}
+      {batch.status==='ready'&&a.backendStatus==='connected'&&!canCommit&&<div className="notice warning"><ShieldCheck size={19}/><span><b>{batch.created_by===a.identity.actor_id?'不能确认自己创建的预演':'需要管理员确认'}</b><small>请由另一名工作空间管理员打开最近批次，复核摘要后提交。</small></span></div>}
+      {batch.status==='ready'&&a.backendStatus==='connected'&&canCommit&&<><Field label="独立复核结论"><textarea rows="3" value={reviewNote} onChange={event=>setReviewNote(event.target.value)} placeholder="填写对字段、金额、委托期限和佣金规则的复核结论…"/></Field><label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本人不是预演创建人，已复核字段、金额、委托期限、佣金规则与问题报告；提交不会覆盖已有案件。</span></label></>}
+      {a.backendStatus!=='connected'&&<div className="notice"><ShieldCheck size={19}/><span><b>当前仅为离线预演</b><small>未上传文件、未创建资产包或案件，也没有服务端审计记录。</small></span></div>}
+    </>}
+    {error&&<div className="form-error" role="alert">{error}</div>}
   </Modal>;
 }

@@ -45,6 +45,8 @@ test('keeps startup, product, architecture and operations documents purpose-spec
   assert.match(read('README.md'),/docker compose up --build -d/);
   assert.match(read('docs/product-functional-spec.md'),/## 3\. 角色与职责/);
   assert.match(read('docs/product-functional-spec.md'),/## 8\. 发布验收/);
+  assert.match(read('docs/product-functional-spec.md'),/### 4\.1 资产与案件导入/);
+  assert.match(read('docs/product-functional-spec.md'),/不保存原始 CSV/);
   assert.match(read('docs/architecture.md'),/## 2\. 运行拓扑/);
   assert.match(read('docs/operations-runbook.md'),/备份/);
 });

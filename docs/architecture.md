@@ -25,6 +25,10 @@ flowchart TB
 |---|---|
 | `src/` | React 工作台、离线演示适配、API 客户端与业务交互 |
 | `backend/app/main.py` | FastAPI 装配和现有路由；当前仍是待拆分的组合根 |
+| `backend/app/asset_import_routes.py` | 导入领域 Router、角色与 HTTP 边界 |
+| `backend/app/asset_imports.py` | CSV 契约、预演、幂等与原子提交应用服务 |
+| `backend/app/dependencies.py` | 跨 Router 共享的请求上下文和数据库依赖 |
+| `backend/app/audit.py` | 统一的非敏感审计事件写入 |
 | `backend/app/config.py` | 启动配置解析和生产失败关闭规则 |
 | `backend/app/bootstrap.py` | 数据库迁移、开发建表和可选演示种子编排 |
 | `backend/app/provision.py` | 首租户/成员的幂等身份初始化 |
@@ -53,6 +57,7 @@ flowchart TB
 | 数据 | 权威来源 | 禁止方式 |
 |---|---|---|
 | 租户、用户、角色 | PostgreSQL 成员关系 | 浏览器自报角色 |
+| 导入批次与案件来源 | 文件摘要 + 标准化白名单字段 | 保存原始 CSV、PII 或覆盖已有案件 |
 | 服务配置与版本 | 服务端配置表 + 密钥引用 | 浏览器保存明文密钥 |
 | 活动与执行状态 | 服务端预检和 Agent 运行 | 聊天直接启动触达 |
 | 回款与佣金 | 已验签回执 + 不可变账簿 | 页面直接改金额 |
@@ -88,7 +93,7 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 
 ## 10. 已知技术债
 
-1. `backend/app/main.py` 仍聚合大量路由，后续应按 integrations、agents、payments、protections、repayment 等领域拆成 Router 与应用服务。
+1. `backend/app/main.py` 仍聚合大量旧路由；v0.15 已先拆出 asset-import Router、依赖与审计模块，后续继续按 integrations、agents、payments、protections、repayment 领域迁移。
 2. `src/App.jsx` 仍承担过多状态和在线/离线编排，后续应拆为领域 Store、查询层和 Online/Demo Adapter。
 3. 数据库仍有一部分跨租户关联只由应用层校验，后续应补复合外键和 Check Constraint。
 4. 列表 API 尚未统一游标分页；财务聚合仍需进一步下推数据库。

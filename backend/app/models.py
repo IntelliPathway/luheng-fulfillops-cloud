@@ -74,6 +74,8 @@ class AssetPackage(Base):
     min_settlement_bps: Mapped[int] = mapped_column(Integer, default=7000)
     max_installments: Mapped[int] = mapped_column(Integer, default=6)
     min_down_payment_bps: Mapped[int] = mapped_column(Integer, default=2000)
+    source_import_batch_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class CaseRecord(Base):
@@ -87,6 +89,41 @@ class CaseRecord(Base):
     status: Mapped[str] = mapped_column(String(40))
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     has_signed_plan: Mapped[bool] = mapped_column(Boolean, default=False)
+    contact_basis_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_import_batch_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class AssetImportBatch(Base):
+    __tablename__ = "asset_import_batches"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key"),
+        Index("ix_asset_import_batches_tenant_created", "tenant_id", "created_at"),
+        Index("ix_asset_import_batches_tenant_status", "tenant_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("IMP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_filename: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(24), default="asset-case-v1", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ready", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    valid_count: Mapped[int] = mapped_column(Integer, default=0)
+    invalid_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    package_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_claim_balance_cents: Mapped[int] = mapped_column(Integer, default=0)
+    normalized_rows: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    issues: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    committed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ServiceConfig(Base):

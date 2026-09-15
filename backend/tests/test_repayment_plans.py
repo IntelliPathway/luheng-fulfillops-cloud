@@ -105,6 +105,8 @@ def test_existing_sqlite_financial_tables_get_additive_plan_columns(tmp_path) ->
         "min_settlement_bps",
         "max_installments",
         "min_down_payment_bps",
+        "source_import_batch_id",
+        "created_at",
         "claim_balance_cents",
     }
     assert {column["name"] for column in inspector.get_columns("asset_packages")} >= {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, classifyApiFailure, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, assetImportApi, classifyApiFailure, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -238,4 +238,34 @@ test('submits only plan evidence digests and uses maker-checker activation', asy
   assert.deepEqual(JSON.parse(calls[2].options.body), {
     decision: 'approve', review_note: '独立复核条款与证据一致', expected_version: 1, acknowledged: true,
   });
+});
+
+test('uses preview and maker-checker commit endpoints for asset imports', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({id: 'IMP-1', version: 1, status: 'ready'})};
+  };
+  const csv = [
+    'package_id,package_title,case_id,claim_balance_cents,mandate_start,mandate_end,commission_rule_id,commission_rate_bps,contact_basis_ref',
+    'PKG_NEW,测试资产包,C901,1200000,2026-09-01,2027-08-31,COM_NEW_V1,1500,CONSENT-C901',
+  ].join('\n');
+  try {
+    await assetImportApi.list('TENANT_A');
+    await assetImportApi.preview('TENANT_A', 'asset_cases.csv', csv, 'asset-import-001');
+    await assetImportApi.commit('TENANT_A', 'IMP-1', 1, '独立复核字段、金额和委托期限一致');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/asset-imports');
+  assert.equal(calls[1].url, '/api/v1/asset-imports/previews');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    filename: 'asset_cases.csv', csv_text: csv, idempotency_key: 'asset-import-001',
+  });
+  assert.equal(calls[2].url, '/api/v1/asset-imports/IMP-1/commit');
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    expected_version: 1, review_note: '独立复核字段、金额和委托期限一致', acknowledged: true,
+  });
+  assert.equal(calls.some(call => String(call.url).includes('/cases/C901')), false);
 });
