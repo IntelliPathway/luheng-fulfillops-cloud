@@ -12,5 +12,7 @@ backend/*.db
 .DS_Store
 coverage/
 *.log
+*.dump
+backups/
 export/RecoveryCloud_Interactive.html
 qa/standalone.html

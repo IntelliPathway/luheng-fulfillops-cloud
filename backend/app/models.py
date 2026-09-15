@@ -234,7 +234,7 @@ class JobWorker(Base):
     status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
     queues: Mapped[list[str]] = mapped_column(JSON, default=list)
     current_job_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
-    version: Mapped[str] = mapped_column(String(24), default="0.10.0")
+    version: Mapped[str] = mapped_column(String(24), default="0.11.0")
     processed_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -459,6 +459,42 @@ class PaymentReconciliation(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     recovery_entry_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class ProtectionIncident(Base):
+    __tablename__ = "protection_incidents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_event_id"),
+        Index("ix_protection_incidents_tenant_status", "tenant_id", "status", "opened_at"),
+        Index("ix_protection_incidents_tenant_case", "tenant_id", "case_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("PROT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    source_event_id: Mapped[str] = mapped_column(String(120), index=True)
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    priority: Mapped[str] = mapped_column(String(4), default="P1", index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    opening_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner: Mapped[str] = mapped_column(String(120), nullable=False)
+    release_policy: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="open", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    previous_case_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    sla_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    opened_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    proposed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    proposed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    case_released: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class RecoveryLedgerEntry(Base):

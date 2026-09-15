@@ -2,6 +2,15 @@ node_modules
 dist
 qa
 export
+backend
+tests
+.git
+.github
+.env
+.env.*
+*.db
+*.dump
+coverage
 backend/.venv
 backend/*.db
 **/__pycache__

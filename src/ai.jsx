@@ -150,7 +150,7 @@ export function AICopilot(){
         <span className="copilot-brand"><span><Brain size={22}/></span><span><b>履衡 AI</b><small>Agent + 知识库 + ChatBI</small></span></span>
         <IconButton icon={X} label="关闭 AI 助手" onClick={()=>a.setCopilotOpen(false)}/>
       </header>
-      <div className="copilot-scope"><ShieldCheck size={15}/><span>数据范围：{a.organization[a.tenant]} · {a.backendStatus==='connected'?`${a.agentGateway.provider} 服务端会话`:a.hostedDemo?'Sites 知识演示':'离线知识演示'} · 写操作先生成草案</span></div>
+      <div className="copilot-scope"><ShieldCheck size={15}/><span>数据范围：{a.organization[a.tenant]} · {a.backendStatus==='connected'?`${a.agentGateway.provider} 服务端会话`:a.hostedDemo?'在线知识演示':'离线知识演示'} · 写操作先生成草案</span></div>
       <div className="copilot-body">
         <div className="copilot-welcome">
           <span className="copilot-orb"><Robot size={27}/></span>
@@ -167,7 +167,7 @@ export function AICopilot(){
       </div>
       <footer>
         <div className="copilot-input"><MagnifyingGlass size={17}/><textarea rows="2" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submit()}}} placeholder="询问数据，或下达一个任务目标…"/><button onClick={()=>submit()} disabled={!query.trim()} aria-label="发送"><PaperPlaneRight size={18} weight="fill"/></button></div>
-        <small>{a.backendStatus==='connected'?'会话、工具轨迹与来源已写入服务端；高影响动作需结构化确认。':a.hostedDemo?'当前为 Sites 在线交互演示，不连接业务 API 或执行外部动作。':'当前为离线演示回答，不执行外部动作。'}</small>
+        <small>{a.backendStatus==='connected'?'会话、工具轨迹与来源已写入服务端；高影响动作需结构化确认。':a.hostedDemo?'当前为在线交互演示，不连接业务 API 或执行外部动作。':'当前为离线演示回答，不执行外部动作。'}</small>
       </footer>
     </aside>}
   </>;
@@ -214,7 +214,7 @@ export function AgentCommand({activity}){
     setProposal(null);
   };
   return <section className="agent-command">
-    <div className="agent-command-head"><span><Lightning size={18}/><b>对话驱动 Agent</b></span><small>{a.agentGateway.provider} · {a.backendStatus==='connected'?'服务端持久会话':a.hostedDemo?'Sites 交互演示':'离线演示'} · 受策略与工具权限约束</small></div>
+    <div className="agent-command-head"><span><Lightning size={18}/><b>对话驱动 Agent</b></span><small>{a.agentGateway.provider} · {a.backendStatus==='connected'?'服务端持久会话':a.hostedDemo?'在线交互演示':'离线演示'} · 受策略与工具权限约束</small></div>
     <p>用自然语言补充目标或要求解释。涉及触达、预算、策略和状态变更时，先生成行动草案。</p>
     <div className="agent-command-suggestions">{suggestions.map(item=><button key={item} onClick={()=>submit(item)}>{item}</button>)}</div>
     {running&&<div className="command-proposal running"><div><span>持久作业运行中</span><b>{a.activeJob?.id||'正在创建作业'}</b><small>查询、工具轨迹和证据将在完成后写入会话。</small></div><Robot size={21}/></div>}

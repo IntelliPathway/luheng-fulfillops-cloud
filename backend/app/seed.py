@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,6 +19,7 @@ from .models import (
     CommissionRule,
     IntegrationState,
     PaymentWebhookConfig,
+    ProtectionIncident,
     RecoveryLedgerEntry,
     ServiceConfig,
     Tenant,
@@ -173,6 +175,97 @@ def _seed_financial_data(db: Session) -> None:
     refresh_business_metrics(db, "TENANT_B")
 
 
+def _seed_protection_data(db: Session) -> None:
+    rows = [
+        {
+            "tenant_id": "TENANT_A",
+            "case_id": "C010",
+            "source_event_id": "GUARD-DEMO-C010",
+            "category": "debt_dispute",
+            "priority": "P0",
+            "reason": "存在未解决异议，触达已暂停",
+            "owner": "AMC 异议专员",
+            "release_policy": "maker_checker",
+            "status": "pending_review",
+            "version": 2,
+            "previous_case_status": "待联系",
+            "sla_due_at": datetime(2026, 9, 15, 16, 0, tzinfo=UTC).replace(tzinfo=None),
+            "opened_by": "system:guard",
+            "opened_at": datetime(2026, 9, 15, 9, 45, tzinfo=UTC).replace(tzinfo=None),
+            "resolution_note": "异议金额与债权资料已复核，处理回执已归档，申请重新评估案件。",
+            "evidence_refs": ["EVIDENCE-DISPUTE-C010-01"],
+            "proposed_by": "test-operator",
+            "proposed_at": datetime(2026, 9, 15, 11, 20, tzinfo=UTC).replace(tzinfo=None),
+        },
+        {
+            "tenant_id": "TENANT_A",
+            "case_id": "C014",
+            "source_event_id": "GUARD-DEMO-C014",
+            "category": "mandate_expired",
+            "priority": "P1",
+            "reason": "委托已到期，禁止新的主动触达",
+            "owner": "合同管理员",
+            "release_policy": "renewal_evidence",
+            "status": "open",
+            "version": 1,
+            "previous_case_status": "履约中",
+            "sla_due_at": datetime(2026, 9, 16, 9, 0, tzinfo=UTC).replace(tzinfo=None),
+            "opened_by": "system:mandate-guard",
+            "opened_at": datetime(2026, 9, 15, 9, 0, tzinfo=UTC).replace(tzinfo=None),
+            "resolution_note": None,
+            "evidence_refs": [],
+            "proposed_by": None,
+            "proposed_at": None,
+        },
+    ]
+    for row in rows:
+        exists = db.scalar(
+            select(ProtectionIncident.id).where(
+                ProtectionIncident.tenant_id == row["tenant_id"],
+                ProtectionIncident.source_event_id == row["source_event_id"],
+            )
+        )
+        if exists:
+            continue
+        opening_digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "tenant_id": row["tenant_id"],
+                    "case_id": row["case_id"],
+                    "source_event_id": row["source_event_id"],
+                    "category": row["category"],
+                    "reason": row["reason"],
+                    "owner": row["owner"],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        evidence_digest = None
+        if row["evidence_refs"]:
+            evidence_digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "opening_digest": opening_digest,
+                        "resolution_note": row["resolution_note"],
+                        "evidence_refs": row["evidence_refs"],
+                        "version": row["version"],
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+        db.add(
+            ProtectionIncident(
+                **row,
+                opening_digest=opening_digest,
+                evidence_digest=evidence_digest,
+            )
+        )
+
+
 def seed_demo_data(db: Session) -> None:
     if db.scalar(select(Tenant.id).limit(1)):
         demo_users = {
@@ -220,6 +313,7 @@ def seed_demo_data(db: Session) -> None:
             if not exists:
                 db.add(Activity(tenant_id=tenant_id, activity_id=activity_id, name=name, package_id=package_id, goal=goal, status=activity_status, mode="sandbox", budget_yuan=30, case_ids=case_ids, policy_version=1, service_snapshot={}, preflight={"seed": True}))
         _seed_financial_data(db)
+        _seed_protection_data(db)
         db.commit()
         return
 
@@ -436,4 +530,5 @@ def seed_demo_data(db: Session) -> None:
             for key, value in values.items()
         )
     _seed_financial_data(db)
+    _seed_protection_data(db)
     db.commit()

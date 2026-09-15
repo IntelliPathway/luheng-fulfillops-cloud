@@ -5,7 +5,7 @@ import {
 } from '@phosphor-icons/react';
 import {useApp} from './context';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,Modal,Tabs} from './ui';
-import {exceptionMeta,installmentSchedules,money,reasonText} from './model';
+import {installmentSchedules,money,reasonText} from './model';
 import {determineActivityMode,GOALS,selectActivityCandidates} from './activity-preflight';
 
 function PreflightItem({ok,label,note,required=true}){
@@ -110,7 +110,7 @@ export function ReceiptModal({onClose}){
   const serverReady=a.backendStatus!=='connected'||(a.financialOverview.webhookReady&&a.financialOverview.sandboxEnabled);
   return <Modal title="模拟补款到账" subtitle="先展示核验链路，再更新履约与佣金。" onClose={onClose} wide footer={<><Button onClick={onClose}>取消</Button><Button variant="primary" disabled={!ack||a.paid||a.receivingPayment||!serverReady} onClick={a.receive}>{a.paid?'已完成模拟':a.receivingPayment?'正在验签入账…':serverReady?'执行核验并确认到账':'服务端支付沙箱未就绪'}</Button></>}>
     <div className="receipt-preview"><Receipt size={32}/><span>待核验回调金额</span><strong>¥1,016</strong><small>C002 · PLAN002 · 第二期</small></div>
-    <div className="reconciliation-chain">{['回调接收','签名验证','幂等去重','案件匹配','账簿入账','计佣判断'].map((label,index)=><span key={label}><i>{index+1}</i><b>{label}</b><small>{index===0?'SBX-ui-demo':index===1?(a.backendStatus==='connected'?'HMAC-SHA256 v1':a.hostedDemo?'Sites 交互沙箱':'离线沙箱'):index===2?'Provider 事件唯一':index===3?'C002':index===4?(a.backendStatus==='connected'?'不可变事件':'本地演示事件'):'COM_A v1'}</small></span>)}</div>
+    <div className="reconciliation-chain">{['回调接收','签名验证','幂等去重','案件匹配','账簿入账','计佣判断'].map((label,index)=><span key={label}><i>{index+1}</i><b>{label}</b><small>{index===0?'SBX-ui-demo':index===1?(a.backendStatus==='connected'?'HMAC-SHA256 v1':a.hostedDemo?'在线交互沙箱':'离线沙箱'):index===2?'Provider 事件唯一':index===3?'C002':index===4?(a.backendStatus==='connected'?'不可变事件':'本地演示事件'):'COM_A v1'}</small></span>)}</div>
     <KeyValue items={[["本期累计到账","¥1,000 → ¥2,016"],["本期状态","部分履约 → 本期已足额"],["新增应计佣金","¥1,016 × 15% = ¥152.40"],["实际收佣","仍为 ¥0"]]}/>
     <label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认执行验签、去重、案件匹配、回款入账和计佣；API 在线时结果写入租户不可变账簿。</span></label>
     {a.backendStatus==='connected'&&!serverReady&&<div className="form-error" role="alert">支付回执沙箱未配置可解析签名密钥，未发起模拟回调。</div>}
@@ -166,19 +166,43 @@ export function PaymentDetailModal({transaction,onClose}){
   </Modal>;
 }
 
-export function ExceptionModal({caseId,onClose}){
+export function ExceptionModal({incidentId,caseId,onClose}){
   const a=useApp();
   const c=a.visibleCases.find(item=>item.case_id===caseId);
-  const meta=exceptionMeta[caseId];
-  const [note,setNote]=useState('');
+  const incident=a.protectionOverview.incidents.find(item=>item.id===incidentId);
+  const categoryNames={debt_dispute:'债务异议',stop_contact:'停止联系',identity_conflict:'身份冲突',mandate_expired:'委托到期',data_quality:'资料缺失',amount_verification:'金额冲突',authorization_gap:'授权缺失',contact_data:'号码缺失',budget_exhausted:'预算耗尽',channel_failure:'渠道异常'};
+  const [note,setNote]=useState(incident?.resolution_note||'相关业务事实已经复核，证据已归档，申请重新评估案件。');
+  const [evidence,setEvidence]=useState(incident?.evidence_refs?.join('\n')||'');
+  const [reviewNote,setReviewNote]=useState('已独立核对保护事实、处理结论与证据引用，复核结论一致。');
   const [ack,setAck]=useState(false);
-  if(!c||!meta)return null;
-  const submit=()=>{a.setExceptionResolutions(old=>({...old,[caseId]:{note,time:'2026.09.12 10:52',receipt:`RCP-${caseId}-01`}}));a.addEvent(caseId,'异常处理回执已提交','保护状态保持生效，等待责任方复核','exception',{actor:'异常工作流',tool:'exception.submit_receipt',version:'GUARD v2.1'});a.notify('处理回执已提交；保护状态不会自动解除');onClose()};
-  return <Modal title={`处理异常 · ${caseId}`} subtitle={`${meta.id} · ${meta.category} · ${meta.priority}`} onClose={onClose} wide footer={<><Button onClick={onClose}>取消</Button><Button variant="primary" disabled={!note.trim()||!ack} onClick={submit}>提交处理回执</Button></>}>
-    <div className="notice warning"><ShieldCheck size={20}/><span><b>当前仍为保护暂停</b><small>{c.reason}</small></span></div>
-    <KeyValue items={[["责任方",meta.owner],["处理时限",meta.sla],["解除条件",meta.condition],["影响范围","取消排队动作；在途动作进入确认"]]}/>
-    <Field label="处理结论或补充说明"><textarea rows="4" value={note} onChange={event=>setNote(event.target.value)} placeholder="说明已核验资料、结论和证据编号…"/></Field>
-    <label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本次仅提交回执，不直接解除保护；解除仍需规则与权限复核。</span></label>
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  if(!c||!incident)return null;
+  const permanent=incident.status==='permanent_hold';
+  const pending=incident.status==='pending_review';
+  const canReview=pending&&a.identity.role==='admin'&&incident.proposed_by!==a.identity.actor_id;
+  const evidenceRefs=evidence.split(/[\n,，]/).map(value=>value.trim()).filter(Boolean);
+  const submit=async()=>{setBusy(true);setError('');try{await a.proposeProtectionResolution(incident,note,evidenceRefs);setAck(false)}catch(reason){setError(reason.message)}finally{setBusy(false)}};
+  const decide=async decision=>{setBusy(true);setError('');try{await a.decideProtectionResolution(incident,decision,reviewNote);onClose()}catch(reason){setError(reason.message)}finally{setBusy(false)}};
+  const footer=permanent?<Button onClick={onClose}>关闭</Button>:pending?<><Button onClick={onClose}>关闭</Button><div className="footer-actions"><Button disabled={!canReview||!ack||reviewNote.trim().length<4||busy} onClick={()=>decide('reject')}>驳回提案</Button><Button variant="primary" disabled={!canReview||!ack||reviewNote.trim().length<4||busy} onClick={()=>decide('approve')}>{busy?'正在复核…':'批准解除'}</Button></div></>:<><Button onClick={onClose}>取消</Button><Button variant="primary" disabled={note.trim().length<8||!evidenceRefs.length||!ack||busy} onClick={submit}>{busy?'正在提交…':'提交解除提案'}</Button></>;
+  return <Modal title={`处理保护事件 · ${caseId}`} subtitle={`${incident.id} · ${categoryNames[incident.category]||incident.category} · ${incident.priority} · v${incident.version}`} onClose={onClose} wide footer={footer}>
+    <div className="notice warning"><ShieldCheck size={20}/><span><b>{permanent?'持续保护，不开放通用解除':pending?'保护继续生效，等待独立复核':'当前仍为保护暂停'}</b><small>{incident.reason}</small></span></div>
+    <KeyValue items={[["责任方",incident.owner],["来源事件",incident.source_event_id],["解除策略",incident.release_policy==='maker_checker'?'双人复核':incident.release_policy==='renewal_evidence'?'续期证据 + 双人复核':'持续保护'],["影响范围","案件与相关活动已阻断；批准后原活动不自动恢复"]]}/>
+    {permanent?<div className="protection-boundary"><ShieldCheck size={32}/><h3>停止联系保护不可通过本流程解除</h3><p>仅允许记录合法有效的后续请求或被动到账核对。Agent、运营人员和普通管理员均没有直接解除工具。</p></div>:pending?<>
+      <h3 className="section-label"><Receipt size={19}/>解除提案与证据</h3>
+      <p className="body-copy">{incident.resolution_note}</p>
+      <div className="evidence-reference-list">{incident.evidence_refs.map(ref=><code key={ref}>{ref}</code>)}</div>
+      <KeyValue items={[["提案人",incident.proposed_by],["证据摘要",`${incident.evidence_digest?.slice(0,16)||'—'}…`],["版本",`v${incident.version}`]]}/>
+      <Field label="独立复核结论"><textarea rows="3" value={reviewNote} onChange={event=>setReviewNote(event.target.value)} placeholder="填写独立核验依据和结论…"/></Field>
+      {!canReview&&<div className="notice warning"><WarningCircle size={19}/><span><b>{incident.proposed_by===a.identity.actor_id?'不能复核自己创建的提案':'当前角色不能复核'}</b><small>必须由另一名管理员重新核对证据并作出决定。</small></span></div>}
+      <label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本人不是提案人，已独立核验保护事实与证据；批准只让案件进入待重新评估，不恢复原活动。</span></label>
+    </>:<>
+      <Field label="处理结论"><textarea rows="4" value={note} onChange={event=>setNote(event.target.value)} placeholder="说明已核验事实和申请重新评估的依据…"/></Field>
+      <Field label="证据引用（每行一个）"><textarea rows="3" value={evidence} onChange={event=>setEvidence(event.target.value)} placeholder={incident.release_policy==='renewal_evidence'?'MANDATE-RENEWAL-001':'EVIDENCE-DISPUTE-001'}/><small>只填写证据编号，不把证件、合同或通话正文复制到审计日志。</small></Field>
+      {incident.release_policy==='renewal_evidence'&&<div className="notice"><ShieldCheck size={19}/><span><b>委托续期强校验</b><small>至少包含一个以 MANDATE- 开头的有效授权证据引用。</small></span></div>}
+      <label className="check-agreement"><input type="checkbox" checked={ack} onChange={event=>setAck(event.target.checked)}/><span>确认本次只创建解除提案，不直接恢复案件、活动或任何触达动作。</span></label>
+    </>}
+    {error&&<div className="form-error" role="alert">{error}</div>}
   </Modal>;
 }
 

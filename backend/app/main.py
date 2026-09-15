@@ -77,10 +77,18 @@ from .models import (
     PaymentReceipt,
     PaymentReconciliation,
     PaymentWebhookConfig,
+    ProtectionIncident,
     RecoveryLedgerEntry,
     SelfTestReport,
     ServiceConfig,
     User,
+)
+from .protection_workflow import (
+    ProtectionWorkflowError,
+    decide_protection_resolution,
+    open_protection_incident,
+    propose_protection_resolution,
+    protection_overview,
 )
 from .runtime_adapters import test_agent_runtime
 from .schemas import (
@@ -126,6 +134,11 @@ from .schemas import (
     PaymentWebhookPayload,
     ProposalDecisionRequest,
     ProposalOut,
+    ProtectionIncidentCreateRequest,
+    ProtectionIncidentOut,
+    ProtectionOverviewOut,
+    ProtectionResolutionDecisionRequest,
+    ProtectionResolutionProposalRequest,
     QueueHealthOut,
     RecoveryLedgerEntryOut,
     SecretStoreHealthOut,
@@ -250,6 +263,10 @@ def raise_financial_error(exc: FinancialLedgerError) -> None:
     raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
 
 
+def raise_protection_error(exc: ProtectionWorkflowError) -> None:
+    raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
+
+
 def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_id: str) -> None:
     if should_execute_inline():
         background_tasks.add_task(execute_job, session_factory, job_id)
@@ -258,7 +275,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="履衡 AI FulfillOps API",
-        version="0.10.0",
+        version="0.11.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
@@ -282,7 +299,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
-        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.10.0")
+        return HealthOut(status="ok", service="luheng-fulfillops-api", version="0.11.0")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
@@ -909,6 +926,142 @@ def create_app(database_url: str | None = None) -> FastAPI:
         except FinancialLedgerError as exc:
             raise_financial_error(exc)
         return CommissionEventAcceptanceOut(entry=CommissionLedgerEntryOut.model_validate(entry), duplicate=duplicate)
+
+    @app.get(
+        "/api/v1/protections/overview",
+        response_model=ProtectionOverviewOut,
+        tags=["protections"],
+    )
+    def get_protection_overview(context: Context, db: Database) -> ProtectionOverviewOut:
+        return ProtectionOverviewOut.model_validate(protection_overview(db, context.tenant_id))
+
+    @app.get(
+        "/api/v1/protections/incidents",
+        response_model=list[ProtectionIncidentOut],
+        tags=["protections"],
+    )
+    def list_protection_incidents(
+        context: Context,
+        db: Database,
+        incident_status: str | None = Query(default=None, alias="status"),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> list[ProtectionIncidentOut]:
+        statement = select(ProtectionIncident).where(
+            ProtectionIncident.tenant_id == context.tenant_id
+        )
+        if incident_status:
+            statement = statement.where(ProtectionIncident.status == incident_status)
+        rows = db.scalars(statement.order_by(ProtectionIncident.opened_at.desc()).limit(limit))
+        return [ProtectionIncidentOut.model_validate(row) for row in rows]
+
+    @app.post(
+        "/api/v1/cases/{case_id}/protections",
+        response_model=ProtectionIncidentOut,
+        status_code=status.HTTP_201_CREATED,
+        tags=["protections"],
+    )
+    def create_protection_incident(
+        case_id: str,
+        payload: ProtectionIncidentCreateRequest,
+        context: Context,
+        db: Database,
+    ) -> ProtectionIncidentOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="必须确认保护事件会立即阻断案件及相关活动",
+            )
+        try:
+            incident = open_protection_incident(
+                db,
+                context.tenant_id,
+                case_id.strip().upper(),
+                payload.source_event_id,
+                payload.category,
+                payload.reason,
+                payload.owner,
+                payload.sla_hours,
+                context.actor_id,
+            )
+        except ProtectionWorkflowError as exc:
+            raise_protection_error(exc)
+        return ProtectionIncidentOut.model_validate(incident)
+
+    @app.post(
+        "/api/v1/protections/incidents/{incident_id}/resolution-proposals",
+        response_model=ProtectionIncidentOut,
+        tags=["protections"],
+    )
+    def create_protection_resolution_proposal(
+        incident_id: str,
+        payload: ProtectionResolutionProposalRequest,
+        context: Context,
+        db: Database,
+    ) -> ProtectionIncidentOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="必须确认本次只创建解除提案，不直接恢复触达",
+            )
+        incident = db.scalar(
+            select(ProtectionIncident).where(
+                ProtectionIncident.id == incident_id,
+                ProtectionIncident.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not incident:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="保护事件不存在")
+        try:
+            proposed = propose_protection_resolution(
+                db,
+                incident,
+                payload.resolution_note,
+                payload.evidence_refs,
+                context.actor_id,
+            )
+        except ProtectionWorkflowError as exc:
+            raise_protection_error(exc)
+        return ProtectionIncidentOut.model_validate(proposed)
+
+    @app.post(
+        "/api/v1/protections/incidents/{incident_id}/decision",
+        response_model=ProtectionIncidentOut,
+        tags=["protections"],
+    )
+    def decide_protection_incident(
+        incident_id: str,
+        payload: ProtectionResolutionDecisionRequest,
+        context: Context,
+        db: Database,
+    ) -> ProtectionIncidentOut:
+        require_role(context, "admin")
+        if not payload.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="必须明确确认保护复核决定",
+            )
+        incident = db.scalar(
+            select(ProtectionIncident).where(
+                ProtectionIncident.id == incident_id,
+                ProtectionIncident.tenant_id == context.tenant_id,
+            ).with_for_update()
+        )
+        if not incident:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="保护事件不存在")
+        try:
+            decided = decide_protection_resolution(
+                db,
+                incident,
+                payload.decision,
+                payload.review_note,
+                payload.expected_version,
+                context.actor_id,
+            )
+        except ProtectionWorkflowError as exc:
+            raise_protection_error(exc)
+        return ProtectionIncidentOut.model_validate(decided)
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobOut, tags=["jobs"])
     def get_job(job_id: str, context: Context, db: Database) -> JobOut:

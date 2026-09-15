@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -458,6 +458,82 @@ class PaymentReconciliationOut(BaseModel):
     reviewed_at: datetime | None
     review_note: str | None
     recovery_entry_id: str | None
+
+
+ProtectionCategory = Literal[
+    "debt_dispute",
+    "stop_contact",
+    "identity_conflict",
+    "mandate_expired",
+    "data_quality",
+    "amount_verification",
+    "authorization_gap",
+    "contact_data",
+    "budget_exhausted",
+    "channel_failure",
+]
+EvidenceReference = Annotated[str, Field(min_length=4, max_length=120, pattern=r"^[A-Za-z0-9._:/-]+$")]
+
+
+class ProtectionIncidentCreateRequest(BaseModel):
+    source_event_id: str = Field(min_length=4, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    category: ProtectionCategory
+    reason: str = Field(min_length=8, max_length=500)
+    owner: str = Field(min_length=2, max_length=120)
+    sla_hours: int | None = Field(default=None, ge=1, le=720)
+    acknowledged: bool
+
+
+class ProtectionResolutionProposalRequest(BaseModel):
+    resolution_note: str = Field(min_length=8, max_length=500)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1, max_length=10)
+    acknowledged: bool
+
+
+class ProtectionResolutionDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    review_note: str = Field(min_length=4, max_length=500)
+    expected_version: int = Field(ge=1)
+    acknowledged: bool
+
+
+class ProtectionIncidentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    case_id: str
+    source_event_id: str
+    category: str
+    priority: str
+    reason: str
+    opening_digest: str
+    owner: str
+    release_policy: str
+    status: str
+    version: int
+    previous_case_status: str
+    sla_due_at: datetime | None
+    opened_by: str
+    opened_at: datetime
+    resolution_note: str | None
+    evidence_refs: list[str]
+    evidence_digest: str | None
+    proposed_by: str | None
+    proposed_at: datetime | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    review_note: str | None
+    resolved_at: datetime | None
+    case_released: bool
+
+
+class ProtectionOverviewOut(BaseModel):
+    active_count: int
+    p0_count: int
+    pending_review_count: int
+    overdue_count: int
+    permanent_hold_count: int
+    incidents: list[ProtectionIncidentOut]
 
 
 class PaymentSandboxReceiptRequest(BaseModel):

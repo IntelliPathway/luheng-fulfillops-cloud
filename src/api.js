@@ -258,3 +258,18 @@ export const paymentApi = {
     body: JSON.stringify({...payload, acknowledged: true}),
   }),
 };
+
+export const protectionApi = {
+  overview: tenant => request('/protections/overview', tenant),
+  open: (tenant, caseId, payload) => request(`/cases/${caseId}/protections`, tenant, {
+    method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  proposeResolution: (tenant, incidentId, resolutionNote, evidenceRefs) => request(`/protections/incidents/${incidentId}/resolution-proposals`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({resolution_note: resolutionNote, evidence_refs: evidenceRefs, acknowledged: true}),
+  }),
+  decideResolution: (tenant, incidentId, decision, reviewNote, expectedVersion) => request(`/protections/incidents/${incidentId}/decision`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({decision, review_note: reviewNote, expected_version: expectedVersion, acknowledged: true}),
+  }),
+};

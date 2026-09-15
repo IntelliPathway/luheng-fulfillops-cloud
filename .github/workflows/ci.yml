@@ -56,6 +56,17 @@ jobs:
         run: ./scripts/smoke-v09-financial-ledger.sh
       - name: Smoke maker-checker reconciliation
         run: ./scripts/smoke-v10-reconciliation.sh
+      - name: Smoke protection incident workflow
+        run: ./scripts/smoke-v11-protection.sh
+      - name: Validate ECS and 1Panel Compose
+        env:
+          APP_HTTP_PORT: "18080"
+          POSTGRES_PASSWORD: ci-password
+          DATABASE_URL: postgresql+psycopg://luheng:ci-password@postgres:5432/luheng
+          AUTH_JWT_SECRET: ci-auth-secret-long-enough-for-compose-validation
+          RUNTIME_JWT_SECRET: ci-runtime-secret-long-enough-for-compose-validation
+          SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: docker compose -f deploy/1panel/docker-compose.yml config --quiet
 
       - name: Install frontend dependencies
         run: npm ci

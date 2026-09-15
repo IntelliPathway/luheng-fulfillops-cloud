@@ -1,5 +1,12 @@
 # Design QA · AI 与渠道及 AI Native 工作台
 
+## v0.11.0 protection workflow and ECS packaging · 2026-09-15
+
+- 异常中心已从静态演示数据切换为服务端保护事件概览，展示优先级、责任人、SLA、来源事件、证据版本和永久保护边界。
+- 打开、补证、独立复核、版本冲突、停止联系不可解除和“批准后不自动恢复”均有后端测试与 HTTP 冒烟覆盖。
+- Vite 生产构建和前端契约测试通过；本轮云端浏览器对本机 `127.0.0.1` 与 `terminal.local` 均返回 `ERR_BLOCKED_BY_CLIENT`，因此没有把不可达状态误报为视觉验收通过。
+- ECS/1Panel 交付包含同源 Nginx 代理、安全响应头、仅回环入口、私有 API/PostgreSQL、资源上限、日志轮转和只读容量检测。
+
 - Source visual truth: `/workspace/scratch/f1577a7a0ff3/upload/d40a9b90-d596-450f-be07-20d83ca9394b.png`
 - Browser-rendered implementation: `/workspace/scratch/f1577a7a0ff3/recovery-cloud/qa/03-integrations-revised.png`
 - Focused implementation region: `/workspace/scratch/f1577a7a0ff3/recovery-cloud/qa/04-integrations-grid-revised.png`

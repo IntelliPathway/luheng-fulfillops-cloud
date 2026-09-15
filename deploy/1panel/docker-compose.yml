@@ -1,0 +1,169 @@
+x-app-environment: &app-environment
+  DATABASE_URL: ${DATABASE_URL:?请在 .env 中配置 DATABASE_URL}
+  AUTH_MODE: ${AUTH_MODE:-development}
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?请配置 AUTH_JWT_SECRET}
+  OIDC_ISSUER: ${OIDC_ISSUER:-luheng-ecs-acceptance}
+  OIDC_AUDIENCE: ${OIDC_AUDIENCE:-luheng-fulfillops}
+  OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+  OIDC_ALLOWED_ALGORITHMS: ${OIDC_ALLOWED_ALGORITHMS:-RS256}
+  OIDC_REQUIRED_CLAIMS: ${OIDC_REQUIRED_CLAIMS:-sub,exp,iat,jti}
+  OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-}
+  ALLOW_DEV_HEADER_AUTH: ${ALLOW_DEV_HEADER_AUTH:-true}
+  ALLOW_DEV_TOKEN: ${ALLOW_DEV_TOKEN:-true}
+  RUNTIME_JWT_SECRET: ${RUNTIME_JWT_SECRET:?请配置 RUNTIME_JWT_SECRET}
+  JOB_EXECUTION_MODE: external
+  JOB_BROKER_BACKEND: postgres-notify
+  JOB_BROKER_CHANNEL: luheng_jobs
+  JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-60}
+  WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-30}
+  SECRET_STORE_BACKEND: local-envelope
+  SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:?请配置 SECRET_MASTER_KEY}
+  SECRET_MASTER_KEY_VERSION: ${SECRET_MASTER_KEY_VERSION:-ecs-v1}
+  ENABLE_LIVE_MODEL_CALLS: ${ENABLE_LIVE_MODEL_CALLS:-false}
+  MODEL_EGRESS_ALLOWLIST: ${MODEL_EGRESS_ALLOWLIST:-api.deepseek.com}
+  MODEL_ALLOWED_MODELS: ${MODEL_ALLOWED_MODELS:-deepseek-chat,deepseek-reasoner}
+  MODEL_MAX_COST_USD_PER_CALL: ${MODEL_MAX_COST_USD_PER_CALL:-0.25}
+  MODEL_COST_CEILING_USD_PER_M_TOKENS: ${MODEL_COST_CEILING_USD_PER_M_TOKENS:-20}
+  ENABLE_PAYMENT_SANDBOX: ${ENABLE_PAYMENT_SANDBOX:-false}
+  PAYMENT_WEBHOOK_TOLERANCE_SECONDS: ${PAYMENT_WEBHOOK_TOLERANCE_SECONDS:-300}
+  PAYMENT_SANDBOX_SECRET: ${PAYMENT_SANDBOX_SECRET:-}
+  FULFILLOPS_ENABLE_DSH_RUNTIME: ${FULFILLOPS_ENABLE_DSH_RUNTIME:-false}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-luheng}
+      POSTGRES_USER: ${POSTGRES_USER:-luheng}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置 POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - max_connections=60
+      - -c
+      - work_mem=4MB
+    volumes:
+      - luheng_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-luheng} -d ${POSTGRES_DB:-luheng}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    shm_size: 256mb
+    mem_limit: 768m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    logging: &bounded-logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      args:
+        INSTALL_HARNESS: ${INSTALL_HARNESS:-false}
+        INSTALL_AWS: ${INSTALL_AWS:-false}
+    image: luheng-fulfillops-api:0.11.0
+    restart: unless-stopped
+    init: true
+    environment:
+      <<: *app-environment
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      FULFILLOPS_INTERNAL_URL: http://api:8000
+      FULFILLOPS_DSH_ROOT: /var/lib/luheng/dsh
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 512m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    logging: *bounded-logging
+
+  worker:
+    image: luheng-fulfillops-api:0.11.0
+    restart: unless-stopped
+    init: true
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-environment
+      WORKER_ID: fulfillops-worker-1
+      WORKER_QUEUES: default
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+      FULFILLOPS_INTERNAL_URL: http://api:8000
+      FULFILLOPS_DSH_ROOT: /var/lib/luheng/dsh
+    volumes:
+      - luheng_dsh:/var/lib/luheng/dsh
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker", "--healthcheck"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    mem_limit: 640m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    logging: *bounded-logging
+
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.web
+      args:
+        VITE_API_BASE_URL: /api/v1
+    image: luheng-fulfillops-web:0.11.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_HTTP_PORT:-18080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m
+      - /var/run:size=8m
+      - /tmp:size=16m
+    mem_limit: 96m
+    cpus: 0.25
+    security_opt:
+      - no-new-privileges:true
+    logging: *bounded-logging
+
+volumes:
+  luheng_pg:
+  luheng_dsh:

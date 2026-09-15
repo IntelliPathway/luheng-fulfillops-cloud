@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, securityApi, servicePayload} from '../src/api.js';
+import {agentApi, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, securityApi, servicePayload} from '../src/api.js';
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
@@ -166,4 +166,37 @@ test('uses maker-checker reconciliation endpoints without direct ledger writes',
     decision: 'approve', review_note: '独立复核证据一致', expected_version: 1, acknowledged: true,
   });
   assert.equal(calls.some(call => String(call.url).endsWith('/match')), false);
+});
+
+test('uses evidence-bound maker-checker protection endpoints without direct release', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({id: 'PROT-1', version: 2})};
+  };
+  try {
+    await protectionApi.overview('TENANT_A');
+    await protectionApi.proposeResolution(
+      'TENANT_A',
+      'PROT-1',
+      '异议事实已经复核，申请重新评估案件',
+      ['EVIDENCE-DISPUTE-001'],
+    );
+    await protectionApi.decideResolution('TENANT_A', 'PROT-1', 'approve', '独立复核证据一致', 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/v1/protections/overview');
+  assert.equal(calls[1].url, '/api/v1/protections/incidents/PROT-1/resolution-proposals');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    resolution_note: '异议事实已经复核，申请重新评估案件',
+    evidence_refs: ['EVIDENCE-DISPUTE-001'],
+    acknowledged: true,
+  });
+  assert.equal(calls[2].url, '/api/v1/protections/incidents/PROT-1/decision');
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    decision: 'approve', review_note: '独立复核证据一致', expected_version: 2, acknowledged: true,
+  });
+  assert.equal(calls.some(call => String(call.url).includes('/release')), false);
 });
