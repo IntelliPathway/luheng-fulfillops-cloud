@@ -21,7 +21,7 @@ v0.4 同时提供零外部调用的 `sandbox-contract` 和可显式启用的 `py
 - `sandbox-contract`：验证租户隔离、工具白名单、行动提案和数据库检查点；不启动外部进程，不调用真实模型。
 - `python-sdk`：启动官方 `deepseek-harness-sdk` 的 JSON-RPC/stdio 子进程。必须安装 `requirements-harness.txt`、设置 `FULFILLOPS_ENABLE_DSH_RUNTIME=1` 并注入模型凭证；缺一项时连接测试明确失败。
 
-进程存活时，同一 Agent Session 复用相同 Provider Session。进程重启后，履衡数据库会把最近的脱敏消息作为检查点重放到一个新的 Provider Session，并要求涉及业务事实时重新调用工具。原因是当前官方 SDK 协议没有 resume/open 方法，复用已落盘的相同 Session ID 可能冲突。
+进程存活时，同一 Agent Session 复用相同 Provider Session。进程重启后，履约智控数据库会把最近的脱敏消息作为检查点重放到一个新的 Provider Session，并要求涉及业务事实时重新调用工具。原因是当前官方 SDK 协议没有 resume/open 方法，复用已落盘的相同 Session ID 可能冲突。
 
 ## 安装与启用
 

@@ -4,6 +4,7 @@ import {
   Lightning,MagnifyingGlass,PaperPlaneRight,Robot,ShieldCheck,Sparkle,X
 } from '@phosphor-icons/react';
 import {useApp} from './context';
+import {PRODUCT_NAME} from './brand';
 import {money} from './model';
 import {Button,IconButton} from './ui';
 
@@ -135,19 +136,19 @@ export function AICopilot(){
     setQuery('');setAnswer(null);setError('');setLoading(true);
     try{
       if(a.backendStatus==='connected'){
-        const result=await a.askAgent(next,{scopeType:'global',title:'履衡 AI 全局查询'});
+        const result=await a.askAgent(next,{scopeType:'global',title:`${PRODUCT_NAME} 全局查询`});
         setAnswer(remoteAnswerFor(result,a));
       }else setAnswer(answerFor(next,a));
     }catch(reason){setError(reason.message||'Agent 服务暂时不可用，请从运行记录恢复。')}
     finally{setLoading(false)}
   };
   return <>
-    <button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label="打开履衡 AI 助手">
-      <Sparkle size={18} weight="fill"/><span>问履衡 AI</span><kbd>⌘ J</kbd>
+    <button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label={`打开${PRODUCT_NAME}助手`}>
+      <Sparkle size={18} weight="fill"/><span>问{PRODUCT_NAME}</span><kbd>⌘ J</kbd>
     </button>
-    {a.copilotOpen&&<aside className="ai-copilot" role="dialog" aria-modal="false" aria-label="履衡 AI 助手">
+    {a.copilotOpen&&<aside className="ai-copilot" role="dialog" aria-modal="false" aria-label={`${PRODUCT_NAME}助手`}>
       <header>
-        <span className="copilot-brand"><span><Brain size={22}/></span><span><b>履衡 AI</b><small>Agent + 知识库 + ChatBI</small></span></span>
+        <span className="copilot-brand"><span><Brain size={22}/></span><span><b>{PRODUCT_NAME}</b><small>Agent + 知识库 + ChatBI</small></span></span>
         <IconButton icon={X} label="关闭 AI 助手" onClick={()=>a.setCopilotOpen(false)}/>
       </header>
       <div className="copilot-scope"><ShieldCheck size={15}/><span>数据范围：{a.organization[a.tenant]} · {a.backendStatus==='connected'?`${a.agentGateway.provider} 服务端会话`:a.hostedDemo?'在线知识演示':'离线知识演示'} · 写操作先生成草案</span></div>

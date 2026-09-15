@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .domain import utcnow
 from .models import AuditEvent, ManagedSecret, ServiceConfig
+from .version import PRODUCT_NAME
 
 REFERENCE_BACKEND = "reference-only"
 ENVELOPE_BACKEND = "local-envelope"
@@ -192,7 +193,7 @@ def _store_aws_secret(
             "Name": name,
             "SecretString": payload,
             "ClientRequestToken": uuid4().hex,
-            "Description": "履衡 AI FulfillOps 租户服务凭证",
+            "Description": f"{PRODUCT_NAME} 租户服务凭证",
             "Tags": [
                 {"Key": "luheng:tenant", "Value": tenant_id},
                 {"Key": "luheng:service", "Value": service_type},

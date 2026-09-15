@@ -1,6 +1,6 @@
-# 履衡 AI FulfillOps API
+# 履约智控 AI · RepayGuard AI 业务 API
 
-`v0.13.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
+`v0.14.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
 
 ## 本地运行
 

@@ -53,7 +53,7 @@ test("returns an explicit Sites demo response for unavailable business APIs", as
   assert.equal(response.status, 503);
   assert.equal(calls, 0);
   assert.deepEqual(await response.json(), {
-    detail: "Sites 在线交互演示未连接 FulfillOps 业务 API",
+    detail: "Sites 在线交互演示未连接履约智控业务 API",
     mode: "sites-demo",
   });
   assert.equal(response.headers.get("Cache-Control"), "no-store");

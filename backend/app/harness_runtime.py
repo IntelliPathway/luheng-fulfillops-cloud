@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from .security import issue_runtime_token
+from .version import PRODUCT_NAME
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是履衡 AI 的任务规划与解释 Runtime。你只能使用 mcp__fulfillops 命名空间内的受控工具。
+SYSTEM_PROMPT = f"""你是{PRODUCT_NAME}的任务规划与解释 Runtime。你只能使用 mcp__fulfillops 命名空间内的受控工具。
 回答必须以工具返回的租户事实为依据；不要猜测案件、金额、策略或运行状态。暂停与恢复只能调用 propose 工具生成提案，
 不得声称已经执行。禁止尝试 shell、文件系统、任意网络请求、账务写入、解除保护或策略发布。请用简洁中文回答。"""
 
@@ -168,11 +169,11 @@ def _replay_prompt(messages: list[dict[str, str]], query: str) -> str:
     if not messages:
         return query
     transcript = "\n".join(
-        f"{('用户' if item.get('role') == 'user' else '履衡 AI')}: {str(item.get('content') or '')[:1200]}"
+        f"{('用户' if item.get('role') == 'user' else PRODUCT_NAME)}: {str(item.get('content') or '')[:1200]}"
         for item in messages[-12:]
     )
     return (
-        "以下是履衡数据库中保存的脱敏会话检查点。它只用于恢复上下文，不代表工具事实仍然有效；"
+        "以下是履约智控数据库中保存的脱敏会话检查点。它只用于恢复上下文，不代表工具事实仍然有效；"
         "涉及案件、金额、活动或策略时必须重新调用受控工具。\n\n"
         f"[历史检查点]\n{transcript}\n\n[当前请求]\n{query}"
     )

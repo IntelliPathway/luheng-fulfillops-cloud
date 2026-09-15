@@ -19,7 +19,7 @@ pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1"; WARNINGS=$((WARNINGS + 1)); }
 fail() { printf '[FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
-printf 'FulfillOps ECS capacity preflight (read-only)\n'
+printf '履约智控 AI ECS capacity preflight (read-only)\n'
 printf 'Path: %s | Arch: %s | CPU: %s | RAM: %s MiB | Swap: %s MiB | Disk: %s GiB total / %s GiB free\n\n' \
   "$TARGET_PATH" "$ARCH" "$CPU_CORES" "$MEM_MIB" "$SWAP_MIB" "$DISK_TOTAL_GIB" "$DISK_FREE_GIB"
 

@@ -6,10 +6,11 @@ from .config import StartupSettings
 from .db import build_engine, build_session_factory
 from .migrations import run_postgres_migrations
 from .provision import IdentityProvisioningRequest, provision_identity
+from .version import PRODUCT_NAME
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="幂等创建履衡 AI 的首个租户成员，不导入演示业务数据。")
+    parser = argparse.ArgumentParser(description=f"幂等创建{PRODUCT_NAME}的首个租户成员，不导入演示业务数据。")
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--tenant-name", required=True)
     parser.add_argument("--user-id", required=True, help="必须与 OIDC sub 完全一致")

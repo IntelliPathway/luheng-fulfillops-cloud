@@ -1,84 +1,72 @@
-# 履衡 AI · FulfillOps Cloud
+<p align="center">
+  <img src="public/assets/repayguard-ai-mark.png" alt="履约智控 AI / RepayGuard AI Logo" width="112">
+</p>
 
-面向资产履约运营的多租户 AI 工作空间。当前版本为 `v0.13.0`，包含 React/Vite 前端、FastAPI 业务 API、独立异步 Worker、PostgreSQL 账务与审计数据，以及受控的 Agent/模型/支付接入边界。
+<h1 align="center">履约智控 AI · RepayGuard AI</h1>
 
-> 当前仓库是可联调开发版，不是“配置密钥即可直接商用”的成品。真实外呼、真实支付和真实模型调用均默认关闭；企业上线还需要 IdP、Provider、监控、备份恢复和目标 ECS 验收。
+<p align="center"><strong>面向资产履约与回款运营的可信 AI 控制平台</strong></p>
 
-## 先选运行模式
-
-| 模式 | 数据 | 身份 | 外部动作 | 适用场景 |
+| 当前版本 | 前端 | 业务服务 | 数据与任务 | 生产模板 |
 |---|---|---|---|---|
-| 本地 Docker 开发 | PostgreSQL + AMC 虚构样本 | 开发身份 | 默认全部关闭 | 功能体验、联调、开发 |
-| 本地前端演示 | 浏览器脱敏样本 | 本地演示身份 | 不执行 | UI 评审、无后端预览 |
-| Sites 演示 | 浏览器脱敏样本 | 站点访问控制 | `/api/*` 明确返回 503 | 纯前端展示 |
-| ECS/1Panel 生产模板 | PostgreSQL，不导入样本 | 企业 OIDC | 按服务逐项启用 | 测试环境、后续生产 |
+| `v0.14.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
 
-生产模板不会自动退回开发身份，也不会自动导入 `TENANT_A/TENANT_B`。认证失败、权限不足或 API 配置错误时，前端会阻断操作；只有真正无法连接 API，或 Sites 明确声明演示模式时，才进入离线沙箱。
+> AI 负责查询、解释和生成提案；权限、策略、保护状态、双人复核与账务内核拥有最终决定权。真实外呼、支付和模型调用默认关闭。
 
-## 五分钟开机：Docker 开发环境
+## 一分钟理解
 
-### 前置条件
+```mermaid
+flowchart LR
+    Data["资产 / 案件 / 协议"] --> Core["履约智控内核"]
+    Core --> Agent["AI 查询与行动提案"]
+    Core --> Guard["权限 / 保护 / 双人复核"]
+    Core --> Ledger["回款 / 分期 / 佣金证据"]
+```
 
-- Git
-- Docker Engine 24+ 与 Docker Compose v2
-- 至少 4 GB 可用内存
-- 本机端口 `4177`、`8000`、`5432` 未被占用
+| 问题 | 平台怎样处理 |
+|---|---|
+| 哪些案件可以行动？ | 策略、授权、保护状态和渠道门禁共同预检 |
+| AI 可以做什么？ | 查事实、解释原因、规划步骤、生成待审提案 |
+| 谁能批准高影响操作？ | 与提案人不同的管理员 |
+| 钱指标从哪里来？ | 已验签回执与不可变账簿，不读页面模拟值 |
+| 失败后怎样恢复？ | 数据库租约、Worker 心跳、重试预算和审计事件 |
 
-### 启动
+## 三步开机
+
+前置条件：Docker Engine 24+、Docker Compose v2、至少 4 GB 可用内存；端口 `4177`、`8000`、`5432` 未占用。
 
 ```bash
 git clone https://github.com/IntelliPathway/luheng-fulfillops-cloud.git
 cd luheng-fulfillops-cloud
 docker compose up --build -d
+```
+
+确认服务：
+
+```bash
 docker compose ps
-```
-
-首次构建会安装前后端依赖。所有服务健康后访问：
-
-- Web：<http://localhost:4177>
-- API 文档：<http://localhost:8000/api/docs>
-- API 就绪检查：<http://localhost:8000/api/v1/health/ready>
-- API 存活检查：<http://localhost:8000/api/v1/health/live>
-
-验证命令：
-
-```bash
 curl --fail http://localhost:8000/api/v1/health/ready
-curl --fail -H 'X-Tenant-ID: TENANT_A' -H 'X-Actor-ID: Terry' \
-  http://localhost:8000/api/v1/auth/session
 ```
 
-开发栈会显式设置 `APP_ENV=development`、`SEED_DEMO_DATA=true` 和开发头身份。默认用户如下：
+打开：
 
-| 用户 ID | 角色 | 用途 |
+| 入口 | 地址 | 用途 |
 |---|---|---|
-| `Terry` | 管理员 | 浏览器默认开发身份 |
-| `test-user` | 管理员 | Maker–Checker 独立复核 |
-| `test-operator` | 运营人员 | 创建提案和日常运营 |
-| `test-viewer` | 观察员 | 只读验证 |
+| Web | <http://localhost:4177> | 产品工作台 |
+| API Docs | <http://localhost:8000/api/docs> | OpenAPI 调试 |
+| Readiness | <http://localhost:8000/api/v1/health/ready> | 数据库与迁移就绪 |
+| Liveness | <http://localhost:8000/api/v1/health/live> | 进程存活 |
 
-### 停止、重启和查看日志
+开发样本身份：
 
-```bash
-docker compose stop
-docker compose start
-docker compose logs -f api worker web
-```
+| 用户 ID | 角色 | 典型操作 |
+|---|---|---|
+| `Terry` | 管理员 | 默认浏览与审批 |
+| `test-user` | 管理员 | 独立复核 |
+| `test-operator` | 运营人员 | 创建提案 |
+| `test-viewer` | 观察员 | 只读验收 |
 
-保留数据并停止容器：
-
-```bash
-docker compose down
-```
-
-彻底删除本地数据库卷并恢复全新样本（不可恢复）：
-
-```bash
-docker compose down -v
-docker compose up --build -d
-```
-
-## 不使用 Docker 的本地开发
+<details>
+<summary><strong>不用 Docker：本地前后端分别启动</strong></summary>
 
 后端要求 Python 3.12：
 
@@ -86,88 +74,106 @@ docker compose up --build -d
 cd backend
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-APP_ENV=development \
-SEED_DEMO_DATA=true \
+APP_ENV=development SEED_DEMO_DATA=true \
 DATABASE_URL=sqlite:///./luheng-dev.db \
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-另开终端启动前端（Node.js 22）：
+另开终端启动 Node.js 22 前端：
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Vite 开发模式允许开发身份；生产构建不会自动发送 `X-Actor-ID: Terry`。详细后端说明见 [backend/README.md](backend/README.md)。
+</details>
 
-## 开发验证
+## 体验主路径
 
-安装完前后端依赖后，从仓库根目录执行：
+```mermaid
+flowchart TD
+    A["配置 Agent / 模型 / 渠道"] --> B["连接测试与沙箱自测"]
+    B --> C["创建履约活动"]
+    C --> D["处理保护与异常"]
+    D --> E["复核方案 / 回执 / 账簿"]
+```
+
+1. 在“AI 与渠道”完成配置、连接测试、自测和管理员启用。
+2. 创建履约活动，查看案件范围、预算、策略和渠道预检。
+3. 在 Agent 运行中核对判断依据、工具轨迹和暂停/恢复提案。
+4. 在异常中心提交证据，由不同管理员复核；批准后仅进入“待重新评估”。
+5. 在履约计划和回款页验证签约、分期、回执验签、对账、退款与计佣。
+
+## 运行模式
+
+| 模式 | 权威数据 | 身份 | 外部动作 | 适用场景 |
+|---|---|---|---|---|
+| 前端离线演示 | 浏览器脱敏样本 | 演示身份 | 不执行 | UI 评审 |
+| Docker 开发 | PostgreSQL + AMC 虚构样本 | 开发身份 | 默认关闭 | 开发与联调 |
+| Sites 演示 | 浏览器脱敏样本 | 站点访问控制 | `/api/*` 返回 503 | 静态展示 |
+| ECS/1Panel | PostgreSQL，不导入样本 | 企业 OIDC | 逐项启用 | 测试与生产 |
+
+认证失败、权限不足或已连通 API 报错时，浏览器不会静默转为可写演示。
+
+## ECS / 1Panel 门槛
+
+| 档位 | vCPU | 内存 | 磁盘 | 结论 |
+|---|---:|---:|---:|---|
+| 当前目标机 | 2 | 2 GB | 40 GB | 不部署完整四容器 |
+| 最低验收 | 2 | 4 GB + 2 GB Swap | 60 GB SSD | 低流量测试 |
+| 推荐 | 4 | 8 GB | 100 GB SSD | 稳定测试与早期试运行 |
+
+```bash
+./scripts/ecs-capacity-check.sh /opt/1panel
+```
+
+生产模板见 [ECS + 1Panel 部署说明](deploy/1panel/README.md)。它默认使用企业 OIDC、版本化迁移、非 root 容器、私有 API/PostgreSQL，并关闭演示种子和真实 Provider。
+
+## 工程验证
 
 ```bash
 npm run verify
 ```
 
-该命令依次执行 Ruff 代码检查与格式检查、后端 Pytest、前端领域/API/部署/Sites 契约测试，以及 Vite 生产构建。没有 PostgreSQL 时，本地 PostgreSQL 增量迁移专项会跳过；GitHub Actions 使用 PostgreSQL 17 执行完整迁移链。
+该命令依次执行 Ruff、Pytest、前端领域/API/品牌、文档链接、部署/Sites 契约测试和生产构建。GitHub Actions 另用 PostgreSQL 17 验证完整迁移链。
 
-## 产品体验主路径
+常用操作：
 
-1. 在“AI 与渠道”查看 Agent、模型、语音和电话的配置、连接测试、自测与启用门禁。
-2. 创建清收活动，观察服务端对授权、策略、案件范围、预算和渠道状态的预检。
-3. 在 Agent 运行详情查看判断依据、受控工具、等待条件和暂停/恢复提案。
-4. 在异常中心处理保护事件；运营提交证据，由不同管理员复核，批准后只进入“待重新评估”。
-5. 在履约计划提交外部协议引用与摘要，由独立管理员批准，再用验签回款驱动期次分摊。
-6. 在回款与佣金页验证回执验签、幂等、异常对账、退款冲销、计佣、结算与实收证据链。
-7. 使用全局履衡 AI 查询运营和钱指标；任何高影响动作只生成提案，不直接改账或触达。
+| 目标 | 命令 |
+|---|---|
+| 查看日志 | `docker compose logs -f api worker web` |
+| 停止并保留数据 | `docker compose down` |
+| 重启 | `docker compose up -d` |
+| 导出单文件演示 | `python3 scripts/export-standalone.py` |
 
-完整范围、角色权限、状态机和验收口径见 [产品功能规格](docs/product-functional-spec.md)。
+## 文档地图
 
-## 生产部署前必读
-
-ECS/1Panel 使用 [deploy/1panel/docker-compose.yml](deploy/1panel/docker-compose.yml)，但不要直接复制本地开发 Compose 到公网。生产模板默认：
-
-- `APP_ENV=production`；
-- PostgreSQL 版本化迁移，关闭 ORM 自动建表；
-- 关闭演示种子、开发头身份和开发令牌；
-- 强制企业 OIDC、明确 HTTPS CORS 来源和独立 Runtime 密钥；
-- API、Worker 以 UID `10001` 非 root 运行；
-- PostgreSQL/API 不映射公网端口，Web 只绑定 `127.0.0.1` 供 1Panel 反向代理。
-
-部署后用幂等命令创建第一个租户管理员，`--user-id` 必须与 IdP 的 `sub` 完全一致：
-
-```bash
-docker compose --env-file deploy/1panel/.env \
-  -f deploy/1panel/docker-compose.yml exec api \
-  python -m app.provision_cli \
-  --tenant-id CUSTOMER_001 \
-  --tenant-name '客户一' \
-  --user-id 'OIDC_SUBJECT' \
-  --email 'owner@example.com' \
-  --display-name '首位管理员'
+```mermaid
+flowchart TB
+    Start["README · 开机与入口"] --> Product["产品功能规格"]
+    Start --> Architecture["系统架构"]
+    Start --> Delivery["配置 / 运维 / 安全"]
+    Product --> Release["版本与验收"]
+    Architecture --> Release
 ```
 
-当前目标 ECS 截图显示 `2 vCPU / 2 GiB / 40 GiB`，低于本栈最低门槛，不应部署完整四容器。最低验收建议 `2 vCPU / 4 GB / 60 GB SSD + 2 GB Swap`，推荐 `4 vCPU / 8 GB / 100 GB SSD`。容量检查与上线步骤见 [ECS/1Panel 部署说明](deploy/1panel/README.md)和[运维手册](docs/operations-runbook.md)。
-
-## 文档导航
-
-| 文档 | 面向对象 | 内容 |
+| 文档 | 读者 | 一句话用途 |
 |---|---|---|
-| [产品功能规格](docs/product-functional-spec.md) | 产品、研发、测试、交付 | 功能边界、角色、流程、状态机和验收标准 |
-| [系统架构](docs/architecture.md) | 架构师、研发、运维 | 组件、模块、数据流、关键决策与技术债 |
-| [配置参考](docs/configuration.md) | 研发、运维 | 全部后端/前端环境变量和生产要求 |
-| [运维手册](docs/operations-runbook.md) | 运维、交付 | 启停、发布、备份、升级、故障处理 |
-| [安全策略](SECURITY.md) | 安全、研发、交付 | 信任边界、密钥、认证、漏洞报告和上线检查 |
-| [贡献指南](CONTRIBUTING.md) | 开发者 | 分支、代码风格、测试和提交标准 |
-| [变更记录](CHANGELOG.md) | 全体 | 版本级变化索引 |
-| [v0.13 发布说明](RELEASE_v0.13.0.md) | 发布与验收 | 本轮变化、验证结果和已知限制 |
+| [品牌与命名](docs/brand-guide.md) | 产品、设计、研发 | 中英文名、Logo、语气与使用规则 |
+| [产品功能规格](docs/product-functional-spec.md) | 产品、研发、测试、交付 | 能力地图、角色、流程、规则和验收 |
+| [系统架构](docs/architecture.md) | 架构、研发、运维 | 服务、数据、信任边界与技术债 |
+| [配置参考](docs/configuration.md) | 研发、运维 | 全部环境变量及生产约束 |
+| [运维手册](docs/operations-runbook.md) | 运维、交付 | 启停、发布、备份和故障处置 |
+| [安全策略](SECURITY.md) | 安全、研发 | 密钥、认证、隔离和上线检查 |
+| [贡献指南](CONTRIBUTING.md) | 开发者 | 代码风格、测试和提交标准 |
+| [v0.14 发布说明](RELEASE_v0.14.0.md) | 发布与验收 | 本轮品牌、文档与质量证据 |
 
-## 当前明确限制
+## 当前边界
 
-- 浏览器端通用 OIDC Authorization Code + PKCE 流程尚未内置；生产接入必须由具体 IdP 适配或身份代理完成，前端不会伪造开发身份。
-- 语音、电话和 Hermes Provider 仍以确定性沙箱适配器为主，不执行真实外呼或邮件。
-- 支付沙箱默认关闭，且不连接真实收单机构或银行系统。
-- DeepSeek Harness `python-sdk` 和模型 `live-provider` 均需部署开关、租户密钥、白名单、自测和管理员确认。
-- 当前单体 API 和前端应用仍需继续按领域拆分；v0.13 先收敛生产安全、格式门禁和文档体系。
+- 浏览器通用 OIDC Authorization Code + PKCE 仍需按最终企业 IdP 落地。
+- 语音、电话和 Hermes Provider 仍以确定性沙箱适配为主。
+- 支付沙箱默认关闭，不连接真实收单机构或银行。
+- 真实模型调用需部署开关、租户密钥、出网白名单、自测和管理员确认。
+- 仓库名、环境变量前缀、Webhook 头和 `fulfillops-safe` 等技术标识暂时保留，避免破坏现有集成；它们不是对外产品名。
 
-项目为私有业务代码仓库，尚未发布开源许可；未经授权不得按开源许可证分发。
+项目为私有业务代码仓库，尚未发布开源许可证。

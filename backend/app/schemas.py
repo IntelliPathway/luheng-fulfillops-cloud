@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .version import PRODUCT_NAME
+
 ServiceType = Literal["agent", "model", "voice", "phone"]
 ActivityGoal = Literal["已签协议履约", "首次联络与意愿确认", "回款自动核对"]
 
@@ -314,7 +316,7 @@ class AgentToolRequest(BaseModel):
 class AgentSessionCreate(BaseModel):
     scope_type: Literal["global", "activity", "case"] = "global"
     scope_id: str | None = Field(default=None, max_length=80)
-    title: str = Field(default="履衡 AI 会话", min_length=1, max_length=160)
+    title: str = Field(default=f"{PRODUCT_NAME} 会话", min_length=1, max_length=160)
 
 
 class AgentSessionOut(BaseModel):

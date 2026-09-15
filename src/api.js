@@ -1,3 +1,5 @@
+import {PRODUCT_NAME} from './brand.js';
+
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api/v1';
 
 export class ApiError extends Error {
@@ -179,7 +181,7 @@ export const agentApi = {
     body: JSON.stringify({
       scope_type: scope.scopeType || 'global',
       scope_id: scope.scopeId || null,
-      title: scope.title || '履衡 AI 会话',
+      title: scope.title || `${PRODUCT_NAME} 会话`,
     }),
   }),
   message: async (tenant, sessionId, content, onUpdate) => {

@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
-from .version import APP_VERSION
+from .version import APP_VERSION, PRODUCT_NAME
 
 
 def utcnow() -> datetime:
@@ -257,7 +257,7 @@ class AgentSession(Base):
     scope_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     runtime_provider: Mapped[str] = mapped_column(String(120))
     runtime_profile: Mapped[str] = mapped_column(String(120))
-    title: Mapped[str] = mapped_column(String(160), default="履衡 AI 会话")
+    title: Mapped[str] = mapped_column(String(160), default=f"{PRODUCT_NAME} 会话")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

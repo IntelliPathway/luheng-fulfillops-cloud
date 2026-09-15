@@ -14,6 +14,7 @@ from .models import (
     CaseRecord,
     ServiceConfig,
 )
+from .version import PRODUCT_NAME
 
 SUPPORTED_RUNTIMES = ["Hermes Agent", "DeepSeek Harness", "LangGraph Runtime", "自研 Agent Gateway"]
 TOOL_CATALOG = [
@@ -318,7 +319,7 @@ def build_agent_result(
     case_count = db.scalar(select(func.count(CaseRecord.id)).where(CaseRecord.tenant_id == tenant_id)) or 0
     return {
         "answer": {
-            "title": "履衡 AI 已连接服务端知识与工具层",
+            "title": f"{PRODUCT_NAME} 已连接服务端知识与工具层",
             "body": "我可以查询案件、策略、任务、运行和钱指标。所有回答保留来源；暂停或恢复等写操作只生成待确认提案。",
             "facts": [
                 {"label": "租户案件", "value": str(case_count)},

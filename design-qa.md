@@ -1,5 +1,13 @@
 # Design QA · AI 与渠道及 AI Native 工作台
 
+# v0.14.0 brand and documentation system · 2026-09-15
+
+- Replaced the generic diamond mark with an original AI neural-route/control-loop mark.
+- Updated current UI terminology to 履约智控 AI / RepayGuard AI and 履约活动.
+- Reorganized README and product specification around diagrams, matrices, state machines and acceptance gates.
+- Vite production build and local HTTP asset/title checks are authoritative for this pass.
+- The cloud browser blocked the local preview with `ERR_BLOCKED_BY_CLIENT`; no new screenshot or visual-runtime pass is claimed.
+
 ## v0.13.0 production governance and documentation · 2026-09-15
 
 - 本版没有改变主工作台的视觉方向；新增的启动阻断页只在认证失败或可达 API 配置错误时出现，明确区分企业身份、API 故障和离线演示。

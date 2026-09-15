@@ -12,7 +12,7 @@ import {money} from './model';
 const sum=(rows,key)=>Math.round(rows.reduce((total,row)=>total+(Number(row[key])||0),0)*100)/100;
 
 const agentTemplates=[
-  {id:'AGT-RUNTIME-01',name:'自主清收 Agent',icon:Brain,description:'由 Hermes、DeepSeek Harness 或 LangGraph 承载目标分解、工具编排与跨天重规划。',status:'已连接',tools:8,runs:2},
+  {id:'AGT-RUNTIME-01',name:'自主履约 Agent',icon:Brain,description:'由 Hermes、DeepSeek Harness 或 LangGraph 承载目标分解、工具编排与跨天重规划。',status:'已连接',tools:8,runs:2},
   {id:'AGT-PAY-01',name:'回款核验 Agent',icon:Database,description:'验签、去重、匹配、分期分配与佣金判断。',status:'沙箱',tools:6,runs:1},
   {id:'AGT-GUARD-01',name:'保护与异常 Agent',icon:ShieldCheck,description:'实时阻断争议、停止联系、授权异常和冲突任务。',status:'运行中',tools:5,runs:6}
 ];
@@ -33,7 +33,7 @@ export function AgentScreen(){
   const id=a.route.split('/')[1];
   if(!id)return <AgentsHome/>;
   const activity=a.visibleActivities.find(item=>item.id===id);
-  if(!activity)return <Empty title="当前工作空间中没有此活动" description="切换工作空间后，只能查看当前组织的活动。" action={<Button onClick={()=>a.navigate('activities')}>返回清收活动</Button>}/>;
+  if(!activity)return <Empty title="当前工作空间中没有此活动" description="切换工作空间后，只能查看当前组织的活动。" action={<Button onClick={()=>a.navigate('activities')}>返回履约活动</Button>}/>;
   const c=a.visibleCases.find(item=>item.case_id===(activity.caseIds.includes(selectedCase)?selectedCase:activity.caseIds[0]));
   const latestPolicy=a.getPolicy(activity.package);
   const policy=activity.policy||latestPolicy;

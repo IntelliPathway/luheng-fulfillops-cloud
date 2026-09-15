@@ -38,7 +38,7 @@ export function CreateWizard({defaultPackage,onClose}){
     if(step===1){setChecking(true);try{const result=await a.preflightActivity({...form,name:form.name.trim(),caseIds:eligible.map(c=>c.case_id),requestedMode:'auto'});if(result){setRemotePreflight(result);if(!result.eligible_case_ids.length){setError(result.blockers.join('；'));return}}}catch(reason){setError(`后端预检失败：${reason.message||'未知错误'}`);return}finally{setChecking(false)}}
     setStep(step+1);
   };
-  return <Modal title="创建清收活动" subtitle="目标进入 Agent 前，先完成案件、政策与渠道预检。" onClose={onClose} wide footer={<>
+  return <Modal title="创建履约活动" subtitle="目标进入 Agent 前，先完成案件、政策与渠道预检。" onClose={onClose} wide footer={<>
     <span className="muted small">{step+1} / 3 · {mode}</span>
     <div className="footer-actions"><Button onClick={step?()=>setStep(step-1):onClose}>{step?'上一步':'取消'}</Button>{step<2?<Button variant="primary" disabled={checking} onClick={next}>{checking?'正在预检…':'下一步'} {!checking&&<ArrowRight size={16}/>}</Button>:<Button variant="primary" icon={Lightning} disabled={!form.ack} onClick={()=>a.createActivity({...form,name:form.name.trim(),caseIds:effectiveCaseIds,requestedMode:'auto'})}>{productionReady?'创建并启动':'创建纯模拟活动'}</Button>}</div>
   </>}>
@@ -46,7 +46,7 @@ export function CreateWizard({defaultPackage,onClose}){
     {step===0&&<>
       <Field label="活动名称"><input autoComplete="off" value={form.name} maxLength={40} onChange={event=>change('name',event.target.value)}/></Field>
       <Field label="资产包"><select value={form.package} onChange={event=>change('package',event.target.value)}>{a.visiblePackages.map(p=><option value={p.package_id} key={p.package_id}>{p.package_id} · {p.title}</option>)}</select></Field>
-      <Field label="清收目标"><select value={form.goal} onChange={event=>change('goal',event.target.value)}><option>{GOALS.SIGNED_PLAN}</option><option>{GOALS.FIRST_CONTACT}</option><option>{GOALS.PAYMENT_RECONCILIATION}</option></select></Field>
+      <Field label="履约目标"><select value={form.goal} onChange={event=>change('goal',event.target.value)}><option>{GOALS.SIGNED_PLAN}</option><option>{GOALS.FIRST_CONTACT}</option><option>{GOALS.PAYMENT_RECONCILIATION}</option></select></Field>
       <div className="scope-preview"><ShieldCheck size={22}/><div><b>{eligible.length} 个案件符合执行条件</b><p>资格规则已排除保护案件、已完成案件和目标不匹配案件。</p><small>{eligible.map(c=>c.case_id).join(' · ')||'暂无可执行案件'}</small></div></div>
       <div className="exclusion-grid">{Object.entries(exclusions).map(([label,count])=><span key={label}><b>{count}</b><small>{label}</small></span>)}</div>
     </>}

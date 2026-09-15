@@ -175,7 +175,7 @@ from .security import (
     require_at_least,
     require_role,
 )
-from .version import APP_VERSION
+from .version import APP_VERSION, PRODUCT_ENGLISH_NAME, PRODUCT_NAME
 
 Context = Annotated[RequestContext, Depends(request_context)]
 
@@ -294,7 +294,7 @@ def dispatch_inline_job(background_tasks: BackgroundTasks, session_factory, job_
 def create_app(database_url: str | None = None, *, seed_demo_data: bool | None = None) -> FastAPI:
     startup = StartupSettings.from_environment(database_url, seed_demo_data=seed_demo_data)
     app = FastAPI(
-        title="履衡 AI FulfillOps API",
+        title=f"{PRODUCT_NAME} · {PRODUCT_ENGLISH_NAME} API",
         version=APP_VERSION,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",

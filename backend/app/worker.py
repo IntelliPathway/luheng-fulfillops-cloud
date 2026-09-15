@@ -24,6 +24,7 @@ from .job_queue import (
 )
 from .jobs import execute_claimed_job
 from .models import JobWorker
+from .version import PRODUCT_NAME
 
 
 def _worker_id() -> str:
@@ -114,7 +115,7 @@ def worker_is_healthy(session_factory: sessionmaker, worker_id: str) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="履衡 AI 持久作业 Worker")
+    parser = argparse.ArgumentParser(description=f"{PRODUCT_NAME} 持久作业 Worker")
     parser.add_argument("--once", action="store_true", help="最多处理一个作业后退出")
     parser.add_argument("--healthcheck", action="store_true", help="检查当前 WORKER_ID 心跳")
     args = parser.parse_args()

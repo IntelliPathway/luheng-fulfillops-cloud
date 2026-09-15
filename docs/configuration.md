@@ -1,6 +1,6 @@
 # 配置参考
 
-本文列出 `v0.13.0` 运行时和构建时配置。示例值只用于说明；真实密钥不得写入 Git、Compose 文本、前端变量或聊天记录。
+本文列出 `v0.14.0` 运行时和构建时配置。示例值只用于说明；真实密钥不得写入 Git、Compose 文本、前端变量或聊天记录。
 
 ## 1. 配置加载规则
 
@@ -148,7 +148,7 @@ ALLOW_DEV_TOKEN=false
 OIDC_ISSUER=https://idp.example.com/
 OIDC_AUDIENCE=luheng-fulfillops
 OIDC_JWKS_URL=https://idp.example.com/.well-known/jwks.json
-CORS_ORIGINS=https://fulfillops.example.com
+CORS_ORIGINS=https://repayguard.example.com
 RUNTIME_JWT_SECRET=<至少 32 字符随机值>
 SECRET_STORE_BACKEND=local-envelope
 SECRET_MASTER_KEY=<URL-safe Base64 32 字节密钥>

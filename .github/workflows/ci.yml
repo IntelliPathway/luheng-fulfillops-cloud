@@ -1,4 +1,4 @@
-name: FulfillOps CI
+name: RepayGuard AI CI
 
 on:
   push:
@@ -73,7 +73,7 @@ jobs:
           OIDC_ISSUER: https://idp.example.test/
           OIDC_AUDIENCE: luheng-fulfillops
           OIDC_JWKS_URL: https://idp.example.test/.well-known/jwks.json
-          CORS_ORIGINS: https://fulfillops.example.test
+          CORS_ORIGINS: https://repayguard.example.test
           RUNTIME_JWT_SECRET: ci-runtime-secret-long-enough-for-compose-validation
           SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
         run: docker compose -f deploy/1panel/docker-compose.yml config --quiet
