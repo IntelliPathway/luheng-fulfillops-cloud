@@ -164,6 +164,39 @@ class PolicyProposalOut(BaseModel):
     reviewed_at: datetime | None
 
 
+class TelephonyWebhookPayload(BaseModel):
+    event_id: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    call_reference: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    event_type: Literal["initiated", "ringing", "answered", "completed", "failed"]
+    occurred_at: datetime
+    case_id: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
+    activity_id: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
+    failure_code: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class TelephonyEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    provider: str
+    provider_event_id: str
+    call_reference: str
+    event_type: str
+    status: str
+    occurred_at: datetime
+    case_id: str | None
+    activity_id: str | None
+    failure_code: str | None
+    payload_digest: str
+    duplicate_count: int
+    received_at: datetime
+
+
+class TelephonyEventAcceptanceOut(BaseModel):
+    event: TelephonyEventOut
+    duplicate: bool
+
+
 class ServiceConfigUpsert(BaseModel):
     provider: str = Field(min_length=1, max_length=120)
     settings: dict[str, Any]

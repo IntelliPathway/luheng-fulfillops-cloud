@@ -214,6 +214,31 @@ class ConnectionTest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class TelephonyEvent(Base):
+    __tablename__ = "telephony_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", "provider_event_id"),
+        Index("ix_telephony_events_tenant_call", "tenant_id", "call_reference", "occurred_at"),
+        Index("ix_telephony_events_tenant_status", "tenant_id", "status", "occurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("TEL"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(120), index=True)
+    provider_event_id: Mapped[str] = mapped_column(String(120), index=True)
+    call_reference: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    case_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    activity_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    failure_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    signature_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
 class SelfTestReport(Base):
     __tablename__ = "self_test_reports"
 

@@ -177,6 +177,7 @@ from .security import (
     require_at_least,
     require_role,
 )
+from .telephony_routes import router as telephony_router
 from .version import APP_VERSION, PRODUCT_ENGLISH_NAME, PRODUCT_NAME
 
 
@@ -297,6 +298,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(asset_catalog_router)
     app.include_router(asset_import_router)
     app.include_router(policy_router)
+    app.include_router(telephony_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
