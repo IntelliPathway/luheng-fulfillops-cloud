@@ -17,7 +17,7 @@ from .models import (
     CommissionRule,
 )
 
-SCHEMA_VERSION = "asset-case-v1"
+SCHEMA_VERSION = "asset-case-v2"
 MAX_ROWS = 1000
 REQUIRED_FIELDS = {
     "package_id",
@@ -30,7 +30,14 @@ REQUIRED_FIELDS = {
     "commission_rate_bps",
     "contact_basis_ref",
 }
-OPTIONAL_FIELDS = {"case_status"}
+OPTIONAL_FIELDS = {
+    "case_status",
+    "principal_cents",
+    "interest_cents",
+    "fee_cents",
+    "first_overdue_date",
+    "last_contact_at",
+}
 ALLOWED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS
 FORBIDDEN_PII_FIELDS = {
     "address",
@@ -140,7 +147,7 @@ def _parse_csv(csv_text: str) -> tuple[list[dict], list[dict], int]:
         issues.append(_issue("MISSING_HEADER", f"缺少必填字段：{'、'.join(missing)}"))
     unknown = sorted(set(headers) - ALLOWED_FIELDS - FORBIDDEN_PII_FIELDS)
     if unknown:
-        issues.append(_issue("UNKNOWN_HEADER", f"存在未纳入 v1 契约的字段：{'、'.join(unknown)}"))
+        issues.append(_issue("UNKNOWN_HEADER", f"存在未纳入 v2 契约的字段：{'、'.join(unknown)}"))
     row_count = max(0, len(records) - 1)
     if row_count > MAX_ROWS:
         issues.append(_issue("ROW_LIMIT_EXCEEDED", f"单批最多 {MAX_ROWS} 行，当前为 {row_count} 行"))
@@ -204,6 +211,38 @@ def _parse_csv(csv_text: str) -> tuple[list[dict], list[dict], int]:
         mandate_start, start_issue = _parse_date(row["mandate_start"], "mandate_start", index)
         mandate_end, end_issue = _parse_date(row["mandate_end"], "mandate_end", index)
         row_issues.extend(problem for problem in (balance_issue, rate_issue, start_issue, end_issue) if problem)
+        components: dict[str, int | None] = {}
+        for field in ("principal_cents", "interest_cents", "fee_cents"):
+            value = row.get(field, "")
+            parsed, problem = _parse_integer(value, field, index, 0, 1_000_000_000) if value else (None, None)
+            components[field] = parsed
+            if problem:
+                row_issues.append(problem)
+        if balance is not None and all(value is not None for value in components.values()):
+            if sum(value or 0 for value in components.values()) != balance:
+                row_issues.append(
+                    _issue(
+                        "BALANCE_COMPONENT_MISMATCH",
+                        "本金、利息和费用之和必须等于债权余额",
+                        row_number=index,
+                        field="claim_balance_cents",
+                    )
+                )
+        first_overdue_date, overdue_issue = (
+            _parse_date(row.get("first_overdue_date", ""), "first_overdue_date", index)
+            if row.get("first_overdue_date")
+            else (None, None)
+        )
+        if overdue_issue:
+            row_issues.append(overdue_issue)
+        last_contact_at = None
+        if row.get("last_contact_at"):
+            try:
+                last_contact_at = datetime.fromisoformat(row["last_contact_at"].replace("Z", "+00:00"))
+            except ValueError:
+                row_issues.append(
+                    _issue("INVALID_DATETIME", "必须使用 ISO 8601 时间", row_number=index, field="last_contact_at")
+                )
         if mandate_start and mandate_end:
             if mandate_end < mandate_start:
                 row_issues.append(
@@ -273,6 +312,9 @@ def _parse_csv(csv_text: str) -> tuple[list[dict], list[dict], int]:
                 "commission_rule_id": row["commission_rule_id"],
                 "commission_rate_bps": rate,
                 "contact_basis_ref": reference,
+                **components,
+                "first_overdue_date": first_overdue_date.isoformat() if first_overdue_date else None,
+                "last_contact_at": last_contact_at.isoformat() if last_contact_at else None,
             }
         )
     return normalized_rows, issues, row_count
@@ -524,6 +566,7 @@ def commit_import_batch(
                 )
             )
             created_packages.add(row["package_id"])
+            db.flush()
 
         rule_versions = existing_rules.get(row["commission_rule_id"], [])
         rule = _find_matching_active_rule(rule_versions, row)
@@ -557,12 +600,22 @@ def commit_import_batch(
                 source_import_batch_id=batch.id,
             )
         )
+        db.flush()
         db.add(
             CaseFinancialProfile(
                 tenant_id=tenant_id,
                 case_id=row["case_id"],
                 commission_rule_id=row["commission_rule_id"],
                 claim_balance_cents=row["claim_balance_cents"],
+                principal_cents=row.get("principal_cents"),
+                interest_cents=row.get("interest_cents"),
+                fee_cents=row.get("fee_cents"),
+                first_overdue_date=(
+                    date.fromisoformat(row["first_overdue_date"]) if row.get("first_overdue_date") else None
+                ),
+                last_contact_at=(
+                    datetime.fromisoformat(row["last_contact_at"]) if row.get("last_contact_at") else None
+                ),
                 mandate_start=date.fromisoformat(row["mandate_start"]),
                 mandate_end=date.fromisoformat(row["mandate_end"]),
                 signed_plan_at=None,

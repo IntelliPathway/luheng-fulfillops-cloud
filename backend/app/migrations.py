@@ -77,6 +77,11 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
         },
         "case_financial_profiles": {
             "claim_balance_cents": "integer NOT NULL DEFAULT 1",
+            "principal_cents": "integer",
+            "interest_cents": "integer",
+            "fee_cents": "integer",
+            "first_overdue_date": "date",
+            "last_contact_at": "timestamp",
         },
     }
     applied: list[str] = []

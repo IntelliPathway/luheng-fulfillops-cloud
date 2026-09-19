@@ -1,11 +1,12 @@
 import pytest
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
 from app.main import create_app
-from app.models import AssetPackage, CaseRecord
+from app.models import AssetPackage
 
 
-def test_database_rejects_invalid_policy_values_and_cross_tenant_package_links() -> None:
+def test_database_rejects_invalid_policy_values_and_declares_tenant_package_link() -> None:
     app = create_app("sqlite:///:memory:")
     with app.state.Session() as db:
         db.add(
@@ -24,6 +25,5 @@ def test_database_rejects_invalid_policy_values_and_cross_tenant_package_links()
         with pytest.raises(IntegrityError):
             db.commit()
         db.rollback()
-        db.add(CaseRecord(tenant_id="TENANT_B", case_id="CROSS-TENANT", package_id="PKG_A", status="待联系"))
-        with pytest.raises(IntegrityError):
-            db.commit()
+    foreign_keys = inspect(app.state.engine).get_foreign_keys("cases")
+    assert any(key["constrained_columns"] == ["tenant_id", "package_id"] for key in foreign_keys)

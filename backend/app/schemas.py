@@ -52,6 +52,11 @@ class CaseCatalogItemOut(BaseModel):
     has_signed_plan: bool
     data_completeness_score: int
     claim_balance_cents: int | None
+    principal_cents: int | None
+    interest_cents: int | None
+    fee_cents: int | None
+    first_overdue_date: date | None
+    last_contact_at: datetime | None
     mandate_start: date | None
     mandate_end: date | None
     commission_rule_id: str | None

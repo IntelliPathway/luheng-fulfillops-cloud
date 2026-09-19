@@ -118,6 +118,39 @@ def test_preview_and_independent_commit_are_atomic_and_audited(client: TestClien
         assert stored_batch and csv_text() not in str(stored_batch.normalized_rows)
 
 
+def test_v2_financial_details_are_validated_persisted_and_exposed(client: TestClient) -> None:
+    body = "\n".join(
+        [
+            f"{CSV_HEADER},principal_cents,interest_cents,fee_cents,first_overdue_date,last_contact_at",
+            "PKG_V2,V2资产包,C-V2-001,1200000,2026-09-01,2027-08-31,COM_V2_V1,1500,CONSENT-C-V2-001,待联系,1000000,150000,50000,2026-06-15,2026-09-18T08:30:00Z",
+        ]
+    )
+    created = preview(client, body=body, key="asset-import-v2-details", actor="test-user")
+    assert created.status_code == 201, created.text
+    batch = created.json()
+    assert batch["schema_version"] == "asset-case-v2"
+    assert batch["status"] == "ready"
+
+    committed = client.post(
+        f"/api/v1/asset-imports/{batch['id']}/commit",
+        headers=headers("Terry"),
+        json={"expected_version": 1, "review_note": "已复核金额拆分和关键日期", "acknowledged": True},
+    )
+    assert committed.status_code == 200, committed.text
+
+    detail = client.get("/api/v1/cases/C-V2-001", headers=headers("test-viewer")).json()
+    assert detail["principal_cents"] == 1_000_000
+    assert detail["interest_cents"] == 150_000
+    assert detail["fee_cents"] == 50_000
+    assert detail["first_overdue_date"] == "2026-06-15"
+    assert detail["last_contact_at"] == "2026-09-18T08:30:00"
+
+    invalid = body.replace("1000000,150000,50000", "1000000,150000,50001").replace("C-V2-001", "C-V2-002")
+    blocked = preview(client, body=invalid, key="asset-import-v2-bad-components").json()
+    assert blocked["status"] == "blocked"
+    assert {issue["code"] for issue in blocked["issues"]} >= {"BALANCE_COMPONENT_MISMATCH"}
+
+
 def test_preview_rejects_pii_headers_and_does_not_commit(client: TestClient) -> None:
     body = f"{CSV_HEADER},phone\nPKG_NEW,测试资产包,C902,1200000,2026-09-01,2027-08-31,COM_NEW_V1,1500,CONSENT-C902,待联系,13800000000"
     response = preview(client, body=body, key="asset-import-pii-001")

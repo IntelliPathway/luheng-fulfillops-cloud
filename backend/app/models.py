@@ -146,7 +146,7 @@ class AssetImportBatch(Base):
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
     source_filename: Mapped[str] = mapped_column(String(160), nullable=False)
     source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    schema_version: Mapped[str] = mapped_column(String(24), default="asset-case-v1", nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(24), default="asset-case-v2", nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="ready", index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -496,6 +496,9 @@ class CaseFinancialProfile(Base):
         UniqueConstraint("tenant_id", "case_id"),
         ForeignKeyConstraint(["tenant_id", "case_id"], ["cases.tenant_id", "cases.case_id"]),
         CheckConstraint("claim_balance_cents > 0", name="ck_case_financial_profiles_claim_positive"),
+        CheckConstraint("principal_cents IS NULL OR principal_cents >= 0", name="ck_case_financial_profiles_principal"),
+        CheckConstraint("interest_cents IS NULL OR interest_cents >= 0", name="ck_case_financial_profiles_interest"),
+        CheckConstraint("fee_cents IS NULL OR fee_cents >= 0", name="ck_case_financial_profiles_fee"),
         CheckConstraint("mandate_start <= mandate_end", name="ck_case_financial_profiles_mandate_dates"),
     )
 
@@ -504,6 +507,11 @@ class CaseFinancialProfile(Base):
     case_id: Mapped[str] = mapped_column(String(40), index=True)
     commission_rule_id: Mapped[str] = mapped_column(String(80), index=True)
     claim_balance_cents: Mapped[int] = mapped_column(Integer, default=1)
+    principal_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    interest_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fee_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    first_overdue_date: Mapped[date | None] = mapped_column(nullable=True)
+    last_contact_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     mandate_start: Mapped[date] = mapped_column(nullable=False)
     mandate_end: Mapped[date] = mapped_column(nullable=False)
     signed_plan_at: Mapped[date | None] = mapped_column(nullable=True)
