@@ -88,6 +88,7 @@ from .models import (
     User,
 )
 from .observability import Telemetry, observe_request
+from .pilot_routes import router as pilot_router
 from .policy_routes import router as policy_router
 from .protection_workflow import (
     ProtectionWorkflowError,
@@ -299,6 +300,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(asset_import_router)
     app.include_router(policy_router)
     app.include_router(telephony_router)
+    app.include_router(pilot_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
