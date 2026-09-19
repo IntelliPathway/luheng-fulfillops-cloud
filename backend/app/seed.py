@@ -423,6 +423,7 @@ def _seed_financial_data(db: Session) -> None:
                 contact_basis_ref=f"DEMO-CONSENT-{case_id}",
             )
             db.add(case)
+            db.flush()
         elif not case.contact_basis_ref:
             case.contact_basis_ref = f"DEMO-CONSENT-{case_id}"
         profile = db.scalar(
@@ -855,6 +856,7 @@ def seed_demo_data(db: Session) -> None:
             ),
         ]
     )
+    db.flush()
     db.add_all(
         [
             CaseRecord(tenant_id="TENANT_A", case_id="C001", package_id="PKG_A", status="已结清", has_signed_plan=True),
@@ -877,6 +879,9 @@ def seed_demo_data(db: Session) -> None:
             CaseRecord(tenant_id="TENANT_B", case_id="C024", package_id="PKG_C", status="待联系"),
         ]
     )
+    # Composite tenant foreign keys require packages and cases to be durable before
+    # dependent activity, commission and financial rows are flushed.
+    db.flush()
 
     configs = [
         ServiceConfig(

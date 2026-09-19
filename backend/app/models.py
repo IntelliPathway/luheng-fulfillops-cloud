@@ -7,9 +7,11 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -62,7 +64,14 @@ class TenantMembership(Base):
 
 class AssetPackage(Base):
     __tablename__ = "asset_packages"
-    __table_args__ = (UniqueConstraint("tenant_id", "package_id"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "package_id"),
+        CheckConstraint("policy_status IN ('draft','published')", name="ck_asset_packages_policy_status"),
+        CheckConstraint("budget_limit_yuan > 0", name="ck_asset_packages_budget_positive"),
+        CheckConstraint("min_settlement_bps BETWEEN 1000 AND 10000", name="ck_asset_packages_settlement_bps"),
+        CheckConstraint("max_installments BETWEEN 1 AND 60", name="ck_asset_packages_installments"),
+        CheckConstraint("min_down_payment_bps BETWEEN 0 AND 10000", name="ck_asset_packages_down_payment_bps"),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("PK"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -83,6 +92,8 @@ class PolicyProposal(Base):
     __table_args__ = (
         Index("ix_policy_proposals_tenant_package", "tenant_id", "package_id", "created_at"),
         Index("ix_policy_proposals_tenant_status", "tenant_id", "status", "created_at"),
+        ForeignKeyConstraint(["tenant_id", "package_id"], ["asset_packages.tenant_id", "asset_packages.package_id"]),
+        CheckConstraint("status IN ('pending_review','approved','rejected')", name="ck_policy_proposals_status"),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("POL"))
@@ -104,7 +115,10 @@ class PolicyProposal(Base):
 
 class CaseRecord(Base):
     __tablename__ = "cases"
-    __table_args__ = (UniqueConstraint("tenant_id", "case_id"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "case_id"),
+        ForeignKeyConstraint(["tenant_id", "package_id"], ["asset_packages.tenant_id", "asset_packages.package_id"]),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CASE"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -220,6 +234,8 @@ class TelephonyEvent(Base):
         UniqueConstraint("tenant_id", "provider", "provider_event_id"),
         Index("ix_telephony_events_tenant_call", "tenant_id", "call_reference", "occurred_at"),
         Index("ix_telephony_events_tenant_status", "tenant_id", "status", "occurred_at"),
+        CheckConstraint("event_type IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_event_type"),
+        CheckConstraint("status IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_status"),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("TEL"))
@@ -253,7 +269,10 @@ class SelfTestReport(Base):
 
 class Activity(Base):
     __tablename__ = "activities"
-    __table_args__ = (UniqueConstraint("tenant_id", "activity_id"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "activity_id"),
+        ForeignKeyConstraint(["tenant_id", "package_id"], ["asset_packages.tenant_id", "asset_packages.package_id"]),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ACTROW"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -455,7 +474,11 @@ class BusinessMetricSnapshot(Base):
 
 class CommissionRule(Base):
     __tablename__ = "commission_rules"
-    __table_args__ = (UniqueConstraint("tenant_id", "rule_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "rule_id", "version"),
+        ForeignKeyConstraint(["tenant_id", "package_id"], ["asset_packages.tenant_id", "asset_packages.package_id"]),
+        CheckConstraint("rate_bps BETWEEN 0 AND 10000", name="ck_commission_rules_rate_bps"),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CRULE"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -469,7 +492,12 @@ class CommissionRule(Base):
 
 class CaseFinancialProfile(Base):
     __tablename__ = "case_financial_profiles"
-    __table_args__ = (UniqueConstraint("tenant_id", "case_id"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "case_id"),
+        ForeignKeyConstraint(["tenant_id", "case_id"], ["cases.tenant_id", "cases.case_id"]),
+        CheckConstraint("claim_balance_cents > 0", name="ck_case_financial_profiles_claim_positive"),
+        CheckConstraint("mandate_start <= mandate_end", name="ck_case_financial_profiles_mandate_dates"),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CFP"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
