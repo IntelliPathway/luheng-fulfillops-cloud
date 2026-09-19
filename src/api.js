@@ -1,4 +1,5 @@
 import {PRODUCT_NAME} from './brand.js';
+import {ensureFreshAccessToken} from './oidc-client.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api/v1';
 
@@ -14,13 +15,8 @@ const devHeaderAuthEnabled = () => (
   import.meta.env?.DEV === true || import.meta.env?.VITE_ENABLE_DEV_AUTH === 'true'
 );
 
-const authToken = () => {
-  try { return typeof localStorage === 'undefined' ? '' : localStorage.getItem('luheng.auth.token') || ''; }
-  catch { return ''; }
-};
-
-const headers = tenant => {
-  const token = authToken();
+const headers = async tenant => {
+  const token = await ensureFreshAccessToken();
   return {
     'Content-Type': 'application/json',
     'X-Tenant-ID': tenant,
@@ -31,7 +27,7 @@ const headers = tenant => {
 async function request(path, tenant, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {...headers(tenant), ...(options.headers || {})},
+    headers: {...await headers(tenant), ...(options.headers || {})},
   });
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
@@ -278,6 +274,26 @@ export const assetImportApi = {
   commit: (tenant, batchId, expectedVersion, reviewNote) => request(`/asset-imports/${batchId}/commit`, tenant, {
     method: 'POST',
     body: JSON.stringify({expected_version: expectedVersion, review_note: reviewNote, acknowledged: true}),
+  }),
+};
+
+export const policyApi = {
+  list: (tenant, packageId) => request(`/policy-proposals${queryString({package_id: packageId})}`, tenant),
+  propose: (tenant, packageId, policy, reason) => request(`/policy-proposals/packages/${packageId}`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({
+      expected_policy_version: policy.version,
+      budget_limit_yuan: Number(policy.budget),
+      min_settlement_bps: Math.round(Number(policy.minSettlement) * 100),
+      max_installments: Number(policy.maxInstallments),
+      min_down_payment_bps: Math.round(Number(policy.minDownPayment) * 100),
+      proposal_reason: reason,
+      acknowledged: true,
+    }),
+  }),
+  decide: (tenant, proposalId, decision, reviewNote, expectedVersion) => request(`/policy-proposals/${proposalId}/decision`, tenant, {
+    method: 'POST',
+    body: JSON.stringify({decision, expected_version: expectedVersion, review_note: reviewNote, acknowledged: true}),
   }),
 };
 

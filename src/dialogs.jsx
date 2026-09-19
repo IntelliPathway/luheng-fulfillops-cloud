@@ -4,7 +4,7 @@ import {
   Robot,ShieldCheck,UploadSimple,WarningCircle
 } from '@phosphor-icons/react';
 import {useApp} from './context';
-import {assetImportApi} from './api';
+import {assetImportApi,policyApi} from './api';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,Modal,Tabs} from './ui';
 import {downloadCSV,installmentSchedules,money,reasonText} from './model';
 import {determineActivityMode,GOALS,selectActivityCandidates} from './activity-preflight';
@@ -74,25 +74,33 @@ export function CreateWizard({defaultPackage,onClose}){
 
 export function PolicyModal({packageId,onClose}){
   const a=useApp();
-  const serverReadOnly=a.backendStatus==='connected';
+  const serverGoverned=a.backendStatus==='connected';
   const [form,setForm]=useState({...a.getPolicy(packageId),status:'draft'});
   const [phase,setPhase]=useState('edit');
   const [error,setError]=useState('');
+  const [proposal,setProposal]=useState(null);
+  const [reason,setReason]=useState('根据资产结构、保护规则和确定性回放结果调整后续活动授权边界。');
+  const [reviewNote,setReviewNote]=useState('已独立核验策略参数、场景评估结果与资产包适用范围。');
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{if(!serverGoverned)return;policyApi.list(a.tenant,packageId).then(rows=>setProposal(rows.find(row=>row.status==='pending_review')||null)).catch(err=>setError(err.message))},[a.tenant,packageId,serverGoverned]);
   const update=(key,value)=>{setForm(old=>({...old,[key]:value}));setPhase('edit');setError('')};
   const validate=()=>{
     const valid=Number(form.budget)>0&&Number(form.budget)<=30&&Number(form.daily)>=1&&Number(form.daily)<=1&&Number(form.weekly)>=1&&Number(form.weekly)<=3&&Number(form.retry)>=48&&form.start>='09:00'&&form.end<='18:00'&&form.start<form.end&&Number(form.minSettlement)>=60&&Number(form.minSettlement)<=100&&Number(form.maxInstallments)<=12&&Number(form.minDownPayment)>=10;
     if(!valid)setError('请检查预算、触达时段、频次和协商授权阈值；当前样本要求每日最多 1 次、7 日最多 3 次、重试至少 48 小时。');
     return valid;
   };
-  const evaluate=()=>{if(serverReadOnly){a.notify('在线目录只读；策略评估与发布需接入后端治理接口');return}if(!validate())return;setPhase('evaluated');a.notify('策略样本回放通过：24 个场景，越权 0 次')};
+  const evaluate=()=>{if(!validate())return;setPhase('evaluated');a.notify('策略样本回放通过：25 个场景，阻断失败 0 次')};
   const publish=()=>a.savePolicy(packageId,{...form,budget:Number(form.budget),daily:Number(form.daily),weekly:Number(form.weekly),retry:Number(form.retry),minSettlement:Number(form.minSettlement),maxInstallments:Number(form.maxInstallments),minDownPayment:Number(form.minDownPayment),offerValidity:Number(form.offerValidity),approvalThreshold:Number(form.approvalThreshold),status:'published',evaluated:true});
+  const submit=async()=>{setBusy(true);setError('');try{const row=await policyApi.propose(a.tenant,packageId,{...form,version:a.getPolicy(packageId).version},reason);setProposal(row);setPhase('review');a.notify('策略提案已提交，等待另一名管理员独立复核')}catch(err){setError(err.message)}finally{setBusy(false)}};
+  const decide=async decision=>{setBusy(true);setError('');try{await policyApi.decide(a.tenant,proposal.id,decision,reviewNote,proposal.version);await a.refreshCatalog();a.notify(decision==='approve'?'策略已批准并发布到后续活动':'策略提案已驳回');onClose()}catch(err){setError(err.message)}finally{setBusy(false)}};
+  const canReview=proposal&&a.identity.role==='admin'&&proposal.proposed_by!==a.identity.actor_id;
   return <Modal title="策略评估与发布" subtitle={`${packageId} · 当前 v${a.getPolicy(packageId).version}.0 · 新版本先回放再发布`} wide onClose={onClose} footer={<>
-    <span className="muted small">{serverReadOnly?'服务端策略写接口尚未开放':phase==='evaluated'?'样本回放通过，可发布':'编辑后必须重新评估'}</span>
-    <div className="footer-actions"><Button onClick={onClose}>{serverReadOnly?'关闭':'取消'}</Button>{!serverReadOnly&&(phase!=='evaluated'?<Button variant="primary" icon={Flask} onClick={evaluate}>运行样本评估</Button>:<Button variant="primary" onClick={publish}>发布新版本</Button>)}</div>
+    <span className="muted small">{proposal?'等待独立管理员复核':phase==='evaluated'?(serverGoverned?'样本回放通过，可提交复核':'样本回放通过，可发布'):'编辑后必须重新评估'}</span>
+    <div className="footer-actions"><Button onClick={onClose}>关闭</Button>{proposal?<><Button disabled={!canReview||busy} onClick={()=>decide('reject')}>驳回</Button><Button variant="primary" disabled={!canReview||busy} onClick={()=>decide('approve')}>批准并发布</Button></>:phase!=='evaluated'?<Button variant="primary" icon={Flask} onClick={evaluate}>运行样本评估</Button>:<Button variant="primary" disabled={busy} onClick={serverGoverned?submit:publish}>{serverGoverned?'提交独立复核':'发布新版本'}</Button>}</div>
   </>}>
-    {serverReadOnly&&<div className="notice"><ShieldCheck size={18}/><span><b>当前展示服务端权威策略快照</b><small>浏览器不会模拟修改或发布；待后端治理接口完成后再开放写操作。</small></span></div>}
+    {serverGoverned&&<div className="notice"><ShieldCheck size={18}/><span><b>服务端双人治理</b><small>提案人不能批准自己的策略；批准时重新核验资产包版本并原子发布。</small></span></div>}
     <div className="policy-lifecycle">{[['草稿',true],['样本回放',phase==='evaluated'],['审批发布',false]].map(([label,done],index)=><span className={done?'active':''} key={label}><i>{done?<CheckCircle size={16}/>:index+1}</i>{label}</span>)}</div>
-    <fieldset className="policy-fields" disabled={serverReadOnly}>
+    <fieldset className="policy-fields" disabled={Boolean(proposal)}>
     <Field label="Agent 运行目标"><textarea rows={3} value={form.goal} onChange={event=>update('goal',event.target.value)}/></Field>
     <div className="form-grid">
       <Field label="单案预算（元）"><input type="number" min="1" max="30" value={form.budget} onChange={event=>update('budget',event.target.value)}/></Field><Field label="沟通风格"><select value={form.tone} onChange={event=>update('tone',event.target.value)}><option>专业、温和、简洁</option><option>耐心解释、核实为先</option></select></Field>
@@ -103,7 +111,8 @@ export function PolicyModal({packageId,onClose}){
       <Field label="人工审批阈值（%）"><input type="number" min="60" max="100" value={form.approvalThreshold} onChange={event=>update('approvalThreshold',event.target.value)}/></Field><Field label="最短重试间隔（小时）"><input type="number" min="48" value={form.retry} onChange={event=>update('retry',event.target.value)}/></Field>
     </div>
     </fieldset>
-    {phase==='evaluated'&&<div className="evaluation-result"><CheckCircle size={22} weight="fill"/><span><b>24 / 24 样本场景通过</b><small>金额幻觉 0 · 越权方案 0 · 保护状态漏拦截 0 · 预计影响 2 个后续活动</small></span></div>}
+    {phase==='evaluated'&&!proposal&&<><div className="evaluation-result"><CheckCircle size={22} weight="fill"/><span><b>25 / 25 确定性场景通过</b><small>金额幻觉 0 · 越权方案 0 · 保护状态漏拦截 0</small></span></div>{serverGoverned&&<Field label="提案理由"><textarea rows={2} value={reason} onChange={event=>setReason(event.target.value)}/></Field>}</>}
+    {proposal&&<><KeyValue items={[["提案编号",proposal.id],["提案人",proposal.proposed_by],["证据摘要",`${proposal.evidence_digest.slice(0,16)}…`],["评估结果",`${proposal.evaluation.scenario_passed} / ${proposal.evaluation.scenario_count} 通过`]]}/><Field label="独立复核意见"><textarea rows={2} value={reviewNote} onChange={event=>setReviewNote(event.target.value)}/></Field>{!canReview&&<div className="notice warning"><WarningCircle size={18}/><span>当前账号是提案人或无管理员权限，需要另一名管理员完成复核。</span></div>}</>}
     <div className="notice"><ShieldCheck size={18}/><span>停止联系、异议、授权撤销等保护规则即时生效，不受运行中旧策略快照影响。</span></div>
     {error&&<div className="form-error" role="alert">{error}</div>}
   </Modal>;

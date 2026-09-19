@@ -130,6 +130,40 @@ class AssetImportBatchOut(BaseModel):
     idempotent_replay: bool = False
 
 
+class PolicyProposalCreateRequest(BaseModel):
+    expected_policy_version: int = Field(ge=1)
+    budget_limit_yuan: float = Field(gt=0, le=100000)
+    min_settlement_bps: int = Field(ge=1000, le=10000)
+    max_installments: int = Field(ge=1, le=60)
+    min_down_payment_bps: int = Field(ge=0, le=10000)
+    proposal_reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class PolicyProposalDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    expected_version: int = Field(ge=1)
+    review_note: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class PolicyProposalOut(BaseModel):
+    id: str
+    package_id: str
+    status: Literal["pending_review", "approved", "rejected"]
+    version: int
+    expected_policy_version: int
+    proposed_policy: dict[str, Any]
+    evaluation: dict[str, Any]
+    evidence_digest: str
+    proposed_by: str
+    proposal_reason: str
+    reviewed_by: str | None
+    review_note: str | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
 class ServiceConfigUpsert(BaseModel):
     provider: str = Field(min_length=1, max_length=120)
     settings: dict[str, Any]

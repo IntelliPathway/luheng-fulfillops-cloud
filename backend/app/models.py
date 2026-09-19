@@ -78,6 +78,30 @@ class AssetPackage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class PolicyProposal(Base):
+    __tablename__ = "policy_proposals"
+    __table_args__ = (
+        Index("ix_policy_proposals_tenant_package", "tenant_id", "package_id", "created_at"),
+        Index("ix_policy_proposals_tenant_status", "tenant_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("POL"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    package_id: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    expected_policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposed_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    evaluation: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    proposal_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaseRecord(Base):
     __tablename__ = "cases"
     __table_args__ = (UniqueConstraint("tenant_id", "case_id"),)

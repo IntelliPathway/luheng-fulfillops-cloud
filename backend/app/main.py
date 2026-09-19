@@ -87,6 +87,7 @@ from .models import (
     ServiceConfig,
     User,
 )
+from .policy_routes import router as policy_router
 from .protection_workflow import (
     ProtectionWorkflowError,
     decide_protection_resolution,
@@ -292,6 +293,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
     app.include_router(asset_catalog_router)
     app.include_router(asset_import_router)
+    app.include_router(policy_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
