@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "verify": "bash scripts/verify.sh",
     "test": "npm run test:domain && npm run test:documentation && npm run test:deployment && npm run build && npm run test:sites",
-    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs tests/repayment-state.test.mjs tests/brand-contract.test.mjs",
+    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs tests/repayment-state.test.mjs tests/brand-contract.test.mjs tests/oidc-contract.test.mjs",
     "test:documentation": "node --test tests/documentation-contract.test.mjs",
     "test:deployment": "node --test tests/deployment-contract.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs"
