@@ -1,6 +1,6 @@
 # 履约智控 AI · RepayGuard AI 业务 API
 
-`v0.16.0` 后端基线，提供数据库成员权限、企业 OIDC/JWKS、带租约的持久异步作业、独立 Worker、PostgreSQL 通知 Broker、AES-256-GCM 本地信封与 AWS Secrets Manager 可选后端、统一 Agent Gateway、DeepSeek Harness SDK/MCP 安全桥、受控模型 Gateway、资产与案件 CSV 预演导入、服务端权威资产目录、验签支付回执、不可变回款/佣金账簿、Maker–Checker 回执对账、证据约束的保护事件处置，以及服务端签约与分期履约台账。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
+`v1.0.0` 后端基线提供数据库成员权限、企业 OIDC/JWKS、持久异步作业、独立 Worker、受控 Agent/模型 Gateway、策略 Maker–Checker、资产导入与权威目录、电话和支付验签事件、不可变财务账簿、保护事件、分期履约、请求观测和试点评分卡。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
 
 ## 本地运行
 
@@ -42,7 +42,7 @@ Compose 默认使用 `external`：API 只入队，`worker` 服务消费 `default
 - `GET /api/v1/asset-imports`：读取当前工作空间最近批次及问题摘要。
 - `POST /api/v1/asset-imports/{id}/commit`：由不同账号的管理员确认并原子落库。
 
-导入契约只接受资产包编号/名称、案件编号、整数分债权余额、委托期限、佣金规则、联系依据引用和安全初始状态。姓名、手机号、证件号、地址、邮箱及未声明字段会阻断整批预演。数据库只保存原文件 SHA-256、标准化非敏感行和问题报告，不保存原始 CSV。已有案件被跳过且不覆盖；提交时若预演已陈旧，则整批失败关闭。新资产包默认使用草稿策略，不能直接进入生产触达。
+导入契约 `asset-case-v2` 接受资产包、案件、整数分债权余额、可选债务拆分、委托期限、逾期/联系时间、佣金规则、联系依据引用和安全初始状态。姓名、手机号、证件号、地址、邮箱及未声明字段会阻断整批预演。数据库只保存原文件 SHA-256、标准化非敏感行和问题报告，不保存原始 CSV。已有案件被跳过且不覆盖；提交时若预演已陈旧，则整批失败关闭。新资产包默认使用草稿策略，不能直接进入生产触达。
 
 ## 服务端权威资产目录
 
@@ -145,4 +145,4 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh`、`./scripts/smoke-v15-asset-import.sh` 和 `./scripts/smoke-v16-asset-catalog.sh`。v0.16 冒烟覆盖服务端分页、保护视图、钱指标聚合、跨租户 404，以及新导入案件立即进入权威目录。
 
-当前共收集 108 项后端测试：本地 107 项通过、1 项 PostgreSQL 专项按环境跳过；GitHub Actions 注入 PostgreSQL 17 后执行完整 108 项。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前共收集 120 项后端测试：本地 119 项通过、1 项 PostgreSQL 专项按环境跳过；CI 注入 PostgreSQL 17 后执行完整测试。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

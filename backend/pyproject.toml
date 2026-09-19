@@ -1,6 +1,6 @@
 [project]
 name = "luheng-fulfillops-api"
-version = "0.16.0"
+version = "1.0.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.116.1",

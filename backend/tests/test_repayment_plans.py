@@ -108,13 +108,25 @@ def test_existing_sqlite_financial_tables_get_additive_plan_columns(tmp_path) ->
         "source_import_batch_id",
         "created_at",
         "claim_balance_cents",
+        "principal_cents",
+        "interest_cents",
+        "fee_cents",
+        "first_overdue_date",
+        "last_contact_at",
     }
     assert {column["name"] for column in inspector.get_columns("asset_packages")} >= {
         "min_settlement_bps",
         "max_installments",
         "min_down_payment_bps",
     }
-    assert "claim_balance_cents" in {column["name"] for column in inspector.get_columns("case_financial_profiles")}
+    assert {column["name"] for column in inspector.get_columns("case_financial_profiles")} >= {
+        "claim_balance_cents",
+        "principal_cents",
+        "interest_cents",
+        "fee_cents",
+        "first_overdue_date",
+        "last_contact_at",
+    }
     assert run_sqlite_compatibility_migrations(engine) == []
     engine.dispose()
 

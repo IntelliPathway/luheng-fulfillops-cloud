@@ -1,6 +1,6 @@
 # 配置参考
 
-本文列出 `v0.16.0` 运行时和构建时配置。示例值只用于说明；真实密钥不得写入 Git、Compose 文本、前端变量或聊天记录。
+本文列出 `v1.0.0` 运行时和构建时配置。示例值只用于说明；真实密钥不得写入 Git、Compose 文本、前端变量或聊天记录。
 
 ## 1. 配置加载规则
 
@@ -81,6 +81,7 @@
 | `MODEL_EGRESS_ALLOWLIST` | 空/部署指定 | 否 | 逗号分隔允许主机 |
 | `MODEL_ALLOWED_MODELS` | `deepseek-flash,deepseek-v4-pro` | 否 | 模型白名单 |
 | `MODEL_MAX_COST_USD_PER_CALL` | `0.25` | 否 | 单次调用上限 |
+| `MODEL_DAILY_COST_USD_PER_TENANT` | `1.0` | 否 | 每租户 UTC 自然日保守费用上限 |
 | `MODEL_COST_CEILING_USD_PER_M_TOKENS` | `20` | 否 | 预算预留的保守单价上限 |
 | `MODEL_ALLOW_INSECURE_HTTP` | `false` | 否 | 仅封闭测试环境可启用 |
 | `MODEL_ALLOW_PRIVATE_EGRESS` | `false` | 否 | 仅受控企业网关可启用 |
@@ -119,6 +120,12 @@
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api/v1` | 浏览器 API 根路径；生产建议同源 |
 | `VITE_ENABLE_DEV_AUTH` | `false` | 仅显式开发构建发送 `X-Actor-ID: Terry` |
+| `VITE_OIDC_AUTHORITY` | 空 | IdP authorization/token 端点根地址 |
+| `VITE_OIDC_CLIENT_ID` | 空 | 公共浏览器客户端 ID |
+| `VITE_OIDC_REDIRECT_URI` | 当前页 | 登录回调 URI |
+| `VITE_OIDC_SCOPE` | `openid profile email offline_access` | 请求的 OIDC Scope |
+| `VITE_OIDC_AUDIENCE` | 空 | 可选 API audience |
+| `VITE_OIDC_LOGOUT_URI` | 空 | 退出端点；未设置时仅清理本地会话 |
 
 Vite 自带的 `import.meta.env.DEV` 在 `npm run dev` 时也启用开发身份。生产 `npm run build` 中 `DEV=false`。
 

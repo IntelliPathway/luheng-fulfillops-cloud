@@ -234,8 +234,12 @@ class TelephonyEvent(Base):
         UniqueConstraint("tenant_id", "provider", "provider_event_id"),
         Index("ix_telephony_events_tenant_call", "tenant_id", "call_reference", "occurred_at"),
         Index("ix_telephony_events_tenant_status", "tenant_id", "status", "occurred_at"),
-        CheckConstraint("event_type IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_event_type"),
-        CheckConstraint("status IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_status"),
+        CheckConstraint(
+            "event_type IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_event_type"
+        ),
+        CheckConstraint(
+            "status IN ('initiated','ringing','answered','completed','failed')", name="ck_telephony_status"
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("TEL"))

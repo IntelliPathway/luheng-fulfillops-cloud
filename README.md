@@ -8,7 +8,7 @@
 
 | 当前版本 | 前端 | 业务服务 | 数据与任务 | 生产模板 |
 |---|---|---|---|---|
-| `v0.16.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
+| `v1.0.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
 
 > AI 负责查询、解释和生成提案；权限、策略、保护状态、双人复核与账务内核拥有最终决定权。真实外呼、支付和模型调用默认关闭。
 
@@ -168,12 +168,13 @@ flowchart TB
 | [运维手册](docs/operations-runbook.md) | 运维、交付 | 启停、发布、备份和故障处置 |
 | [安全策略](SECURITY.md) | 安全、研发 | 密钥、认证、隔离和上线检查 |
 | [贡献指南](CONTRIBUTING.md) | 开发者 | 代码风格、测试和提交标准 |
-| [v0.16 发布说明](RELEASE_v0.16.0.md) | 发布与验收 | 服务端权威资产目录 |
+| [v1.0 发布说明](RELEASE_v1.0.0.md) | 发布与验收 | 首个受控试点代码基线 |
+| [人工确认备忘录](docs/manual-confirmation-memo.md) | 交付、合规、运维 | 联调与上线前待确认事项 |
 
 ## 当前边界
 
-- 浏览器通用 OIDC Authorization Code + PKCE 仍需按最终企业 IdP 落地。
-- 语音、电话和 Hermes Provider 仍以确定性沙箱适配为主。
+- 浏览器已具备 OIDC Authorization Code + PKCE 通用流程，企业 IdP 参数与成员映射待联调。
+- 电话已具备验签事件契约；语音、SIP 和 Hermes Provider 的真实凭据与资源待提供。
 - 支付沙箱默认关闭，不连接真实收单机构或银行。
 - 真实模型调用需部署开关、租户密钥、出网白名单、自测和管理员确认。
 - 仓库名、环境变量前缀、Webhook 头和 `fulfillops-safe` 等技术标识暂时保留，避免破坏现有集成；它们不是对外产品名。
