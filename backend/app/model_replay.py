@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .domain import utcnow
-from .model_gateway import ModelGatewayError, invoke_json_model
+from .model_gateway import ModelGatewayError, invoke_json_model, model_policy
 from .models import AuditEvent, ModelReplayRun, ServiceConfig
 from .runtime_adapters import RuntimeContext, adapter_for
 from .secret_store import SecretStoreError, resolve_secret
@@ -20,6 +22,34 @@ SUPPORTED_REPLAY_SUITES = {"fulfillops-safe-core": REPLAY_ROOT / "fulfillops-saf
 
 class ReplaySuiteError(RuntimeError):
     pass
+
+
+def assert_cost_budget(spent_usd: float, reserved_usd: float, daily_limit_usd: float) -> None:
+    if daily_limit_usd <= 0 or spent_usd < 0 or reserved_usd < 0:
+        raise ReplaySuiteError("模型成本预算配置无效")
+    if spent_usd + reserved_usd > daily_limit_usd + 1e-9:
+        raise ReplaySuiteError(
+            f"租户当日模型预算不足：已使用 ${spent_usd:.4f}，本次最多 ${reserved_usd:.4f}，上限 ${daily_limit_usd:.4f}"
+        )
+
+
+def enforce_tenant_daily_budget(db: Session, tenant_id: str, reserved_usd: float) -> None:
+    try:
+        daily_limit = float(os.getenv("MODEL_DAILY_COST_USD_PER_TENANT", "1.0"))
+    except ValueError as exc:
+        raise ReplaySuiteError("MODEL_DAILY_COST_USD_PER_TENANT 配置无效") from exc
+    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    spent = float(
+        db.scalar(
+            select(func.coalesce(func.sum(ModelReplayRun.estimated_cost_usd), 0)).where(
+                ModelReplayRun.tenant_id == tenant_id,
+                ModelReplayRun.created_at >= start,
+                ModelReplayRun.status.in_(["passed", "failed"]),
+            )
+        )
+        or 0
+    )
+    assert_cost_budget(spent, reserved_usd, daily_limit)
 
 
 def load_replay_suite(name: str) -> tuple[dict[str, Any], str]:
@@ -154,6 +184,7 @@ def _provider_evaluation(
     )
     if not config or not config.connected:
         raise ReplaySuiteError("真实模型回放要求已连接且版本未变化的模型配置")
+    enforce_tenant_daily_budget(db, replay.tenant_id, model_policy(config).max_cost_usd)
     try:
         credential = resolve_secret(db, config.secret_ref, replay.tenant_id, "model")
     except SecretStoreError as exc:
