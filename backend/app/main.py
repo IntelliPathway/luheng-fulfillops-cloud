@@ -87,6 +87,7 @@ from .models import (
     ServiceConfig,
     User,
 )
+from .observability import Telemetry, observe_request
 from .policy_routes import router as policy_router
 from .protection_workflow import (
     ProtectionWorkflowError,
@@ -290,6 +291,8 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.state.engine = engine
     app.state.Session = build_session_factory(engine)
     app.state.startup = startup
+    app.state.telemetry = Telemetry()
+    app.middleware("http")(observe_request)
     app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
     app.include_router(asset_catalog_router)
     app.include_router(asset_import_router)
@@ -304,6 +307,11 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     @app.get("/api/v1/health/live", response_model=HealthOut, tags=["system"])
     def liveness() -> HealthOut:
         return HealthOut(status="ok", service="luheng-fulfillops-api", version=APP_VERSION)
+
+    @app.get("/api/v1/observability/metrics", tags=["system"])
+    def observability_metrics(request: Request, context: Context) -> dict:
+        require_role(context, "admin")
+        return request.app.state.telemetry.snapshot()
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:
