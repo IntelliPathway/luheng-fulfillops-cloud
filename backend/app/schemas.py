@@ -169,6 +169,48 @@ class PolicyProposalOut(BaseModel):
     reviewed_at: datetime | None
 
 
+class MembershipProposalCreateRequest(BaseModel):
+    target_user_id: str = Field(min_length=2, max_length=80)
+    requested_role: Literal["viewer", "operator", "admin"]
+    requested_status: Literal["active", "inactive"] = "active"
+    proposal_reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class MembershipProposalDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    expected_version: int = Field(ge=1)
+    review_note: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class MembershipProposalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    target_user_id: str
+    requested_role: str
+    requested_status: str
+    expected_role: str | None
+    expected_status: str | None
+    status: str
+    version: int
+    proposed_by: str
+    proposal_reason: str
+    reviewed_by: str | None
+    review_note: str | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class TenantMemberOut(BaseModel):
+    user_id: str
+    display_name: str
+    email: str
+    role: str
+    status: str
+
+
 class TelephonyWebhookPayload(BaseModel):
     event_id: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
     call_reference: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")

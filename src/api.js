@@ -170,6 +170,17 @@ export const operationsApi = {
   metrics: tenant => request('/observability/metrics', tenant),
 };
 
+export const membershipApi = {
+  members: tenant => request('/governance/members', tenant),
+  proposals: tenant => request('/governance/membership-proposals', tenant),
+  propose: (tenant, payload) => request('/governance/membership-proposals', tenant, {
+    method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  decide: (tenant, proposalId, payload) => request(`/governance/membership-proposals/${proposalId}/decision`, tenant, {
+    method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+
+test('uses governed membership proposal endpoints', async () => {
+  const calls=[]; const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({id:'MEMPROP-1'})}};
+  try {
+    await membershipApi.members('TENANT_A');
+    await membershipApi.propose('TENANT_A',{target_user_id:'user-1',requested_role:'viewer',requested_status:'active',proposal_reason:'apply least privilege'});
+    await membershipApi.decide('TENANT_A','MEMPROP-1',{decision:'approve',expected_version:1,review_note:'independent review complete'});
+  } finally { globalThis.fetch=originalFetch; }
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/governance/members','/api/v1/governance/membership-proposals','/api/v1/governance/membership-proposals/MEMPROP-1/decision']);
+  assert.ok(JSON.parse(calls[1].options.body).acknowledged);
+});
 
 test('loads pilot evidence from tenant-scoped operational endpoints', async () => {
   const calls=[];

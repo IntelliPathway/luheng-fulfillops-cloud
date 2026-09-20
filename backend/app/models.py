@@ -62,6 +62,32 @@ class TenantMembership(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class MembershipProposal(Base):
+    __tablename__ = "membership_proposals"
+    __table_args__ = (
+        Index("ix_membership_proposals_tenant_status", "tenant_id", "status", "created_at"),
+        CheckConstraint("status IN ('pending_review','approved','rejected')", name="ck_membership_proposals_status"),
+        CheckConstraint("requested_role IN ('viewer','operator','admin')", name="ck_membership_proposals_role"),
+        CheckConstraint("requested_status IN ('active','inactive')", name="ck_membership_proposals_member_status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("MEMPROP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    target_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    requested_role: Mapped[str] = mapped_column(String(24), nullable=False)
+    requested_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    expected_role: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    expected_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    proposal_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class AssetPackage(Base):
     __tablename__ = "asset_packages"
     __table_args__ = (

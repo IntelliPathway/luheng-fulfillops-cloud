@@ -55,6 +55,7 @@ from .financial_ledger import (
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
+from .membership_routes import router as membership_router
 from .model_gateway import (
     LIVE_MODE,
     ModelGatewayError,
@@ -301,6 +302,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(policy_router)
     app.include_router(telephony_router)
     app.include_router(pilot_router)
+    app.include_router(membership_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
