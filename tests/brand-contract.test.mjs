@@ -16,7 +16,7 @@ test('keeps the customer-facing brand centralized and complete',()=>{
   assert.equal(PRODUCT_NAME,'履约智控 AI');
   assert.equal(PRODUCT_ENGLISH_NAME,'RepayGuard AI');
   assert.equal(PRODUCT_DESCRIPTOR,'资产回款运营平台');
-  assert.equal(APP_VERSION,'1.0.0');
+  assert.equal(APP_VERSION,'1.1.0');
   assert.equal(BRAND_ASSET,'/assets/repayguard-ai-mark.png');
 
   const asset=new URL('../public'+BRAND_ASSET,import.meta.url);

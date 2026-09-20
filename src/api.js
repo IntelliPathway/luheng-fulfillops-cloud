@@ -165,6 +165,11 @@ export const securityApi = {
   modelGatewayHealth: tenant => request('/models/gateway/health', tenant),
 };
 
+export const operationsApi = {
+  pilotScorecard: tenant => request('/pilot/scorecard', tenant),
+  metrics: tenant => request('/observability/metrics', tenant),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

@@ -5,7 +5,7 @@ import ledger from './data/expected_ledger.json';
 import schedules from './data/installment_schedules.json';
 
 export const money = n => (Number(n)<0?'-¥':'¥') + Math.abs(Number(n || 0)).toLocaleString('zh-CN', { minimumFractionDigits: Number.isInteger(Number(n || 0)) ? 0 : 2, maximumFractionDigits: 2 });
-export const titles = {overview:'工作台',activities:'履约活动',assets:'资产包',cases:'案件',plans:'履约计划',payments:'回款与佣金',agents:'Agents',exceptions:'异常中心',logs:'运行记录',strategy:'策略与知识',integrations:'AI 与渠道',usage:'用量与账单',settings:'组织设置'};
+export const titles = {overview:'工作台',pilot:'试点验收',activities:'履约活动',assets:'资产包',cases:'案件',plans:'履约计划',payments:'回款与佣金',agents:'Agents',exceptions:'异常中心',logs:'运行记录',strategy:'策略与知识',integrations:'AI 与渠道',usage:'用量与账单',settings:'组织设置'};
 export const packages = rawPackages.map((p,i)=>({...p,title:['长龄个贷一期','长龄个贷二期','消费个贷三期'][i],rate:[.15,.18,.2][i]}));
 export const plans = rawPlans;
 export const baseLedger = ledger;

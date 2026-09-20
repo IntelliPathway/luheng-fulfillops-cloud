@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+
+test('loads pilot evidence from tenant-scoped operational endpoints', async () => {
+  const calls=[];
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({status:'ready'})}};
+  try {
+    await Promise.all([operationsApi.pilotScorecard('TENANT_A'),operationsApi.metrics('TENANT_A')]);
+  } finally { globalThis.fetch=originalFetch; }
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/pilot/scorecard','/api/v1/observability/metrics']);
+  assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
+});
 
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
