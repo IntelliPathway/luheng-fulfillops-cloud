@@ -9,7 +9,7 @@ from datetime import UTC
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import ServiceConfig, TelephonyEvent
+from .models import ContactAttempt, ServiceConfig, TelephonyEvent
 from .secret_store import SecretStoreError, resolve_secret
 
 ALLOWED_EVENTS = {"initiated", "ringing", "answered", "completed", "failed"}
@@ -86,6 +86,15 @@ def accept_telephony_webhook(
         signature_digest=hashlib.sha256(signature.encode()).hexdigest(),
     )
     db.add(event)
+    attempt = db.scalar(
+        select(ContactAttempt).where(
+            ContactAttempt.tenant_id == tenant_id,
+            ContactAttempt.id == payload.call_reference,
+        )
+    )
+    if attempt and attempt.status != "handoff":
+        attempt.status = payload.event_type
+        attempt.last_event_at = payload.occurred_at.replace(tzinfo=None)
     db.commit()
     db.refresh(event)
     return AcceptedTelephonyEvent(event, False)

@@ -221,6 +221,37 @@ class TelephonyWebhookPayload(BaseModel):
     failure_code: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]+$")
 
 
+class ContactAttemptCreateRequest(BaseModel):
+    case_id: str = Field(min_length=4, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
+    activity_id: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
+    contact_reference: str = Field(min_length=8, max_length=160, pattern=r"^[A-Za-z0-9._:/-]+$")
+    scheduled_at: datetime
+    acknowledged: bool
+
+
+class ContactHandoffRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class ContactAttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    case_id: str
+    activity_id: str | None
+    channel: str
+    contact_reference: str
+    status: str
+    scheduled_at: datetime
+    requested_by: str
+    handoff_reason: str | None
+    handoff_requested_by: str | None
+    handoff_requested_at: datetime | None
+    last_event_at: datetime | None
+    created_at: datetime
+
+
 class TelephonyEventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

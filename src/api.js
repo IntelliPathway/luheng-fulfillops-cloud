@@ -181,6 +181,16 @@ export const membershipApi = {
   }),
 };
 
+export const contactApi = {
+  list: (tenant, limit = 100) => request(`/contact-attempts${queryString({limit})}`, tenant),
+  create: (tenant, payload) => request('/contact-attempts', tenant, {
+    method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  handoff: (tenant, attemptId, reason) => request(`/contact-attempts/${attemptId}/handoff`, tenant, {
+    method: 'POST', body: JSON.stringify({reason, acknowledged: true}),
+  }),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

@@ -26,6 +26,7 @@ from .asset_import_routes import router as asset_import_router
 from .audit import audit
 from .bootstrap import bootstrap_database
 from .config import StartupSettings
+from .contact_routes import router as contact_router
 from .db import build_engine, build_session_factory
 from .dependencies import Context, Database
 from .domain import (
@@ -303,6 +304,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(telephony_router)
     app.include_router(pilot_router)
     app.include_router(membership_router)
+    app.include_router(contact_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

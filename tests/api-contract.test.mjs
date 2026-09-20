@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+
+test('creates governed contact tasks and human handoffs without dialing directly', async () => {
+  const calls=[]; const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({id:'CONTACT-1'})}};
+  try {
+    await contactApi.create('TENANT_A',{case_id:'C004',contact_reference:'CONTACT-REF-C004',scheduled_at:'2026-09-20T06:30:00Z'});
+    await contactApi.handoff('TENANT_A','CONTACT-1','manual explanation requested');
+  } finally { globalThis.fetch=originalFetch; }
+  assert.equal(calls[0].url,'/api/v1/contact-attempts');
+  assert.equal(calls[1].url,'/api/v1/contact-attempts/CONTACT-1/handoff');
+  assert.equal(JSON.stringify(calls).includes('phone_number'),false);
+});
 
 test('uses governed membership proposal endpoints', async () => {
   const calls=[]; const originalFetch=globalThis.fetch;

@@ -285,6 +285,34 @@ class TelephonyEvent(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class ContactAttempt(Base):
+    __tablename__ = "contact_attempts"
+    __table_args__ = (
+        Index("ix_contact_attempts_tenant_case_scheduled", "tenant_id", "case_id", "scheduled_at"),
+        Index("ix_contact_attempts_tenant_status", "tenant_id", "status", "scheduled_at"),
+        ForeignKeyConstraint(["tenant_id", "case_id"], ["cases.tenant_id", "cases.case_id"]),
+        CheckConstraint(
+            "status IN ('queued','initiated','ringing','answered','completed','failed','handoff','blocked')",
+            name="ck_contact_attempts_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CONTACT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    activity_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    channel: Mapped[str] = mapped_column(String(24), default="phone", nullable=False)
+    contact_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    handoff_requested_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    handoff_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
 class SelfTestReport(Base):
     __tablename__ = "self_test_reports"
 
