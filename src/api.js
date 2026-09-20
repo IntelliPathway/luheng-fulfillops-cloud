@@ -168,6 +168,7 @@ export const securityApi = {
 export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   metrics: tenant => request('/observability/metrics', tenant),
+  providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
 };
 
 export const membershipApi = {

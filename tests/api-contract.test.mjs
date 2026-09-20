@@ -37,6 +37,14 @@ test('loads pilot evidence from tenant-scoped operational endpoints', async () =
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
 });
 
+test('loads model budget and payment exception operations without sensitive payloads', async () => {
+  const calls=[]; const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({model_budget:{},payment_exceptions:{}})}};
+  try { await operationsApi.providerScorecard('TENANT_A'); } finally { globalThis.fetch=originalFetch; }
+  assert.equal(calls[0].url,'/api/v1/provider-operations/scorecard');
+  assert.equal(calls[0].options.headers['X-Tenant-ID'],'TENANT_A');
+});
+
 test('normalizes backend integration fields for the existing UI model', () => {
   const result = normalizeIntegrationOverview({
     services: {

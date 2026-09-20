@@ -99,6 +99,7 @@ from .protection_workflow import (
     propose_protection_resolution,
     protection_overview,
 )
+from .provider_operation_routes import router as provider_operation_router
 from .repayment_plans import (
     RepaymentPlanError,
     create_plan_proposal,
@@ -305,6 +306,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(pilot_router)
     app.include_router(membership_router)
     app.include_router(contact_router)
+    app.include_router(provider_operation_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

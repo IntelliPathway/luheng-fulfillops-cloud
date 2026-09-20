@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import case as sql_case
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -733,28 +734,64 @@ def decide_payment_reconciliation(
 
 
 def financial_summary(db: Session, tenant_id: str) -> dict[str, int]:
-    recoveries = list(db.scalars(select(RecoveryLedgerEntry).where(RecoveryLedgerEntry.tenant_id == tenant_id)))
-    commissions = list(db.scalars(select(CommissionLedgerEntry).where(CommissionLedgerEntry.tenant_id == tenant_id)))
-    pending = list(
-        db.scalars(
-            select(PaymentReceipt).where(
+    recovery = db.execute(
+        select(
+            func.coalesce(func.sum(RecoveryLedgerEntry.amount_cents), 0),
+            func.coalesce(func.sum(RecoveryLedgerEntry.eligible_amount_cents), 0),
+        ).where(RecoveryLedgerEntry.tenant_id == tenant_id)
+    ).one()
+    commission = db.execute(
+        select(
+            func.coalesce(
+                func.sum(
+                    sql_case(
+                        (
+                            CommissionLedgerEntry.event_type.in_(["accrual", "reversal"]),
+                            CommissionLedgerEntry.amount_cents,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    sql_case(
+                        (CommissionLedgerEntry.event_type == "settlement", CommissionLedgerEntry.amount_cents), else_=0
+                    )
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    sql_case(
+                        (CommissionLedgerEntry.event_type == "collection", CommissionLedgerEntry.amount_cents), else_=0
+                    )
+                ),
+                0,
+            ),
+        ).where(CommissionLedgerEntry.tenant_id == tenant_id)
+    ).one()
+    pending = int(
+        db.scalar(
+            select(func.count(PaymentReceipt.id)).where(
                 PaymentReceipt.tenant_id == tenant_id,
                 PaymentReceipt.status.in_({"unmatched", "review_required", "review_pending"}),
             )
         )
+        or 0
     )
-    accrued = sum(row.amount_cents for row in commissions if row.event_type in {"accrual", "reversal"})
-    settled = sum(row.amount_cents for row in commissions if row.event_type == "settlement")
-    collected = sum(row.amount_cents for row in commissions if row.event_type == "collection")
+    net_recovery, eligible_recovery = map(int, recovery)
+    accrued, settled, collected = map(int, commission)
     return {
-        "confirmed_net_recovery_cents": sum(row.amount_cents for row in recoveries),
-        "commission_eligible_recovery_cents": sum(row.eligible_amount_cents for row in recoveries),
+        "confirmed_net_recovery_cents": net_recovery,
+        "commission_eligible_recovery_cents": eligible_recovery,
         "accrued_commission_cents": accrued,
         "settled_commission_cents": settled,
         "collected_commission_cents": collected,
         "unsettled_commission_cents": accrued - settled,
         "uncollected_settlement_cents": settled - collected,
-        "pending_receipt_count": len(pending),
+        "pending_receipt_count": pending,
     }
 
 

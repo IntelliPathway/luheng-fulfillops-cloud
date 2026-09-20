@@ -56,7 +56,7 @@ curl --silent --fail "${REVIEWER_HEADERS[@]}" -X POST -d "{\"expected_version\":
 IMPORTED_PACKAGE="$(curl --silent --fail "${VIEWER_HEADERS[@]}" 'http://127.0.0.1:8025/api/v1/asset-packages?query=PKG_V16')"
 IMPORTED_CASE="$(curl --silent --fail "${VIEWER_HEADERS[@]}" http://127.0.0.1:8025/api/v1/cases/C916)"
 
-test "$(jq -r '.version' <<<"$HEALTH")" = "1.3.0"
+test "$(jq -r '.version' <<<"$HEALTH")" = "1.4.0"
 test "$(jq -r '.total' <<<"$PACKAGES")" = "2"
 test "$(jq -r '.page_size' <<<"$PACKAGES")" = "1"
 test "$(jq -r '.total' <<<"$CASES")" = "2"

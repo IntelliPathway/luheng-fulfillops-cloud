@@ -70,7 +70,7 @@ OVERVIEW="$(curl --silent --fail "${REVIEWER_HEADERS[@]}" http://127.0.0.1:8023/
 PLAN="$(jq -c '.plans[] | select(.plan_id == "PLAN-V12-SMOKE")' <<<"$OVERVIEW")"
 HEALTH="$(curl --silent --fail http://127.0.0.1:8023/api/v1/health)"
 
-test "$(jq -r '.version' <<<"$HEALTH")" = "1.3.0"
+test "$(jq -r '.version' <<<"$HEALTH")" = "1.4.0"
 test "$PROTECTED_STATUS" = "409"
 test "$(jq -r '.status' <<<"$PROPOSED")" = "pending_review"
 test "$SELF_REVIEW_STATUS" = "409"
