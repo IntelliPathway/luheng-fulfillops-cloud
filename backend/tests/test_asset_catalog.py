@@ -70,6 +70,24 @@ def test_case_catalog_filters_facets_and_paginates_on_the_server(client: TestCli
     assert [item["case_id"] for item in signed["items"]] == ["C001", "C002", "C003"]
 
 
+def test_case_catalog_cursor_is_stable_and_bound_to_filters(client: TestClient) -> None:
+    first = client.get("/api/v1/cases?page_size=3", headers=headers()).json()
+    assert first["next_cursor"]
+    second = client.get(
+        f"/api/v1/cases?page_size=3&cursor={first['next_cursor']}",
+        headers=headers(),
+    ).json()
+    assert [item["case_id"] for item in second["items"]] == ["C004", "C005", "C006"]
+    assert not ({item["case_id"] for item in first["items"]} & {item["case_id"] for item in second["items"]})
+
+    mismatched = client.get(
+        f"/api/v1/cases?page_size=3&view=blocked&cursor={first['next_cursor']}",
+        headers=headers(),
+    )
+    assert mismatched.status_code == 422
+    assert "CURSOR_SCOPE_MISMATCH" in mismatched.text
+
+
 def test_case_catalog_balance_sort_and_detail_are_authoritative(client: TestClient) -> None:
     sorted_cases = client.get("/api/v1/cases?sort=balance_desc&page_size=2", headers=headers()).json()
     assert [item["case_id"] for item in sorted_cases["items"]] == ["C016", "C015"]

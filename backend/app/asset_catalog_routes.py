@@ -43,20 +43,25 @@ def get_cases(
     sort: Literal["case_id", "created_desc", "balance_desc"] = "case_id",
     page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=8, max_length=512),
 ) -> CaseCatalogPageOut:
-    return CaseCatalogPageOut(
-        **list_cases(
-            db,
-            context.tenant_id,
-            query=query,
-            package_id=package_id,
-            status=status,
-            view=view,
-            sort=sort,
-            page=page,
-            page_size=page_size,
+    try:
+        return CaseCatalogPageOut(
+            **list_cases(
+                db,
+                context.tenant_id,
+                query=query,
+                package_id=package_id,
+                status=status,
+                view=view,
+                sort=sort,
+                page=page,
+                page_size=page_size,
+                cursor=cursor,
+            )
         )
-    )
+    except AssetCatalogError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
 
 
 @router.get("/cases/{case_id}", response_model=CaseCatalogItemOut)

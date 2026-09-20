@@ -8,7 +8,7 @@
 
 | 当前版本 | 前端 | 业务服务 | 数据与任务 | 生产模板 |
 |---|---|---|---|---|
-| `v1.4.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
+| `v1.5.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
 
 > AI 负责查询、解释和生成提案；权限、策略、保护状态、双人复核与账务内核拥有最终决定权。真实外呼、支付和模型调用默认关闭。
 
@@ -168,7 +168,8 @@ flowchart TB
 | [运维手册](docs/operations-runbook.md) | 运维、交付 | 启停、发布、备份和故障处置 |
 | [安全策略](SECURITY.md) | 安全、研发 | 密钥、认证、隔离和上线检查 |
 | [贡献指南](CONTRIBUTING.md) | 开发者 | 代码风格、测试和提交标准 |
-| [v1.0 发布说明](RELEASE_v1.4.0.md) | 发布与验收 | 首个受控试点代码基线 |
+| [v1.5 发布说明](RELEASE_v1.5.0.md) | 发布与验收 | 受控试点与规模查询基线 |
+| [v1.5 进展评估](docs/v1.5-progress-assessment.md) | 产品、架构、交付 | 完成度、边界和后续优先级 |
 | [人工确认备忘录](docs/manual-confirmation-memo.md) | 交付、合规、运维 | 联调与上线前待确认事项 |
 
 ## 当前边界

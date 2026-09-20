@@ -181,6 +181,7 @@ from .security import (
     require_at_least,
     require_role,
 )
+from .security_headers import add_security_headers
 from .telephony_routes import router as telephony_router
 from .version import APP_VERSION, PRODUCT_ENGLISH_NAME, PRODUCT_NAME
 
@@ -298,6 +299,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.state.startup = startup
     app.state.telemetry = Telemetry()
     app.middleware("http")(observe_request)
+    app.middleware("http")(add_security_headers)
     app.state.bootstrap = bootstrap_database(engine, app.state.Session, startup)
     app.include_router(asset_catalog_router)
     app.include_router(asset_import_router)

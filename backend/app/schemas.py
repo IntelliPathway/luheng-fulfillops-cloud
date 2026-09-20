@@ -91,6 +91,7 @@ class CaseCatalogPageOut(BaseModel):
     page_size: int
     pages: int
     facets: CaseCatalogFacetsOut
+    next_cursor: str | None = None
 
 
 class AssetImportPreviewRequest(BaseModel):

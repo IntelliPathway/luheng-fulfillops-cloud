@@ -1,6 +1,6 @@
 # 履约智控 AI · RepayGuard AI 业务 API
 
-`v1.4.0` 后端基线提供数据库成员权限、企业 OIDC/JWKS、持久异步作业、独立 Worker、受控 Agent/模型 Gateway、策略 Maker–Checker、资产导入与权威目录、电话和支付验签事件、不可变财务账簿、保护事件、分期履约、请求观测和试点评分卡。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
+`v1.5.0` 后端基线提供数据库成员权限、企业 OIDC/JWKS、持久异步作业、独立 Worker、受控 Agent/模型 Gateway、策略 Maker–Checker、资产导入与权威目录、电话和支付验签事件、不可变财务账簿、保护事件、分期履约、请求观测和试点评分卡。生产启动配置、迁移、演示种子和首租户初始化已经分离；Sites 只承载前端交互沙箱。
 
 ## 本地运行
 
@@ -145,4 +145,4 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh`、`./scripts/smoke-v15-asset-import.sh` 和 `./scripts/smoke-v16-asset-catalog.sh`。v0.16 冒烟覆盖服务端分页、保护视图、钱指标聚合、跨租户 404，以及新导入案件立即进入权威目录。
 
-当前共收集 120 项后端测试：本地 119 项通过、1 项 PostgreSQL 专项按环境跳过；CI 注入 PostgreSQL 17 后执行完整测试。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+当前共收集 128 项后端测试：本地 127 项通过、1 项 PostgreSQL 专项按环境跳过；CI 注入 PostgreSQL 17 后执行完整测试。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。

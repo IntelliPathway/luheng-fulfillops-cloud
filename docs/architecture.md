@@ -98,9 +98,9 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 
 1. `backend/app/main.py` 仍聚合大量旧路由；v0.15–v0.16 已拆出 asset-import、asset-catalog、依赖与审计模块，后续继续按 integrations、agents、payments、protections、repayment 领域迁移。
 2. `src/App.jsx` 仍承担过多状态和在线/离线编排；v0.16 已把目录查询独立到 API 层，后续应继续拆为领域 Store 和 Online/Demo Adapter。
-3. 数据库仍有一部分跨租户关联只由应用层校验，后续应补复合外键和 Check Constraint。
-4. 列表 API 尚未统一游标分页；财务聚合仍需进一步下推数据库。
+3. v1.0–v1.3 已补齐主链路租户复合外键与 Check Constraint；新增领域必须继续遵守同一约束模式。
+4. v1.4 已将财务摘要下推数据库，v1.5 已为案件目录增加游标分页；其他大列表仍需渐进迁移。
 5. 尚缺完整浏览器 E2E、可访问性、覆盖率阈值、SAST、容器扫描和 SBOM。
-6. 通用浏览器 OIDC Authorization Code + PKCE 流程需要按最终企业 IdP 落地。
+6. 通用浏览器 OIDC Authorization Code + PKCE 已完成，仍需按最终企业 IdP 进行 E2E 联调。
 
 上述项目不能通过 README 宣称为已完成能力；每项完成时需要测试、迁移或 ADR 证据。

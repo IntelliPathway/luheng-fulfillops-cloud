@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from math import ceil
@@ -44,6 +47,29 @@ def _page_payload(items: list[dict], total: int, page: int, page_size: int, **ex
         "pages": ceil(total / page_size) if total else 0,
         **extra,
     }
+
+
+def _cursor_fingerprint(
+    tenant_id: str, query: str | None, package_id: str | None, status: str | None, view: str
+) -> str:
+    raw = json.dumps([tenant_id, query or "", package_id or "", status or "", view], separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _encode_cursor(case_id: str, fingerprint: str) -> str:
+    raw = json.dumps({"case_id": case_id, "scope": fingerprint}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str, fingerprint: str) -> str:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AssetCatalogError("游标格式无效", "INVALID_CURSOR", 422) from exc
+    if payload.get("scope") != fingerprint or not isinstance(payload.get("case_id"), str):
+        raise AssetCatalogError("游标与当前租户或筛选条件不匹配", "CURSOR_SCOPE_MISMATCH", 422)
+    return payload["case_id"]
 
 
 def _quality_score(
@@ -277,20 +303,21 @@ def list_cases(
     sort: str,
     page: int,
     page_size: int,
+    cursor: str | None = None,
 ) -> dict:
     filters = _case_filters(tenant_id, query=query, package_id=package_id, status=status)
-    all_count = int(db.scalar(select(func.count()).select_from(CaseRecord).where(*filters)) or 0)
+    base_facets = db.execute(
+        select(
+            func.count(CaseRecord.id),
+            func.coalesce(func.sum(sql_case((CaseRecord.has_signed_plan.is_(True), 1), else_=0)), 0),
+            func.coalesce(func.sum(sql_case((CaseRecord.blocked.is_(True), 1), else_=0)), 0),
+        ).where(*filters)
+    ).one()
+    all_count = int(base_facets[0])
     facets = {
         "all": all_count,
-        "signed": int(
-            db.scalar(
-                select(func.count()).select_from(CaseRecord).where(*filters, CaseRecord.has_signed_plan.is_(True))
-            )
-            or 0
-        ),
-        "blocked": int(
-            db.scalar(select(func.count()).select_from(CaseRecord).where(*filters, CaseRecord.blocked.is_(True))) or 0
-        ),
+        "signed": int(base_facets[1]),
+        "blocked": int(base_facets[2]),
     }
     quality_expression = _quality_expression(tenant_id)
     facets["quality"] = int(
@@ -327,13 +354,25 @@ def list_cases(
     if view_filter is not None:
         statement = statement.where(view_filter)
     total = int(db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0)
+    fingerprint = _cursor_fingerprint(tenant_id, query, package_id, status, view)
+    if cursor:
+        if sort != "case_id":
+            raise AssetCatalogError("游标分页当前只支持案件编号排序", "CURSOR_SORT_UNSUPPORTED", 422)
+        statement = statement.where(CaseRecord.case_id > _decode_cursor(cursor, fingerprint))
     if sort == "created_desc":
         statement = statement.order_by(CaseRecord.created_at.desc(), CaseRecord.case_id)
     elif sort == "balance_desc":
         statement = statement.order_by(CaseFinancialProfile.claim_balance_cents.desc().nullslast(), CaseRecord.case_id)
     else:
         statement = statement.order_by(CaseRecord.case_id)
-    rows = list(db.execute(statement.offset((page - 1) * page_size).limit(page_size)))
+    if sort == "case_id" and (cursor or page == 1):
+        fetched = list(db.execute(statement.limit(page_size + 1)))
+        has_more = len(fetched) > page_size
+        rows = fetched[:page_size]
+        next_cursor = _encode_cursor(rows[-1][0].case_id, fingerprint) if has_more and rows else None
+    else:
+        rows = list(db.execute(statement.offset((page - 1) * page_size).limit(page_size)))
+        next_cursor = None
     case_ids = {case_record.case_id for case_record, _ in rows}
     package_ids = {case_record.package_id for case_record, _ in rows}
     packages = {
@@ -365,7 +404,7 @@ def list_cases(
         )
         for case_record, profile in rows
     ]
-    return _page_payload(items, total, page, page_size, facets=facets)
+    return _page_payload(items, total, page, page_size, facets=facets, next_cursor=next_cursor)
 
 
 def get_case(db: Session, tenant_id: str, case_id: str) -> dict:
