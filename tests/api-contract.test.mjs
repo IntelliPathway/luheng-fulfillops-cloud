@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, telephonyApi} from '../src/api.js';
+import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, telephonyApi} from '../src/api.js';
+
+test('governs knowledge versions and loads daily financial close', async () => {
+  const calls=[]; const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>[]}};
+  try {
+    await knowledgeApi.list('TENANT_A','published');
+    await knowledgeApi.create('TENANT_A',{document_key:'KNOW-PAY',title:'到账口径',category:'policy',source_reference:'policy://v2',content_digest:'a'.repeat(64),summary:'仅核验入账视为到账'});
+    await knowledgeApi.decide('TENANT_A','KNOW-1',{decision:'approve',expected_version:2,review_note:'来源和摘要已核验'});
+    await operationsApi.dailyClose('TENANT_A');
+  } finally { globalThis.fetch=originalFetch; }
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/knowledge/documents?status=published','/api/v1/knowledge/documents','/api/v1/knowledge/documents/KNOW-1/decision','/api/v1/provider-operations/daily-close']);
+  assert.equal(JSON.parse(calls[1].options.body).acknowledged,true);
+  assert.equal(JSON.parse(calls[2].options.body).acknowledged,true);
+});
 
 test('loads and transitions server-authoritative activities', async () => {
   const calls=[]; const originalFetch=globalThis.fetch;

@@ -29,3 +29,15 @@ def test_provider_scorecard_requires_operator_role() -> None:
     with TestClient(create_app("sqlite:///:memory:")) as client:
         denied = client.get("/api/v1/provider-operations/scorecard", headers=headers("test-viewer"))
         assert denied.status_code == 403
+
+
+def test_daily_close_exposes_reconcilable_totals_without_payloads() -> None:
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        response = client.get("/api/v1/provider-operations/daily-close", headers=headers())
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["tenant_id"] == "TENANT_A"
+        assert payload["unsettled_commission_cents"] >= 0
+        assert payload["uncollected_commission_cents"] >= 0
+        assert isinstance(payload["balanced"], bool)
+        assert "digest" not in response.text.lower()

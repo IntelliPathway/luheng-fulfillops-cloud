@@ -169,12 +169,19 @@ export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   metrics: tenant => request('/observability/metrics', tenant),
   providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
+  dailyClose: tenant => request('/provider-operations/daily-close', tenant),
   auditEvents: (tenant,{query='',actionPrefix='',limit=100}={}) => {
     const params=new URLSearchParams({limit:String(limit)});
     if(query)params.set('query',query);
     if(actionPrefix)params.set('action_prefix',actionPrefix);
     return request(`/governance/audit-events?${params}`,tenant);
   },
+};
+
+export const knowledgeApi = {
+  list: (tenant,status) => request(`/knowledge/documents${queryString({status})}`,tenant),
+  create: (tenant,payload) => request('/knowledge/documents',tenant,{method:'POST',body:JSON.stringify({...payload,acknowledged:true})}),
+  decide: (tenant,id,payload) => request(`/knowledge/documents/${id}/decision`,tenant,{method:'POST',body:JSON.stringify({...payload,acknowledged:true})}),
 };
 
 export const membershipApi = {

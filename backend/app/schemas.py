@@ -438,6 +438,42 @@ class AuditEventOut(BaseModel):
     created_at: datetime
 
 
+class KnowledgeDocumentCreateRequest(BaseModel):
+    document_key: str = Field(min_length=3, max_length=80, pattern=r"^[A-Z0-9_-]+$")
+    title: str = Field(min_length=3, max_length=160)
+    category: str = Field(min_length=2, max_length=40)
+    source_reference: str = Field(min_length=3, max_length=255)
+    content_digest: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    summary: str = Field(min_length=8, max_length=600)
+    acknowledged: bool = False
+
+
+class KnowledgeDocumentDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    expected_version: int = Field(ge=1)
+    review_note: str = Field(min_length=4, max_length=500)
+    acknowledged: bool = False
+
+
+class KnowledgeDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    document_key: str
+    title: str
+    category: str
+    source_reference: str
+    content_digest: str
+    summary: str
+    status: Literal["pending_review", "published", "rejected", "retired"]
+    version: int
+    proposed_by: str
+    reviewed_by: str | None
+    review_note: str | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
 class AuthSessionOut(BaseModel):
     actor_id: str
     display_name: str

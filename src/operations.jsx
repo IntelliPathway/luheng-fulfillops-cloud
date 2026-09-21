@@ -6,7 +6,7 @@ import {
 } from '@phosphor-icons/react';
 import {useApp} from './context';
 import {AgentCommand} from './ai';
-import {operationsApi} from './api';
+import {knowledgeApi,operationsApi} from './api';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,PageHead,Search,Tabs} from './ui';
 import {downloadCSV,money} from './model';
 
@@ -115,15 +115,22 @@ export function Strategy(){
   const a=useApp();
   const [tab,setTab]=useState('授权策略');
   const [query,setQuery]=useState('');
-  const knowledge=[
-    ['身份核验与披露边界','KNOW-ID-03','核验本人前不披露债务信息；身份冲突立即暂停。','已发布'],
-    ['长账龄协商说明','KNOW-NEG-07','说明金额构成、方案有效期和授权边界，不自行承诺。','已发布'],
-    ['履约与到账口径','KNOW-PAY-04','口头承诺不视为到账，仅使用经核验账务事实。','已发布'],
-    ['异议与停止联系','KNOW-GUARD-09','识别请求后立即保护并生成异常工单。','已发布']
-  ].filter(item=>item.join('').includes(query));
+  const [documents,setDocuments]=useState([]);
+  const [draft,setDraft]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const fallbackKnowledge=[
+    {id:'KNOW-ID-03',document_key:'KNOW-ID',title:'身份核验与披露边界',summary:'核验本人前不披露债务信息；身份冲突立即暂停。',status:'published',version:3,source_reference:'离线政策包'},
+    {id:'KNOW-NEG-07',document_key:'KNOW-NEG',title:'长账龄协商说明',summary:'说明金额构成、方案有效期和授权边界，不自行承诺。',status:'published',version:7,source_reference:'离线政策包'},
+    {id:'KNOW-PAY-04',document_key:'KNOW-PAY',title:'履约与到账口径',summary:'口头承诺不视为到账，仅使用经核验账务事实。',status:'published',version:4,source_reference:'离线账务口径'},
+    {id:'KNOW-GUARD-09',document_key:'KNOW-GUARD',title:'异议与停止联系',summary:'识别请求后立即保护并生成异常工单。',status:'published',version:9,source_reference:'离线保护政策'}
+  ];
+  useEffect(()=>{if(a.backendStatus!=='connected')return;let active=true;knowledgeApi.list(a.tenant).then(rows=>{if(active)setDocuments(rows)}).catch(error=>a.notify(`知识版本读取失败：${error.message}`));return()=>{active=false}},[a.backendStatus,a.tenant]);
+  const knowledge=(a.backendStatus==='connected'?documents:fallbackKnowledge).filter(item=>(item.title+item.document_key+item.summary).includes(query));
+  const createDocument=async()=>{setBusy(true);try{const bytes=new TextEncoder().encode(`${draft.source_reference}\n${draft.summary}`);const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');await knowledgeApi.create(a.tenant,{...draft,content_digest:digest});setDocuments(await knowledgeApi.list(a.tenant));setDraft(null);a.notify('知识版本已提交，等待独立复核')}catch(error){a.notify(`提交失败：${error.message}`)}finally{setBusy(false)}};
+  const decideDocument=async(document,decision)=>{setBusy(true);try{await knowledgeApi.decide(a.tenant,document.id,{decision,expected_version:document.version,review_note:decision==='approve'?'来源与摘要已独立核验':'来源或摘要需要修订'});setDocuments(await knowledgeApi.list(a.tenant));a.notify(decision==='approve'?'知识版本已发布':'知识版本已驳回')}catch(error){a.notify(`复核失败：${error.message}`)}finally{setBusy(false)}};
   return <><PageHead title="策略与知识" description="授权政策控制能做什么；知识库帮助 Agent 正确解释。"><Button onClick={()=>a.setCopilotOpen(true)}>向知识库提问</Button></PageHead><Tabs value={tab} onChange={setTab} items={['授权策略','知识库','评估记录']}/>
     {tab==='授权策略'&&<><div className="notice"><ShieldCheck size={19}/>策略发布前必须完成样本回放；保护规则可以即时覆盖运行中旧版本。</div>{a.visiblePackages.map(p=>{const policy=a.getPolicy(p.package_id);return <div className="policy-row" key={p.package_id}><span className="asset-icon"><ShieldCheck size={24}/></span><div><h3>{p.title} · 授权策略</h3><p>{p.package_id} · 最低结算 {policy.minSettlement}% · 最多 {policy.maxInstallments} 期 · 首付至少 {policy.minDownPayment}%</p></div><span className="policy-status"><Badge status="completed">已发布</Badge><small>v{policy.version}.0 · 回放通过</small></span><Button onClick={()=>a.setDialog({type:'policy',package:p.package_id})}>新建版本</Button></div>})}</>}
-    {tab==='知识库'&&<><div className="knowledge-overview"><div><BookOpenCard icon={Files} value="126" label="政策与资料"/><BookOpenCard icon={Database} value="4" label="已连接数据域"/><BookOpenCard icon={CheckCircle} value="98.6%" label="引用命中率"/></div><p>回答必须引用当前租户内已发布知识；金额事实仍以账务和协议接口为准。</p></div><div className="table-toolbar"><Search value={query} onChange={setQuery} placeholder="搜索知识条目…"/><Button onClick={()=>a.notify('演示：知识库同步任务已提交')}>同步知识</Button></div><div className="knowledge-table">{knowledge.map(([title,id,content,status])=><article key={id}><span className="knowledge-icon"><Files size={19}/></span><div><span className="eyebrow">{id}</span><h3>{title}</h3><p>{content}</p></div><div><Badge status="completed">{status}</Badge><small>v2.3 · 2026.09.11</small></div></article>)}</div></>}
+    {tab==='知识库'&&<><div className="knowledge-overview"><div><BookOpenCard icon={Files} value={String(knowledge.length)} label="可见版本"/><BookOpenCard icon={Database} value={String(knowledge.filter(x=>x.status==='published').length)} label="已发布"/><BookOpenCard icon={CheckCircle} value={String(knowledge.filter(x=>x.status==='pending_review').length)} label="待独立复核"/></div><p>Agent 只检索当前租户已发布版本；正文不进入运营接口，只保存来源引用、摘要与 SHA-256 指纹。</p></div><div className="table-toolbar"><Search value={query} onChange={setQuery} placeholder="搜索知识条目…"/><Button disabled={a.backendStatus!=='connected'} onClick={()=>setDraft({document_key:'KNOW-',title:'',category:'policy',source_reference:'',summary:''})}>新建受审版本</Button></div>{draft&&<section className="knowledge-proposal"><div><Field label="知识键"><input value={draft.document_key} onChange={e=>setDraft({...draft,document_key:e.target.value.toUpperCase()})}/></Field><Field label="标题"><input value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></Field><Field label="来源引用"><input value={draft.source_reference} onChange={e=>setDraft({...draft,source_reference:e.target.value})}/></Field><Field label="可检索摘要"><textarea value={draft.summary} onChange={e=>setDraft({...draft,summary:e.target.value})}/></Field></div><footer><small>提交后由另一名管理员核验；发布新版本会自动退役旧版本。</small><Button onClick={()=>setDraft(null)}>取消</Button><Button variant="primary" disabled={busy||draft.document_key.length<3||draft.title.length<3||draft.source_reference.length<3||draft.summary.length<8} onClick={createDocument}>提交复核</Button></footer></section>}<div className="knowledge-table">{knowledge.map(document=><article key={document.id}><span className="knowledge-icon"><Files size={19}/></span><div><span className="eyebrow">{document.document_key} · {document.source_reference}</span><h3>{document.title}</h3><p>{document.summary}</p></div><div><Badge status={document.status==='published'?'completed':document.status==='pending_review'?'paused':'neutral'}>{document.status==='published'?'已发布':document.status==='pending_review'?'待复核':document.status==='retired'?'已退役':'已驳回'}</Badge><small>v{document.version} · {document.content_digest?`${document.content_digest.slice(0,8)}…`:'离线样本'}</small>{document.status==='pending_review'&&a.identity.role==='admin'&&document.proposed_by!==a.identity.actor_id&&<Button disabled={busy} onClick={()=>decideDocument(document,'approve')}>批准</Button>}</div></article>)}</div>{!knowledge.length&&<Empty title="没有知识版本" description="创建第一个带来源引用和内容指纹的受审版本。"/>}</>}
     {tab==='评估记录'&&<div className="evaluation-history"><article><Flask size={22}/><span><b>EVAL-20260912-014 · 策略与话术联合回放</b><small>24 个场景 · 越权 0 · 保护漏拦截 0 · 金额事实错误 0</small></span><Badge status="completed">通过</Badge></article><article><Flask size={22}/><span><b>EVAL-20260910-011 · 知识检索评估</b><small>引用命中 98.6% · 无来源回答 0 · 平均检索 82 ms</small></span><Badge status="completed">通过</Badge></article></div>}
   </>;
 }

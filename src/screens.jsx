@@ -3,7 +3,7 @@ export {AgentScreen,Logs,Strategy,Usage,Settings} from './operations';
 export {Integrations} from './integrations';
 import {Plus,CalendarBlank,ArrowRight,ArrowUpRight,ArrowLeft,ArrowsDownUp,Rows,Pause,Play,Robot,ShieldCheck,Clock,CheckCircle,Circle,FolderSimple,Files,Database,DownloadSimple,UploadSimple,Lightning,BookOpen,Receipt,WarningCircle,GearSix,Buildings,ChartBar,CaretLeft,CaretRight,FunnelSimple,TrendUp,PhoneCall,Handshake,MagicWand,CurrencyCircleDollar,DotsThree,Eye,Sparkle} from '@phosphor-icons/react';
 import {useApp} from './context';
-import {catalogApi} from './api';
+import {catalogApi,operationsApi} from './api';
 import {PRODUCT_NAME} from './brand';
 import {Button,IconButton,Badge,PageHead,Tabs,Search,Metrics,Empty,KeyValue,EventFeed,Field} from './ui';
 import {money,reasonText,downloadCSV} from './model';
@@ -89,6 +89,8 @@ export function Payments(){
  const [tab,setTab]=useState('回款流水');
  const [q,setQ]=useState('');
  const [period,setPeriod]=useState('all');
+ const [dailyClose,setDailyClose]=useState(null);
+ useEffect(()=>{if(a.backendStatus!=='connected')return;let active=true;operationsApi.dailyClose(a.tenant).then(value=>{if(active)setDailyClose(value)}).catch(()=>{if(active)setDailyClose(null)});return()=>{active=false}},[a.backendStatus,a.tenant,a.financialOverview]);
  const base=a.visibleLedger.filter(x=>(a.scope==='all'||x.package_id===a.scope)&&(period==='all'||x.booked_date.startsWith('2026-09')));
  const rows=base.filter(x=>(x.transaction_id+x.case_id).toLowerCase().includes(q.toLowerCase())).slice().sort((x,y)=>y.booked_date.localeCompare(x.booked_date)||y.transaction_id.localeCompare(x.transaction_id));
  const summary=a.financialOverview.summary;
@@ -104,6 +106,7 @@ export function Payments(){
  const exportRows=()=>{downloadCSV('回款与佣金_演示.csv',['交易号','案件','到账日期','净回款','计佣回款','应计佣金','计佣依据'],rows.map(x=>[x.transaction_id,x.case_id,x.booked_date,x.cash_yuan,x.eligible_cash_yuan,x.commission_yuan,reasonText[x.reason]]));a.notify('当前筛选的回款与佣金证据已导出')};
  return <><PageHead title="回款与佣金" description="验签回执进入不可变账簿后，才更新履约、计佣、结算与实收。"><Button onClick={()=>a.setCopilotOpen(true)}>用 AI 查询指标</Button><Button icon={DownloadSimple} onClick={exportRows}>导出明细</Button>{a.tenant==='TENANT_A'&&<Button variant="primary" disabled={a.paid||a.receivingPayment||!callbackReady} onClick={()=>a.setDialog({type:'receipt'})}>{a.paid?'模拟回调已处理':a.receivingPayment?'正在入账…':callbackReady?'模拟支付回调':'支付沙箱未就绪'}</Button>}</PageHead>
  <section className="pending-payment"><WarningCircle size={19}/><span><b>{pendingCount} 笔回执等待复核</b><small>{a.backendStatus==='connected'?(a.financialOverview.webhookReady?`${a.financialOverview.webhookProvider} · HMAC v1 · 服务端账簿`:'签名密钥尚未配置或不可解析'):a.hostedDemo?'在线交互沙箱：不会写入服务端账簿':'离线演示：不会写入服务端账簿'}；提案人与复核人分离，批准前不进入钱指标。</small></span><button className="text-link" onClick={()=>setTab('回执复核')}>查看复核队列 <ArrowRight size={14}/></button></section>
+ {dailyClose&&<section className={dailyClose.balanced?'daily-close balanced':'daily-close'}><span><Sparkle size={20}/><b>AI 日终差异</b></span><div><span>今日确认回款 <b>{money(dailyClose.confirmed_recovery_cents/100)}</b></span><span>待结佣金 <b>{money(dailyClose.unsettled_commission_cents/100)}</b></span><span>待收佣金 <b>{money(dailyClose.uncollected_commission_cents/100)}</b></span><span>隔离回执 <b>{dailyClose.pending_receipt_count} 笔</b></span></div><Badge status={dailyClose.balanced?'completed':'paused'}>{dailyClose.balanced?'账实平衡':'需要复核'}</Badge></section>}
  <div className="table-toolbar"><Scope value={a.scope} onChange={a.setScope}/><select aria-label="回款日期范围" value={period} onChange={e=>setPeriod(e.target.value)}><option value="all">累计至今</option><option value="month">2026 年 9 月</option></select></div>
  <Metrics className="five-metrics" items={[["确认净回款",money(cash)],["计佣回款",money(eligible)],["应计佣金",money(accrued)],["确认结算",money(settled)],["实际收佣",money(collected)]]}/>
  <Tabs value={tab} onChange={setTab} items={['回款流水','佣金明细','结算记录',{id:'回执复核',label:'回执复核',count:pendingCount}]}/>

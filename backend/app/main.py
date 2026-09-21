@@ -57,6 +57,7 @@ from .governance_routes import router as governance_router
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
+from .knowledge_routes import router as knowledge_router
 from .membership_routes import router as membership_router
 from .model_gateway import (
     LIVE_MODE,
@@ -312,6 +313,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(contact_router)
     app.include_router(provider_operation_router)
     app.include_router(governance_router)
+    app.include_router(knowledge_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

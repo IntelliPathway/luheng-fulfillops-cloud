@@ -534,6 +534,31 @@ class BusinessMetricSnapshot(Base):
     as_of: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "document_key", "version"),
+        Index("ix_knowledge_documents_tenant_status", "tenant_id", "status", "created_at"),
+        CheckConstraint("status IN ('pending_review','published','rejected','retired')", name="ck_knowledge_documents_status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("KNOW"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    document_key: Mapped[str] = mapped_column(String(80), index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CommissionRule(Base):
     __tablename__ = "commission_rules"
     __table_args__ = (

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .models import ModelReplayRun, PaymentReceipt
+from .models import CommissionLedgerEntry, ModelReplayRun, PaymentReceipt, RecoveryLedgerEntry
 
 PENDING_PAYMENT_STATUSES = {"unmatched", "review_required", "review_pending", "rejected"}
 
@@ -77,4 +77,43 @@ def provider_scorecard(db: Session, tenant_id: str) -> dict:
             "oldest_age_seconds": max(0, int((now - oldest).total_seconds())) if oldest else 0,
             "items": [dict(row) for row in exceptions],
         },
+    }
+
+
+def daily_close(db: Session, tenant_id: str) -> dict:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    recovery = db.execute(
+        select(
+            func.count(RecoveryLedgerEntry.id),
+            func.coalesce(func.sum(RecoveryLedgerEntry.amount_cents), 0),
+            func.coalesce(func.sum(RecoveryLedgerEntry.commission_cents), 0),
+        ).where(RecoveryLedgerEntry.tenant_id == tenant_id, RecoveryLedgerEntry.booked_at >= day_start)
+    ).one()
+    commission = db.execute(
+        select(
+            func.coalesce(func.sum(case((CommissionLedgerEntry.event_type == "settlement", CommissionLedgerEntry.amount_cents), else_=0)), 0),
+            func.coalesce(func.sum(case((CommissionLedgerEntry.event_type == "collection", CommissionLedgerEntry.amount_cents), else_=0)), 0),
+        ).where(CommissionLedgerEntry.tenant_id == tenant_id, CommissionLedgerEntry.occurred_at >= day_start)
+    ).one()
+    pending = db.execute(
+        select(func.count(PaymentReceipt.id), func.coalesce(func.sum(PaymentReceipt.amount_cents), 0)).where(
+            PaymentReceipt.tenant_id == tenant_id, PaymentReceipt.status.in_(PENDING_PAYMENT_STATUSES)
+        )
+    ).one()
+    accrued, settled, collected = int(recovery[2]), int(commission[0]), int(commission[1])
+    return {
+        "tenant_id": tenant_id,
+        "business_date": day_start.date(),
+        "generated_at": now,
+        "recovery_count": int(recovery[0]),
+        "confirmed_recovery_cents": int(recovery[1]),
+        "accrued_commission_cents": accrued,
+        "settled_commission_cents": settled,
+        "collected_commission_cents": collected,
+        "unsettled_commission_cents": max(0, accrued - settled),
+        "uncollected_commission_cents": max(0, settled - collected),
+        "pending_receipt_count": int(pending[0]),
+        "pending_receipt_amount_cents": int(pending[1]),
+        "balanced": int(pending[0]) == 0 and accrued <= settled and settled <= collected,
     }
