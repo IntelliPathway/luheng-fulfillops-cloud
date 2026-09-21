@@ -83,6 +83,12 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
             "first_overdue_date": "date",
             "last_contact_at": "timestamp",
         },
+        "contact_attempts": {
+            "retry_of_id": "varchar(40)",
+            "cancelled_by": "varchar(80)",
+            "cancelled_at": "timestamp",
+            "cancel_reason": "text",
+        },
     }
     applied: list[str] = []
     with engine.begin() as connection:

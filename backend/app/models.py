@@ -309,6 +309,10 @@ class ContactAttempt(Base):
     handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     handoff_requested_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     handoff_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    retry_of_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 

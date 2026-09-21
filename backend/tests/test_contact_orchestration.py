@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import create_app
-from app.models import AuditEvent, IntegrationState, ServiceConfig
+from app.models import AuditEvent, ContactAttempt, IntegrationState, ServiceConfig
 
 
 def headers(actor: str = "test-operator", tenant: str = "TENANT_A") -> dict[str, str]:
@@ -105,3 +105,53 @@ def test_contact_attempt_blocks_protected_case_and_outside_window() -> None:
             },
         )
         assert outside.status_code == 422
+
+
+def test_contact_attempt_can_be_cancelled_and_failed_attempt_retried() -> None:
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        enable_phone(client)
+        first = client.post(
+            "/api/v1/contact-attempts",
+            headers=headers(),
+            json={
+                "case_id": "C004",
+                "contact_reference": "CONTACT-REF-C004",
+                "scheduled_at": "2026-09-20T06:30:00Z",
+                "acknowledged": True,
+            },
+        ).json()
+        cancelled = client.post(
+            f"/api/v1/contact-attempts/{first['id']}/cancel",
+            headers=headers(),
+            json={"reason": "案件状态变化，停止本次联系任务", "acknowledged": True},
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "blocked"
+        assert cancelled.json()["cancelled_by"] == "test-operator"
+
+        second = client.post(
+            "/api/v1/contact-attempts",
+            headers=headers(),
+            json={
+                "case_id": "C004",
+                "contact_reference": "CONTACT-REF-C004-RETRY",
+                "scheduled_at": "2026-09-21T06:30:00Z",
+                "acknowledged": True,
+            },
+        ).json()
+        with client.app.state.Session() as db:
+            row = db.get(ContactAttempt, second["id"])
+            assert row
+            row.status = "failed"
+            db.commit()
+        retried = client.post(
+            f"/api/v1/contact-attempts/{second['id']}/retry",
+            headers=headers(),
+            json={
+                "scheduled_at": "2026-09-21T08:30:00Z",
+                "reason": "线路失败后按重试预算重新排队",
+                "acknowledged": True,
+            },
+        )
+        assert retried.status_code == 201, retried.text
+        assert retried.json()["retry_of_id"] == second["id"]

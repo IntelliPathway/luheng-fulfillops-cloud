@@ -100,3 +100,53 @@ def request_handoff(db: Session, tenant_id: str, actor_id: str, attempt_id: str,
     row.handoff_requested_at = datetime.now(UTC).replace(tzinfo=None)
     db.flush()
     return row
+
+
+def cancel_contact_attempt(
+    db: Session, tenant_id: str, actor_id: str, attempt_id: str, reason: str
+) -> ContactAttempt:
+    row = db.scalar(
+        select(ContactAttempt)
+        .where(ContactAttempt.tenant_id == tenant_id, ContactAttempt.id == attempt_id)
+        .with_for_update()
+    )
+    if not row:
+        raise ContactOrchestrationError("attempt_not_found", "联系任务不存在", 404)
+    if row.status in {"completed", "failed", "blocked"}:
+        raise ContactOrchestrationError("attempt_terminal", "终态联系任务不能取消")
+    row.status = "blocked"
+    row.cancel_reason = reason
+    row.cancelled_by = actor_id
+    row.cancelled_at = datetime.now(UTC).replace(tzinfo=None)
+    db.flush()
+    return row
+
+
+def retry_contact_attempt(
+    db: Session,
+    tenant_id: str,
+    actor_id: str,
+    attempt_id: str,
+    scheduled_at: datetime,
+    reason: str,
+) -> ContactAttempt:
+    previous = db.scalar(
+        select(ContactAttempt).where(ContactAttempt.tenant_id == tenant_id, ContactAttempt.id == attempt_id)
+    )
+    if not previous:
+        raise ContactOrchestrationError("attempt_not_found", "联系任务不存在", 404)
+    if previous.status != "failed":
+        raise ContactOrchestrationError("attempt_not_failed", "只有失败任务可以重新排队")
+    row = create_contact_attempt(
+        db,
+        tenant_id,
+        actor_id,
+        case_id=previous.case_id,
+        activity_id=previous.activity_id,
+        contact_reference=previous.contact_reference,
+        scheduled_at=scheduled_at,
+    )
+    row.retry_of_id = previous.id
+    row.handoff_reason = f"retry_reason:{reason}"
+    db.flush()
+    return row

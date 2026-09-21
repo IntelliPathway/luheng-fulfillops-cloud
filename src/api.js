@@ -196,6 +196,16 @@ export const contactApi = {
   handoff: (tenant, attemptId, reason) => request(`/contact-attempts/${attemptId}/handoff`, tenant, {
     method: 'POST', body: JSON.stringify({reason, acknowledged: true}),
   }),
+  cancel: (tenant, attemptId, reason) => request(`/contact-attempts/${attemptId}/cancel`, tenant, {
+    method: 'POST', body: JSON.stringify({reason, acknowledged: true}),
+  }),
+  retry: (tenant, attemptId, scheduledAt, reason) => request(`/contact-attempts/${attemptId}/retry`, tenant, {
+    method: 'POST', body: JSON.stringify({scheduled_at: scheduledAt, reason, acknowledged: true}),
+  }),
+};
+
+export const telephonyApi = {
+  events: (tenant, limit=100) => request(`/telephony/events${queryString({limit})}`, tenant),
 };
 
 export const agentApi = {

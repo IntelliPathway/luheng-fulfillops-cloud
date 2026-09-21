@@ -235,6 +235,17 @@ class ContactHandoffRequest(BaseModel):
     acknowledged: bool
 
 
+class ContactCancelRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
+class ContactRetryRequest(BaseModel):
+    scheduled_at: datetime
+    reason: str = Field(min_length=8, max_length=500)
+    acknowledged: bool
+
+
 class ContactAttemptOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -249,6 +260,10 @@ class ContactAttemptOut(BaseModel):
     handoff_reason: str | None
     handoff_requested_by: str | None
     handoff_requested_at: datetime | None
+    retry_of_id: str | None
+    cancelled_by: str | None
+    cancelled_at: datetime | None
+    cancel_reason: str | None
     last_event_at: datetime | None
     created_at: datetime
 
