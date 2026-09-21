@@ -539,7 +539,9 @@ class KnowledgeDocument(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "document_key", "version"),
         Index("ix_knowledge_documents_tenant_status", "tenant_id", "status", "created_at"),
-        CheckConstraint("status IN ('pending_review','published','rejected','retired')", name="ck_knowledge_documents_status"),
+        CheckConstraint(
+            "status IN ('pending_review','published','rejected','retired')", name="ck_knowledge_documents_status"
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("KNOW"))

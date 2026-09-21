@@ -92,8 +92,22 @@ def daily_close(db: Session, tenant_id: str) -> dict:
     ).one()
     commission = db.execute(
         select(
-            func.coalesce(func.sum(case((CommissionLedgerEntry.event_type == "settlement", CommissionLedgerEntry.amount_cents), else_=0)), 0),
-            func.coalesce(func.sum(case((CommissionLedgerEntry.event_type == "collection", CommissionLedgerEntry.amount_cents), else_=0)), 0),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (CommissionLedgerEntry.event_type == "settlement", CommissionLedgerEntry.amount_cents), else_=0
+                    )
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (CommissionLedgerEntry.event_type == "collection", CommissionLedgerEntry.amount_cents), else_=0
+                    )
+                ),
+                0,
+            ),
         ).where(CommissionLedgerEntry.tenant_id == tenant_id, CommissionLedgerEntry.occurred_at >= day_start)
     ).one()
     pending = db.execute(

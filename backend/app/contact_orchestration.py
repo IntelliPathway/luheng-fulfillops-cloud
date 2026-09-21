@@ -102,9 +102,7 @@ def request_handoff(db: Session, tenant_id: str, actor_id: str, attempt_id: str,
     return row
 
 
-def cancel_contact_attempt(
-    db: Session, tenant_id: str, actor_id: str, attempt_id: str, reason: str
-) -> ContactAttempt:
+def cancel_contact_attempt(db: Session, tenant_id: str, actor_id: str, attempt_id: str, reason: str) -> ContactAttempt:
     row = db.scalar(
         select(ContactAttempt)
         .where(ContactAttempt.tenant_id == tenant_id, ContactAttempt.id == attempt_id)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -44,6 +45,51 @@ class Telemetry:
                 "sample_size": len(durations),
             }
 
+    def slo_snapshot(self) -> dict:
+        metrics = self.snapshot()
+        total = metrics["requests_total"]
+        failures = sum(count for code, count in metrics["responses_by_status"].items() if code.startswith("5"))
+        error_rate = failures / total if total else 0.0
+        latency_target = float(os.getenv("SLO_P95_LATENCY_MS", "750"))
+        error_target = float(os.getenv("SLO_ERROR_RATE_PERCENT", "1")) / 100
+        checks = {
+            "latency": metrics["latency_ms"]["p95"] <= latency_target,
+            "availability": error_rate <= error_target,
+        }
+        return {
+            "status": "healthy" if all(checks.values()) else "degraded",
+            "window": "process_lifetime",
+            "sample_size": metrics["sample_size"],
+            "p95_latency_ms": metrics["latency_ms"]["p95"],
+            "p95_latency_target_ms": latency_target,
+            "error_rate_percent": round(error_rate * 100, 4),
+            "error_rate_target_percent": round(error_target * 100, 4),
+            "checks": checks,
+        }
+
+    def prometheus(self) -> str:
+        metrics = self.snapshot()
+        lines = [
+            "# HELP repayguard_uptime_seconds Process uptime.",
+            "# TYPE repayguard_uptime_seconds gauge",
+            f"repayguard_uptime_seconds {metrics['uptime_seconds']}",
+            "# HELP repayguard_http_requests_total HTTP responses by status.",
+            "# TYPE repayguard_http_requests_total counter",
+        ]
+        lines.extend(
+            f'repayguard_http_requests_total{{status="{status}"}} {count}'
+            for status, count in metrics["responses_by_status"].items()
+        )
+        lines.extend(
+            [
+                "# HELP repayguard_http_latency_ms Recent request latency quantiles.",
+                "# TYPE repayguard_http_latency_ms gauge",
+                f'repayguard_http_latency_ms{{quantile="0.50"}} {metrics["latency_ms"]["p50"]}',
+                f'repayguard_http_latency_ms{{quantile="0.95"}} {metrics["latency_ms"]["p95"]}',
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
 
 async def observe_request(request: Request, call_next):
     started = time.perf_counter()
@@ -57,7 +103,9 @@ async def observe_request(request: Request, call_next):
         return response
     finally:
         duration_ms = (time.perf_counter() - started) * 1000
-        request.app.state.telemetry.record(request.method, request.url.path, status_code, duration_ms)
+        route = request.scope.get("route")
+        path = getattr(route, "path", request.url.path)
+        request.app.state.telemetry.record(request.method, path, status_code, duration_ms)
         logger.info(
             json.dumps(
                 {

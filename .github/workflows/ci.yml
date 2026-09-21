@@ -84,6 +84,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+      - name: Generate dependency inventory
+        run: npm run sbom -- --output=artifacts/repayguard-ai.cdx.json
+      - name: Upload CycloneDX SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: repayguard-ai-sbom
+          path: artifacts/repayguard-ai.cdx.json
       - name: Test and build frontend
         run: npm test
       - name: Verify generated hosting artifacts
@@ -91,3 +98,14 @@ jobs:
           test -f dist/client/index.html
           test -f dist/server/index.js
           test -f dist/.openai/hosting.json
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

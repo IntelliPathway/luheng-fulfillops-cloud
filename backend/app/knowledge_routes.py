@@ -29,9 +29,7 @@ def list_documents(
 
 
 @router.post("", response_model=KnowledgeDocumentOut, status_code=status.HTTP_201_CREATED)
-def create_document(
-    payload: KnowledgeDocumentCreateRequest, context: Context, db: Database
-) -> KnowledgeDocumentOut:
+def create_document(payload: KnowledgeDocumentCreateRequest, context: Context, db: Database) -> KnowledgeDocumentOut:
     require_role(context, "operator", "admin")
     if not payload.acknowledged:
         raise HTTPException(status_code=422, detail="必须确认知识版本将进入独立复核")
@@ -54,9 +52,18 @@ def create_document(
     )
     db.add(document)
     db.flush()
-    audit(db, context, "knowledge.proposed", "knowledge_document", document.id, {
-        "document_key": document.document_key, "version": document.version, "content_digest": document.content_digest,
-    })
+    audit(
+        db,
+        context,
+        "knowledge.proposed",
+        "knowledge_document",
+        document.id,
+        {
+            "document_key": document.document_key,
+            "version": document.version,
+            "content_digest": document.content_digest,
+        },
+    )
     db.commit()
     db.refresh(document)
     return KnowledgeDocumentOut.model_validate(document)
@@ -69,9 +76,11 @@ def decide_document(
     require_role(context, "admin")
     if not payload.acknowledged:
         raise HTTPException(status_code=422, detail="必须确认已独立核验来源和内容摘要")
-    document = db.scalar(select(KnowledgeDocument).where(
-        KnowledgeDocument.tenant_id == context.tenant_id, KnowledgeDocument.id == document_id
-    ))
+    document = db.scalar(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.tenant_id == context.tenant_id, KnowledgeDocument.id == document_id
+        )
+    )
     if not document:
         raise HTTPException(status_code=404, detail="知识版本不存在")
     if document.status != "pending_review" or document.version != payload.expected_version:
@@ -80,11 +89,13 @@ def decide_document(
         raise HTTPException(status_code=409, detail="提案人不能复核自己的知识版本")
     now = datetime.now(UTC).replace(tzinfo=None)
     if payload.decision == "approve":
-        previous = db.scalars(select(KnowledgeDocument).where(
-            KnowledgeDocument.tenant_id == context.tenant_id,
-            KnowledgeDocument.document_key == document.document_key,
-            KnowledgeDocument.status == "published",
-        ))
+        previous = db.scalars(
+            select(KnowledgeDocument).where(
+                KnowledgeDocument.tenant_id == context.tenant_id,
+                KnowledgeDocument.document_key == document.document_key,
+                KnowledgeDocument.status == "published",
+            )
+        )
         for item in previous:
             item.status = "retired"
         document.status = "published"
@@ -93,9 +104,18 @@ def decide_document(
     document.reviewed_by = context.actor_id
     document.review_note = payload.review_note
     document.reviewed_at = now
-    audit(db, context, f"knowledge.{document.status}", "knowledge_document", document.id, {
-        "document_key": document.document_key, "version": document.version, "content_digest": document.content_digest,
-    })
+    audit(
+        db,
+        context,
+        f"knowledge.{document.status}",
+        "knowledge_document",
+        document.id,
+        {
+            "document_key": document.document_key,
+            "version": document.version,
+            "content_digest": document.content_digest,
+        },
+    )
     db.commit()
     db.refresh(document)
     return KnowledgeDocumentOut.model_validate(document)

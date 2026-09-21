@@ -2,6 +2,18 @@
 
 本项目按语义版本维护。当前版本入口见 [RELEASE.md](RELEASE.md)，详细验收证据见 [发布历史](docs/releases/README.md)。
 
+## [1.9.0] - 2026-09-21
+
+### Added
+
+- Prometheus 文本指标与进程窗口 SLO 状态接口；
+- 前后端依赖的 CycloneDX SBOM 生成器和 CI 构件；
+- Pull Request 高危依赖审查门禁。
+
+### Reliability
+
+- HTTP 指标使用路由模板聚合，避免资源 ID 造成时序高基数。
+
 ## [1.8.0] - 2026-09-21
 
 ### Added

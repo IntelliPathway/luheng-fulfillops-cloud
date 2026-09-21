@@ -61,7 +61,7 @@ OVER_COLLECTION_STATUS="$(curl --silent -o "$RUN_DIR/over-collection.json" -w '%
 FINAL="$(curl --silent --fail "${HEADERS[@]}" http://127.0.0.1:8020/api/v1/payments/overview)"
 HEALTH="$(curl --silent --fail http://127.0.0.1:8020/api/v1/health)"
 
-test "$(jq -r '.version' <<<"$HEALTH")" = "1.8.0"
+test "$(jq -r '.version' <<<"$HEALTH")" = "1.9.0"
 test "$(jq -r '.duplicate' <<<"$FIRST")" = "false"
 test "$(jq -r '.duplicate' <<<"$DUPLICATE")" = "true"
 test "$(jq -r '.receipt.duplicate_count' <<<"$DUPLICATE")" = "1"

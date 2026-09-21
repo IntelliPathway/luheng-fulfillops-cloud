@@ -194,9 +194,7 @@ def test_activity_list_and_transitions_are_server_authoritative(client: TestClie
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["status"] == "running"
 
-    audit_rows = client.get(
-        "/api/v1/governance/audit-events?action_prefix=activity.", headers=headers()
-    ).json()
+    audit_rows = client.get("/api/v1/governance/audit-events?action_prefix=activity.", headers=headers()).json()
     assert any(row["resource_id"] == activity["activity_id"] for row in audit_rows)
     assert all(row["action"].startswith("activity.") for row in audit_rows)
 

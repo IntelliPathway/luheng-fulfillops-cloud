@@ -12,6 +12,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -329,6 +330,16 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     def observability_metrics(request: Request, context: Context) -> dict:
         require_role(context, "admin")
         return request.app.state.telemetry.snapshot()
+
+    @app.get("/api/v1/observability/slo", tags=["system"])
+    def observability_slo(request: Request, context: Context) -> dict:
+        require_role(context, "admin")
+        return request.app.state.telemetry.slo_snapshot()
+
+    @app.get("/api/v1/observability/prometheus", tags=["system"])
+    def observability_prometheus(request: Request, context: Context) -> Response:
+        require_role(context, "admin")
+        return Response(request.app.state.telemetry.prometheus(), media_type="text/plain; version=0.0.4")
 
     @app.post("/api/v1/auth/dev-token", response_model=DevTokenOut, tags=["auth"])
     def create_dev_token(payload: DevTokenRequest, db: Database) -> DevTokenOut:

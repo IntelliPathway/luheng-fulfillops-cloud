@@ -25,14 +25,24 @@ def test_knowledge_version_requires_independent_review_and_retires_previous() ->
         self_review = client.post(
             f"/api/v1/knowledge/documents/{document['id']}/decision",
             headers=headers(),
-            json={"decision": "approve", "expected_version": 1, "review_note": "尝试自行复核知识版本", "acknowledged": True},
+            json={
+                "decision": "approve",
+                "expected_version": 1,
+                "review_note": "尝试自行复核知识版本",
+                "acknowledged": True,
+            },
         )
         assert self_review.status_code == 409
 
         approved = client.post(
             f"/api/v1/knowledge/documents/{document['id']}/decision",
             headers=headers("test-user"),
-            json={"decision": "approve", "expected_version": 1, "review_note": "已核对政策来源和内容摘要", "acknowledged": True},
+            json={
+                "decision": "approve",
+                "expected_version": 1,
+                "review_note": "已核对政策来源和内容摘要",
+                "acknowledged": True,
+            },
         )
         assert approved.status_code == 200, approved.text
         assert approved.json()["status"] == "published"
@@ -46,7 +56,12 @@ def test_knowledge_version_requires_independent_review_and_retires_previous() ->
         client.post(
             f"/api/v1/knowledge/documents/{second['id']}/decision",
             headers=headers("test-user"),
-            json={"decision": "approve", "expected_version": 2, "review_note": "新版来源和摘要均已独立核验", "acknowledged": True},
+            json={
+                "decision": "approve",
+                "expected_version": 2,
+                "review_note": "新版来源和摘要均已独立核验",
+                "acknowledged": True,
+            },
         )
         rows = client.get("/api/v1/knowledge/documents", headers=headers()).json()
         assert {row["status"] for row in rows} == {"published", "retired"}
