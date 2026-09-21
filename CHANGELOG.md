@@ -1,6 +1,6 @@
 # 变更记录
 
-本项目按语义版本维护。详细验收证据见各版本 `RELEASE_*.md`。
+本项目按语义版本维护。当前版本入口见 [RELEASE.md](RELEASE.md)，详细验收证据见 [发布历史](docs/releases/README.md)。
 
 ## [1.5.0] - 2026-09-20
 
@@ -165,14 +165,4 @@
 
 ## 历史版本
 
-- [0.12.0](RELEASE_v0.12.0.md)：服务端签约与分期履约台账；
-- [0.11.0](RELEASE_v0.11.0.md)：保护事件与异常处置、ECS/1Panel 栈；
-- [0.10.0](RELEASE_v0.10.0.md)：Maker–Checker 回执对账；
-- [0.9.0](RELEASE_v0.9.0.md)：验签回执与不可变财务账簿；
-- [0.8.0](RELEASE_v0.8.0.md)：受控模型 Gateway；
-- [0.7.0](RELEASE_v0.7.0.md)：OIDC、AWS Secrets Manager 与安全回放；
-- [0.6.0](RELEASE_v0.6.0.md)：密钥信封与 PostgreSQL 通知；
-- [0.5.0](RELEASE_v0.5.0.md)：持久作业和独立 Worker；
-- [0.4.0](RELEASE_v0.4.0.md)：DeepSeek Harness 安全桥；
-- [0.3.0](RELEASE_v0.3.0.md)：RBAC、Agent 会话与持久作业基础；
-- [0.2.0 之前](RELEASE_v0.3.0.md)：原型与首个后端基线。
+- [完整逐版本发布历史](docs/releases/README.md)：v0.3.0 至当前版本的发布与验收证据。

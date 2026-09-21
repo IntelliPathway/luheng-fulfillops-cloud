@@ -168,7 +168,7 @@ flowchart TB
 | [运维手册](docs/operations-runbook.md) | 运维、交付 | 启停、发布、备份和故障处置 |
 | [安全策略](SECURITY.md) | 安全、研发 | 密钥、认证、隔离和上线检查 |
 | [贡献指南](CONTRIBUTING.md) | 开发者 | 代码风格、测试和提交标准 |
-| [v1.5 发布说明](RELEASE_v1.5.0.md) | 发布与验收 | 受控试点与规模查询基线 |
+| [当前发布说明](RELEASE.md) | 发布与验收 | 当前版本摘要与历史发布索引 |
 | [v1.5 进展评估](docs/v1.5-progress-assessment.md) | 产品、架构、交付 | 完成度、边界和后续优先级 |
 | [人工确认备忘录](docs/manual-confirmation-memo.md) | 交付、合规、运维 | 联调与上线前待确认事项 |
 

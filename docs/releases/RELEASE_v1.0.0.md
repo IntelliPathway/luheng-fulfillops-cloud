@@ -20,4 +20,4 @@
 - `v0.19` 的 ECS/1Panel 生产部署未纳入本次开发链，不影响 v1.0 代码基线的完成；
 - Sites 仅用于静态交互演示，不承载 FastAPI、Worker 或生产数据。
 
-需外部资源或人工决策的事项统一记录在 [人工确认备忘录](docs/manual-confirmation-memo.md)。
+需外部资源或人工决策的事项统一记录在 [人工确认备忘录](../manual-confirmation-memo.md)。

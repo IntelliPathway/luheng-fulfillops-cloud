@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
-import {existsSync,readFileSync} from 'node:fs';
+import {existsSync,readdirSync,readFileSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const releaseDocs=readdirSync(resolve(projectRoot,'docs/releases'))
+  .filter(name=>name.endsWith('.md'))
+  .map(name=>'docs/releases/'+name);
 const stableDocs=[
   'README.md',
+  'RELEASE.md',
   'docs/README.md',
   'docs/brand-guide.md',
   'docs/product-functional-spec.md',
@@ -16,6 +20,7 @@ const stableDocs=[
   'deploy/1panel/README.md',
   'SECURITY.md',
   'CONTRIBUTING.md',
+  ...releaseDocs,
 ];
 
 test('keeps every stable documentation entry present',()=>{
