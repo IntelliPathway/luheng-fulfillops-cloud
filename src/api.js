@@ -170,6 +170,7 @@ export const operationsApi = {
   metrics: tenant => request('/observability/metrics', tenant),
   providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
   dailyClose: tenant => request('/provider-operations/daily-close', tenant),
+  workQueue: (tenant,limit=100) => request(`/operations/work-queue${queryString({limit})}`,tenant),
   auditEvents: (tenant,{query='',actionPrefix='',limit=100}={}) => {
     const params=new URLSearchParams({limit:String(limit)});
     if(query)params.set('query',query);
