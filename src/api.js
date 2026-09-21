@@ -169,6 +169,12 @@ export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   metrics: tenant => request('/observability/metrics', tenant),
   providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
+  auditEvents: (tenant,{query='',actionPrefix='',limit=100}={}) => {
+    const params=new URLSearchParams({limit:String(limit)});
+    if(query)params.set('query',query);
+    if(actionPrefix)params.set('action_prefix',actionPrefix);
+    return request(`/governance/audit-events?${params}`,tenant);
+  },
 };
 
 export const membershipApi = {
@@ -239,8 +245,12 @@ const activityPayload = form => ({
 });
 
 export const activityApi = {
+  list: tenant => request('/activities', tenant),
   preflight: (tenant, form) => request('/activities/preflight', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
   create: (tenant, form) => request('/activities', tenant, {method: 'POST', body: JSON.stringify(activityPayload(form))}),
+  transition: (tenant, activityId, status, reason) => request(`/activities/${encodeURIComponent(activityId)}/transition`, tenant, {
+    method: 'POST', body: JSON.stringify({status, reason, acknowledged: true}),
+  }),
 };
 
 export function normalizeCatalogPackage(item, tenant) {

@@ -2,6 +2,18 @@
 
 本项目按语义版本维护。当前版本入口见 [RELEASE.md](RELEASE.md)，详细验收证据见 [发布历史](docs/releases/README.md)。
 
+## [1.6.0] - 2026-09-21
+
+### Added
+
+- 活动列表、暂停和恢复切换为服务端权威状态并写入审计证据；
+- 租户审计查询、真实 CSV 导出和 AI 指挥台；
+- 成员 Maker–Checker、联系任务和人工接管集中工作台。
+
+### Experience
+
+- 延续 BoardUI 视觉体系，以证据摘要和决策队列强化 AI-native 体验。
+
 ## [1.5.0] - 2026-09-20
 
 ### Added

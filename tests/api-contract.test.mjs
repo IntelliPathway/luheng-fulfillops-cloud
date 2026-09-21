@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload} from '../src/api.js';
+
+test('loads and transitions server-authoritative activities', async () => {
+  const calls=[]; const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>[]}};
+  try {
+    await activityApi.list('TENANT_A');
+    await activityApi.transition('TENANT_A','ACT-001','paused','人工检查当前执行证据');
+  } finally { globalThis.fetch=originalFetch; }
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/activities','/api/v1/activities/ACT-001/transition']);
+  assert.equal(JSON.parse(calls[1].options.body).acknowledged,true);
+});
 
 test('creates governed contact tasks and human handoffs without dialing directly', async () => {
   const calls=[]; const originalFetch=globalThis.fetch;

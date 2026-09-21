@@ -53,6 +53,7 @@ from .financial_ledger import (
     record_commission_event,
     sign_payment_webhook,
 )
+from .governance_routes import router as governance_router
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
@@ -112,6 +113,7 @@ from .schemas import (
     ActivityOut,
     ActivityPreflightOut,
     ActivityRequest,
+    ActivityTransitionRequest,
     AgentGatewayOut,
     AgentMessageRequest,
     AgentRuntimeOut,
@@ -309,6 +311,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(membership_router)
     app.include_router(contact_router)
     app.include_router(provider_operation_router)
+    app.include_router(governance_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
@@ -1741,6 +1744,44 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
             select(Activity).where(Activity.tenant_id == context.tenant_id).order_by(Activity.created_at.desc())
         )
         return [ActivityOut.model_validate(row) for row in rows]
+
+    @app.post("/api/v1/activities/{activity_id}/transition", response_model=ActivityOut, tags=["activities"])
+    def transition_activity(
+        activity_id: str, payload: ActivityTransitionRequest, context: Context, db: Database
+    ) -> ActivityOut:
+        require_role(context, "operator", "admin")
+        if not payload.acknowledged:
+            raise HTTPException(status_code=422, detail="必须确认活动状态变更及其业务影响")
+        activity = db.scalar(
+            select(Activity).where(Activity.tenant_id == context.tenant_id, Activity.activity_id == activity_id)
+        )
+        if not activity:
+            raise HTTPException(status_code=404, detail="活动不存在")
+        if activity.status in {"blocked", "completed"}:
+            raise HTTPException(status_code=409, detail="保护暂停或已完成活动不能直接变更状态")
+        if payload.status == "running":
+            blocked = db.scalar(
+                select(func.count(CaseRecord.id)).where(
+                    CaseRecord.tenant_id == context.tenant_id,
+                    CaseRecord.case_id.in_(activity.case_ids),
+                    CaseRecord.blocked.is_(True),
+                )
+            )
+            if blocked:
+                raise HTTPException(status_code=409, detail="活动包含保护案件，不能恢复运行")
+        previous = activity.status
+        activity.status = payload.status
+        audit(
+            db,
+            context,
+            "activity.transitioned",
+            "activity",
+            activity.activity_id,
+            {"from": previous, "to": payload.status, "reason": payload.reason},
+        )
+        db.commit()
+        db.refresh(activity)
+        return ActivityOut.model_validate(activity)
 
     return app
 

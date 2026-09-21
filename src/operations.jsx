@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useEffect,useState} from 'react';
 import {
   ArrowRight,ArrowUpRight,Brain,ChartBar,CheckCircle,Circle,Clock,
   Database,Files,Flask,GearSix,Pause,Play,Receipt,Robot,ShieldCheck,
@@ -6,8 +6,9 @@ import {
 } from '@phosphor-icons/react';
 import {useApp} from './context';
 import {AgentCommand} from './ai';
+import {operationsApi} from './api';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,PageHead,Search,Tabs} from './ui';
-import {money} from './model';
+import {downloadCSV,money} from './model';
 
 const sum=(rows,key)=>Math.round(rows.reduce((total,row)=>total+(Number(row[key])||0),0)*100)/100;
 
@@ -95,9 +96,16 @@ export function Logs(){
   const a=useApp();
   const [query,setQuery]=useState('');
   const [tab,setTab]=useState('全部');
+  const [auditRows,setAuditRows]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const prefix=tab==='Agent 决策'?'agent.':tab==='账务事件'?'payment.':tab==='异常与阻断'?'protection.':'';
+  useEffect(()=>{if(a.backendStatus!=='connected')return;let active=true;setLoading(true);const timer=setTimeout(()=>operationsApi.auditEvents(a.tenant,{query,actionPrefix:prefix,limit:200}).then(rows=>active&&setAuditRows(rows)).catch(error=>a.notify(`审计记录读取失败：${error.message}`)).finally(()=>active&&setLoading(false)),180);return()=>{active=false;clearTimeout(timer)}},[a.backendStatus,a.tenant,query,prefix]);
   const rows=a.events.filter(event=>event.tenant===a.tenant&&(event.caseId+event.title+event.detail+event.tool+event.runId).toLowerCase().includes(query.toLowerCase())&&(tab==='全部'||(tab==='异常与阻断'?event.type==='exception':tab==='账务事件'?event.type==='payment':event.actor==='Hermes Agent')));
-  return <><PageHead title="运行记录" description="按 Run、步骤、动作和工具追溯 AI 的业务行为。"><Button onClick={()=>a.notify('当前筛选的审计记录已导出为演示文件')}>导出审计</Button></PageHead><Tabs value={tab} onChange={setTab} items={['全部','Agent 决策','账务事件','异常与阻断']}/><div className="table-toolbar"><Search value={query} onChange={setQuery} placeholder="搜索 Run ID、案件、工具或结果…"/><span className="muted small">保留事实摘要，不记录私密思维链</span></div><RunRowsCustom rows={rows} a={a}/></>;
+  const exportRows=()=>{const source=a.backendStatus==='connected'?auditRows:rows;downloadCSV('履约智控审计记录.csv',['时间','主体','动作','资源类型','资源编号','证据摘要'],source.map(row=>a.backendStatus==='connected'?[row.created_at,row.actor_id,row.action,row.resource_type,row.resource_id,JSON.stringify(row.detail)]:[row.time,row.actor,row.tool,row.type,row.caseId,row.detail]));a.notify(`已导出 ${source.length} 条审计记录`)};
+  return <><PageHead title="运行记录" description="服务端审计事件与 Agent 工具证据统一追溯。"><span className="sync-label"><span className="live-dot"/>{a.backendStatus==='connected'?'服务端审计账本':'离线演示记录'}</span><Button onClick={exportRows}>导出审计</Button></PageHead><Tabs value={tab} onChange={setTab} items={['全部','Agent 决策','账务事件','异常与阻断']}/><div className="table-toolbar"><Search value={query} onChange={setQuery} placeholder="搜索动作、资源、主体或编号…"/><span className="muted small">{loading?'正在读取…':'保留事实摘要，不记录私密思维链'}</span></div>{a.backendStatus==='connected'?<AuditRows rows={auditRows}/>:<RunRowsCustom rows={rows} a={a}/>}</>;
 }
+
+function AuditRows({rows}){return <><div className="table-scroll"><table className="data-table trace-table"><thead><tr><th>时间 / 事件</th><th>执行主体</th><th>动作</th><th>资源</th><th>证据摘要</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td><b>{new Date(row.created_at).toLocaleString('zh-CN',{hour12:false})}</b><small>{row.id}</small></td><td>{row.actor_id}</td><td><code>{row.action}</code></td><td>{row.resource_type}<small>{row.resource_id}</small></td><td><small className="audit-detail">{Object.entries(row.detail||{}).map(([key,value])=>`${key}: ${String(value)}`).join(' · ')||'—'}</small></td></tr>)}</tbody></table></div>{!rows.length&&<Empty title="暂无匹配审计事件" description="关键写操作将在这里形成租户隔离的服务端证据。"/>}</>}
 
 function RunRowsCustom({rows,a}){
   return <><div className="table-scroll"><table className="data-table trace-table"><thead><tr><th>时间 / ID</th><th>案件</th><th>执行主体</th><th>工具 / 结果</th><th>版本</th><th>耗时 / 成本</th><th/></tr></thead><tbody>{rows.map(event=><tr key={event.id}><td><b>{event.time}</b><small>{event.stepId} · {event.actionId}</small></td><td><button className="text-link" onClick={()=>a.openCase(event.caseId)}>{event.caseId}</button><small>{event.runId}</small></td><td>{event.actor}</td><td><code>{event.tool}</code><small>{event.title} · {event.status}</small></td><td>{event.version}</td><td>{event.latency}<small>{event.cost}</small></td><td><button className="text-link" onClick={()=>a.openCase(event.caseId,'记录')}>证据 <ArrowUpRight size={13}/></button></td></tr>)}</tbody></table></div>{!rows.length&&<Empty/>}</>;

@@ -176,6 +176,31 @@ def test_cross_tenant_case_ids_never_enter_an_activity(client: TestClient) -> No
     assert result["excluded"] == [{"case_id": "C008", "reason": "案件不存在或不属于当前租户资产包"}]
 
 
+def test_activity_list_and_transitions_are_server_authoritative(client: TestClient) -> None:
+    rows = client.get("/api/v1/activities", headers=headers()).json()
+    activity = next(row for row in rows if row["status"] == "running")
+    paused = client.post(
+        f"/api/v1/activities/{activity['activity_id']}/transition",
+        headers=headers(role="operator"),
+        json={"status": "paused", "reason": "人工检查当前执行证据", "acknowledged": True},
+    )
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["status"] == "paused"
+    resumed = client.post(
+        f"/api/v1/activities/{activity['activity_id']}/transition",
+        headers=headers(role="operator"),
+        json={"status": "running", "reason": "检查完成且案件保护状态正常", "acknowledged": True},
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["status"] == "running"
+
+    audit_rows = client.get(
+        "/api/v1/governance/audit-events?action_prefix=activity.", headers=headers()
+    ).json()
+    assert any(row["resource_id"] == activity["activity_id"] for row in audit_rows)
+    assert all(row["action"].startswith("activity.") for row in audit_rows)
+
+
 def test_role_is_resolved_from_membership_not_forged_header(client: TestClient) -> None:
     viewer_headers = headers(role="viewer")
     viewer_headers["X-Role"] = "admin"

@@ -363,6 +363,12 @@ class ActivityRequest(BaseModel):
     requested_mode: Literal["auto", "sandbox", "channel"] = "auto"
 
 
+class ActivityTransitionRequest(BaseModel):
+    status: Literal["running", "paused"]
+    reason: str = Field(min_length=4, max_length=240)
+    acknowledged: bool
+
+
 class ExcludedCase(BaseModel):
     case_id: str
     reason: str
@@ -403,6 +409,18 @@ class HealthOut(BaseModel):
     status: str
     service: str
     version: str
+
+
+class AuditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    actor_id: str
+    action: str
+    resource_type: str
+    resource_id: str
+    detail: dict[str, Any]
+    created_at: datetime
 
 
 class AuthSessionOut(BaseModel):
