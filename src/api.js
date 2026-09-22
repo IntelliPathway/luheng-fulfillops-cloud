@@ -167,6 +167,7 @@ export const securityApi = {
 
 export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
+  releaseGate: tenant => request('/pilot/release-gate', tenant),
   metrics: tenant => request('/observability/metrics', tenant),
   providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
   dailyClose: tenant => request('/provider-operations/daily-close', tenant),

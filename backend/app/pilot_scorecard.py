@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -80,4 +81,67 @@ def build_pilot_scorecard(db: Session, tenant_id: str) -> dict:
             "maker-checker review queues",
             "signed telephony events",
         ],
+    }
+
+
+def build_release_gate(db: Session, tenant_id: str) -> dict:
+    def enabled(name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        return default if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
+
+    database = db.get_bind().dialect.name
+    auth_mode = os.getenv("AUTH_MODE", "development")
+    cors = [value.strip() for value in os.getenv("CORS_ORIGINS", "").split(",") if value.strip()]
+    checks = [
+        {"id": "database", "label": "PostgreSQL 生产数据库", "status": database == "postgresql", "detail": database},
+        {
+            "id": "oidc",
+            "label": "企业 OIDC",
+            "status": auth_mode == "oidc" and bool(os.getenv("OIDC_ISSUER")) and bool(os.getenv("OIDC_JWKS_URL")),
+            "detail": auth_mode,
+        },
+        {
+            "id": "dev-auth",
+            "label": "开发身份关闭",
+            "status": not enabled("ALLOW_DEV_HEADER_AUTH", True) and not enabled("ALLOW_DEV_TOKEN", True),
+            "detail": "fail-closed" if not enabled("ALLOW_DEV_HEADER_AUTH", True) else "development enabled",
+        },
+        {
+            "id": "https",
+            "label": "HTTPS 与 CORS",
+            "status": bool(cors) and all(value.startswith("https://") for value in cors),
+            "detail": ", ".join(cors) or "not configured",
+        },
+        {
+            "id": "runtime-secret",
+            "label": "Runtime JWT 密钥",
+            "status": len(os.getenv("RUNTIME_JWT_SECRET", "")) >= 32,
+            "detail": "configured" if os.getenv("RUNTIME_JWT_SECRET") else "missing",
+        },
+        {
+            "id": "seed",
+            "label": "演示数据关闭",
+            "status": not enabled("SEED_DEMO_DATA"),
+            "detail": "disabled" if not enabled("SEED_DEMO_DATA") else "enabled",
+        },
+        {
+            "id": "migration",
+            "label": "禁止自动建表",
+            "status": not enabled("AUTO_CREATE_SCHEMA", True),
+            "detail": "versioned migrations" if not enabled("AUTO_CREATE_SCHEMA", True) else "auto create enabled",
+        },
+    ]
+    external = [
+        {"id": "identity", "label": "企业身份与成员映射", "status": "manual_confirmation"},
+        {"id": "compliance", "label": "联系与录音合规批准", "status": "manual_confirmation"},
+        {"id": "providers", "label": "模型、通信与支付 Provider", "status": "manual_confirmation"},
+        {"id": "recovery", "label": "备份恢复与告警演练", "status": "manual_confirmation"},
+    ]
+    passed = sum(item["status"] is True for item in checks)
+    return {
+        "tenant_id": tenant_id,
+        "generated_at": datetime.now(UTC),
+        "status": "ready_for_manual_acceptance" if passed == len(checks) else "blocked",
+        "automated": {"passed": passed, "total": len(checks), "checks": checks},
+        "external": external,
     }

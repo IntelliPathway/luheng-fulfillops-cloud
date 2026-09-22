@@ -19,3 +19,19 @@ def test_pilot_scorecard_uses_tenant_scoped_authoritative_sources() -> None:
         assert "sources" in tenant_a.json()
         assert tenant_b.json()["money"]["confirmed_net_recovery_cents"] == 80_000
         assert tenant_b.json()["money"] != tenant_a.json()["money"]
+
+
+def test_release_gate_fails_closed_in_development() -> None:
+    app = create_app("sqlite:///:memory:")
+    with TestClient(app) as client:
+        response = client.get("/api/v1/pilot/release-gate", headers=headers("TENANT_A"))
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "blocked"
+        assert payload["automated"]["passed"] < payload["automated"]["total"]
+        assert {item["id"] for item in payload["external"]} == {
+            "identity",
+            "compliance",
+            "providers",
+            "recovery",
+        }

@@ -1,0 +1,40 @@
+name: RepayGuard AI Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@v4
+
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build API image
+        run: docker build -f backend/Dockerfile -t repayguard-api:scan backend
+      - name: Scan critical and high vulnerabilities
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: repayguard-api:scan
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true

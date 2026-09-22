@@ -2,6 +2,18 @@
 
 本项目按语义版本维护。当前版本入口见 [RELEASE.md](RELEASE.md)，详细验收证据见 [发布历史](docs/releases/README.md)。
 
+## [2.1.0] - 2026-09-22
+
+### Added
+
+- 服务端生产发布门禁，验证数据库、OIDC、开发身份、HTTPS/CORS、运行密钥、演示种子与迁移模式；
+- 试点验收页展示自动门禁与人工确认项；
+- CodeQL SAST 与 Trivy 容器漏洞扫描工作流。
+
+### Reliability
+
+- 生产条件不足时明确返回 blocked，不以开发环境结果替代生产验收。
+
 ## [2.0.0] - 2026-09-21
 
 ### Added

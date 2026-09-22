@@ -62,9 +62,9 @@ test('loads pilot evidence from tenant-scoped operational endpoints', async () =
   const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({status:'ready'})}};
   try {
-    await Promise.all([operationsApi.pilotScorecard('TENANT_A'),operationsApi.metrics('TENANT_A'),operationsApi.workQueue('TENANT_A')]);
+    await Promise.all([operationsApi.pilotScorecard('TENANT_A'),operationsApi.metrics('TENANT_A'),operationsApi.workQueue('TENANT_A'),operationsApi.releaseGate('TENANT_A')]);
   } finally { globalThis.fetch=originalFetch; }
-  assert.deepEqual(calls.map(call=>call.url),['/api/v1/pilot/scorecard','/api/v1/observability/metrics','/api/v1/operations/work-queue?limit=100']);
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/pilot/scorecard','/api/v1/observability/metrics','/api/v1/operations/work-queue?limit=100','/api/v1/pilot/release-gate']);
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
 });
 
