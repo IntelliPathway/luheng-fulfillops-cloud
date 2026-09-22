@@ -218,6 +218,11 @@ export const telephonyApi = {
   events: (tenant, limit=100) => request(`/telephony/events${queryString({limit})}`, tenant),
 };
 
+export const harnessApi = {
+  catalog: tenant => request('/harnesses/catalog',tenant),
+  leaderboard: tenant => request('/harnesses/leaderboard',tenant),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

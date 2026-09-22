@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, telephonyApi} from '../src/api.js';
+import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, telephonyApi} from '../src/api.js';
+
+test('loads harness catalog and evidence-based leaderboard',async()=>{
+  const calls=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({results:[]})}};
+  try{await harnessApi.catalog('TENANT_A');await harnessApi.leaderboard('TENANT_A')}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/harnesses/catalog','/api/v1/harnesses/leaderboard']);
+  assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
+});
 
 test('governs knowledge versions and loads daily financial close', async () => {
   const calls=[]; const originalFetch=globalThis.fetch;

@@ -55,6 +55,7 @@ from .financial_ledger import (
     sign_payment_webhook,
 )
 from .governance_routes import router as governance_router
+from .harness_evaluation_routes import router as harness_evaluation_router
 from .harness_runtime import close_harness_runtimes
 from .job_queue import clear_job_lease, queue_health, should_execute_inline
 from .jobs import TERMINAL_JOB_STATUSES, enqueue_job, execute_job
@@ -317,6 +318,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(governance_router)
     app.include_router(knowledge_router)
     app.include_router(operation_router)
+    app.include_router(harness_evaluation_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

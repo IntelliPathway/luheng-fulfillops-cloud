@@ -2,6 +2,18 @@
 
 本项目按语义版本维护。当前版本入口见 [RELEASE.md](RELEASE.md)，详细验收证据见 [发布历史](docs/releases/README.md)。
 
+## [2.3.0] - 2026-09-22
+
+### Added
+
+- Hermes、DeepSeek Harness、LangGraph、AgentScope 与 Pi Agent 适配目录；
+- 按质量、可靠性与成本效率生成租户级 Harness 排行和推荐；
+- 策略评估页展示支持状态、回放样本量和生产资格。
+
+### Safety
+
+- 无回放证据时不生成推荐，生产启用仍要求最少样本与管理员确认。
+
 ## [2.2.0] - 2026-09-22
 
 ### Added
