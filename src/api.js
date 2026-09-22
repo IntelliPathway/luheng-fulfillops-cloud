@@ -234,6 +234,15 @@ export const strategyExperimentApi = {
   }),
 };
 
+export const platformApi = {
+  subscription: tenant => request('/platform/subscription', tenant),
+  usage: tenant => request('/platform/usage', tenant),
+  capabilities: tenant => request('/platform/capabilities', tenant),
+  updateSubscription: (tenant, planCode, expectedVersion) => request('/platform/subscription', tenant, {
+    method: 'PUT', body: JSON.stringify({plan_code: planCode, expected_version: expectedVersion, acknowledged: true}),
+  }),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

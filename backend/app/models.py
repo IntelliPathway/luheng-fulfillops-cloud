@@ -62,6 +62,21 @@ class TenantMembership(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class TenantPlan(Base):
+    __tablename__ = "tenant_plans"
+
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
+    plan_code: Mapped[str] = mapped_column(String(24), default="team", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    seat_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    monthly_run_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    monthly_budget_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    features: Mapped[list[str]] = mapped_column(JSON, default=list)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class MembershipProposal(Base):
     __tablename__ = "membership_proposals"
     __table_args__ = (

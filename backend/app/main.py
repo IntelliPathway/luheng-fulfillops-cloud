@@ -96,6 +96,7 @@ from .models import (
 from .observability import Telemetry, observe_request
 from .operation_routes import router as operation_router
 from .pilot_routes import router as pilot_router
+from .platform_routes import router as platform_router
 from .policy_routes import router as policy_router
 from .protection_workflow import (
     ProtectionWorkflowError,
@@ -321,6 +322,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(operation_router)
     app.include_router(harness_evaluation_router)
     app.include_router(strategy_experiment_router)
+    app.include_router(platform_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

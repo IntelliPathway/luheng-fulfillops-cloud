@@ -6,7 +6,7 @@ import {
 } from '@phosphor-icons/react';
 import {useApp} from './context';
 import {AgentCommand} from './ai';
-import {harnessApi,knowledgeApi,operationsApi,strategyExperimentApi} from './api';
+import {harnessApi,knowledgeApi,operationsApi,platformApi,strategyExperimentApi} from './api';
 import {Badge,Button,Empty,Field,KeyValue,Metrics,PageHead,Search,Tabs} from './ui';
 import {downloadCSV,money} from './model';
 
@@ -145,7 +145,12 @@ function BookOpenCard({icon:Icon,value,label}){return <span><Icon size={19}/><b>
 export function Usage(){
   const a=useApp();
   const [tab,setTab]=useState('服务用量');
-  return <><PageHead title="用量与账单" description="按 Agent、模型、语音和电话归集成本，并计算净贡献。"/><div className="plan-surface"><div><span className="plan-tag">Team</span><h2>{a.organization[a.tenant]} 的工作空间计划</h2><p>多资产包 · 自主 Agent · ChatBI · 回款与佣金核对</p></div><Badge>演示计划</Badge></div><Tabs value={tab} onChange={setTab} items={['服务用量','账单记录']}/>{tab==='账单记录'?<Empty title="暂无计费账单" description="当前为演示环境，模拟操作不会产生真实费用。"/>:<><Metrics items={[["Agent 运行",18,'Run'],["模型调用",146,'次'],["语音时长",0,'分钟'],["直接运营成本",money(42.6),'模拟估算']]}/><div className="service-row"><Brain size={22}/><span><b>{a.agentGateway.provider} 与模型服务</b><small>按 Run、Token、工具、检查点和版本归集；当前为沙箱估算。</small></span><Badge status="neutral">¥18.40</Badge></div><div className="service-row"><Receipt size={22}/><span><b>经营贡献</b><small>应计佣金 ¥2,778 − 模拟直接成本 ¥42.60。</small></span><strong>{money(2735.4)}</strong></div></>}</>;
+  const [control,setControl]=useState(null);
+  useEffect(()=>{if(a.backendStatus!=='connected')return;let active=true;Promise.all([platformApi.subscription(a.tenant),platformApi.usage(a.tenant),platformApi.capabilities(a.tenant)]).then(([subscription,usage,capabilities])=>active&&setControl({subscription,usage,capabilities})).catch(error=>a.notify(`套餐与用量读取失败：${error.message}`));return()=>{active=false}},[a.backendStatus,a.tenant]);
+  const plan=control?.subscription;
+  const meters=control?.usage?.meters;
+  const features=Object.entries(control?.capabilities?.capabilities||{}).filter(([,enabled])=>enabled).map(([key])=>key);
+  return <><PageHead title="用量与账单" description="套餐权益、资源配额和 AI 运营成本由租户控制面统一计量。"/><div className="plan-surface"><div><span className="plan-tag">{plan?.plan_code?.toUpperCase()||'TEAM'}</span><h2>{a.organization[a.tenant]} 的工作空间计划</h2><p>{features.length?features.join(' · '):'多资产包 · 自主 Agent · 回款与佣金核对'}</p></div><Badge status={control?.usage?.hard_limit_reached?'blocked':'completed'}>{control?.usage?.hard_limit_reached?'已达限额':plan?'权益生效':'演示计划'}</Badge></div><Tabs value={tab} onChange={setTab} items={['服务用量','账单记录']}/>{tab==='账单记录'?<Empty title="暂无计费账单" description="账单结算接口尚未启用；当前展示权威资源计量，不产生自动扣款。"/>:<><Metrics items={meters?[["Agent 运行",meters.agent_runs.used,`/ ${meters.agent_runs.limit}`],["活跃席位",meters.seats.used,`/ ${meters.seats.limit}`],["托管案件",meters.managed_cases.used,'件'],["模型预算",money(meters.model_budget_cents.used/100),`/ ${money(meters.model_budget_cents.limit/100)}`]]:[["Agent 运行",18,'Run'],["模型调用",146,'次'],["语音时长",0,'分钟'],["直接运营成本",money(42.6),'模拟估算']]}/><div className="service-row"><Brain size={22}/><span><b>{a.agentGateway.provider} 与模型服务</b><small>按租户、月份、Run、模型回放和预算上限统一归集。</small></span><Badge status="neutral">{control?.usage?.period||'沙箱'}</Badge></div><div className="service-row"><Receipt size={22}/><span><b>商业化控制面</b><small>套餐版本、能力开关与配额由服务端权威返回，浏览器不自行提升权益。</small></span><strong>v{plan?.version??0}</strong></div></>}</>;
 }
 
 export function Settings(){
