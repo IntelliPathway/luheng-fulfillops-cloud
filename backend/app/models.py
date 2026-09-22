@@ -139,6 +139,34 @@ class PolicyProposal(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class StrategyExperiment(Base):
+    __tablename__ = "strategy_experiments"
+    __table_args__ = (
+        Index("ix_strategy_experiments_tenant_status", "tenant_id", "status", "created_at"),
+        ForeignKeyConstraint(["tenant_id", "package_id"], ["asset_packages.tenant_id", "asset_packages.package_id"]),
+        CheckConstraint("status IN ('draft','running','stopped')", name="ck_strategy_experiments_status"),
+        CheckConstraint("allocation_bps BETWEEN 100 AND 5000", name="ck_strategy_experiments_allocation"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("EXP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    package_id: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    hypothesis: Mapped[str] = mapped_column(Text, nullable=False)
+    control_policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    allocation_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    success_metric: Mapped[str] = mapped_column(String(40), default="confirmed_recovery_rate")
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    started_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    stopped_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaseRecord(Base):
     __tablename__ = "cases"
     __table_args__ = (

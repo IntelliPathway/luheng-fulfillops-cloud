@@ -223,6 +223,17 @@ export const harnessApi = {
   leaderboard: tenant => request('/harnesses/leaderboard',tenant),
 };
 
+export const strategyExperimentApi = {
+  list: tenant => request('/strategy-experiments', tenant),
+  results: (tenant, id) => request(`/strategy-experiments/${id}/results`, tenant),
+  create: (tenant, payload) => request('/strategy-experiments', tenant, {
+    method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  transition: (tenant, id, action, expectedVersion) => request(`/strategy-experiments/${id}/transition`, tenant, {
+    method: 'POST', body: JSON.stringify({action, expected_version: expectedVersion, acknowledged: true}),
+  }),
+};
+
 export const agentApi = {
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),

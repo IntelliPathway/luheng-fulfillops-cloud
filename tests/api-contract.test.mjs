@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, telephonyApi} from '../src/api.js';
+import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, protectionApi, repaymentApi, securityApi, servicePayload, strategyExperimentApi, telephonyApi} from '../src/api.js';
 
 test('loads harness catalog and evidence-based leaderboard',async()=>{
   const calls=[];const originalFetch=globalThis.fetch;
@@ -8,6 +8,14 @@ test('loads harness catalog and evidence-based leaderboard',async()=>{
   try{await harnessApi.catalog('TENANT_A');await harnessApi.leaderboard('TENANT_A')}finally{globalThis.fetch=originalFetch}
   assert.deepEqual(calls.map(call=>call.url),['/api/v1/harnesses/catalog','/api/v1/harnesses/leaderboard']);
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
+});
+
+test('uses governed strategy experiment endpoints',async()=>{
+  const calls=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>[]}};
+  try{await strategyExperimentApi.list('TENANT_A');await strategyExperimentApi.transition('TENANT_A','EXP-1','start',1)}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/strategy-experiments','/api/v1/strategy-experiments/EXP-1/transition']);
+  assert.deepEqual(JSON.parse(calls[1].options.body),{action:'start',expected_version:1,acknowledged:true});
 });
 
 test('governs knowledge versions and loads daily financial close', async () => {

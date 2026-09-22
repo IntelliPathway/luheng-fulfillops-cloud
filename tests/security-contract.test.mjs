@@ -15,7 +15,7 @@ test('generates a CycloneDX inventory for frontend and backend dependencies',asy
     assert.equal(result.status,0,result.stderr);
     const bom=JSON.parse(await readFile(output,'utf8'));
     assert.equal(bom.bomFormat,'CycloneDX');
-    assert.equal(bom.metadata.component.version,'2.3.0');
+    assert.equal(bom.metadata.component.version,'2.4.0');
     assert.ok(bom.components.some(item=>item.purl.startsWith('pkg:npm/react@')));
     assert.ok(bom.components.some(item=>item.purl.startsWith('pkg:pypi/fastapi@')));
     assert.equal(JSON.stringify(bom).includes('github_pat_'),false);
