@@ -5,6 +5,7 @@ from .audit import audit
 from .contact_orchestration import (
     ContactOrchestrationError,
     cancel_contact_attempt,
+    channel_policies,
     create_contact_attempt,
     request_handoff,
     retry_contact_attempt,
@@ -15,6 +16,7 @@ from .schemas import (
     ContactAttemptCreateRequest,
     ContactAttemptOut,
     ContactCancelRequest,
+    ContactChannelPolicyOut,
     ContactHandoffRequest,
     ContactRetryRequest,
 )
@@ -36,6 +38,11 @@ def list_attempts(context: Context, db: Database, limit: int = Query(default=100
         .limit(limit)
     )
     return [ContactAttemptOut.model_validate(row) for row in rows]
+
+
+@router.get("/channels", response_model=list[ContactChannelPolicyOut])
+def list_channel_policies(context: Context, db: Database) -> list[ContactChannelPolicyOut]:
+    return [ContactChannelPolicyOut(**row) for row in channel_policies(db, context.tenant_id)]
 
 
 @router.post("", response_model=ContactAttemptOut, status_code=status.HTTP_201_CREATED)

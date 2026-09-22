@@ -198,6 +198,7 @@ export const membershipApi = {
 };
 
 export const contactApi = {
+  channels: tenant => request('/contact-attempts/channels',tenant),
   list: (tenant, limit = 100) => request(`/contact-attempts${queryString({limit})}`, tenant),
   create: (tenant, payload) => request('/contact-attempts', tenant, {
     method: 'POST', body: JSON.stringify({...payload, acknowledged: true}),

@@ -32,16 +32,18 @@ test('creates governed contact tasks and human handoffs without dialing directly
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({id:'CONTACT-1'})}};
   try {
     await contactApi.create('TENANT_A',{case_id:'C004',contact_reference:'CONTACT-REF-C004',scheduled_at:'2026-09-20T06:30:00Z'});
+    await contactApi.channels('TENANT_A');
     await contactApi.handoff('TENANT_A','CONTACT-1','manual explanation requested');
     await contactApi.cancel('TENANT_A','CONTACT-2','case state changed, stop the task');
     await contactApi.retry('TENANT_A','CONTACT-3','2026-09-21T06:30:00Z','line failed, retry safely');
     await telephonyApi.events('TENANT_A');
   } finally { globalThis.fetch=originalFetch; }
   assert.equal(calls[0].url,'/api/v1/contact-attempts');
-  assert.equal(calls[1].url,'/api/v1/contact-attempts/CONTACT-1/handoff');
-  assert.equal(calls[2].url,'/api/v1/contact-attempts/CONTACT-2/cancel');
-  assert.equal(calls[3].url,'/api/v1/contact-attempts/CONTACT-3/retry');
-  assert.equal(calls[4].url,'/api/v1/telephony/events?limit=100');
+  assert.equal(calls[1].url,'/api/v1/contact-attempts/channels');
+  assert.equal(calls[2].url,'/api/v1/contact-attempts/CONTACT-1/handoff');
+  assert.equal(calls[3].url,'/api/v1/contact-attempts/CONTACT-2/cancel');
+  assert.equal(calls[4].url,'/api/v1/contact-attempts/CONTACT-3/retry');
+  assert.equal(calls[5].url,'/api/v1/telephony/events?limit=100');
   assert.equal(JSON.stringify(calls).includes('phone_number'),false);
 });
 

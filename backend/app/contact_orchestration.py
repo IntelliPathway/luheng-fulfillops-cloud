@@ -37,6 +37,7 @@ def create_contact_attempt(
     activity_id: str | None,
     contact_reference: str,
     scheduled_at: datetime,
+    channel: str = "phone",
 ) -> ContactAttempt:
     case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
     if not case:
@@ -45,12 +46,19 @@ def create_contact_attempt(
         raise ContactOrchestrationError("case_protected", "案件保护或终态禁止联系")
     if not case.contact_basis_ref:
         raise ContactOrchestrationError("contact_basis_missing", "案件缺少联系依据引用")
-    phone = db.scalar(
-        select(ServiceConfig).where(ServiceConfig.tenant_id == tenant_id, ServiceConfig.service_type == "phone")
-    )
     state = db.get(IntegrationState, tenant_id)
-    if not phone or not phone.connected or not state or not state.enabled:
-        raise ContactOrchestrationError("phone_not_ready", "电话服务尚未完成连接、自测与启用")
+    if channel == "phone":
+        phone = db.scalar(
+            select(ServiceConfig).where(ServiceConfig.tenant_id == tenant_id, ServiceConfig.service_type == "phone")
+        )
+        if not phone or not phone.connected or not state or not state.enabled:
+            raise ContactOrchestrationError("phone_not_ready", "电话服务尚未完成连接、自测与启用")
+    else:
+        sandbox_channels = {
+            item.strip() for item in os.getenv("COMMUNICATION_SANDBOX_CHANNELS", "sms,email").split(",") if item.strip()
+        }
+        if channel not in sandbox_channels:
+            raise ContactOrchestrationError("channel_not_ready", f"{channel} 渠道尚未启用沙箱", 503)
     daily_limit, start_hour, end_hour = _limits()
     scheduled = scheduled_at.astimezone(UTC).replace(tzinfo=None) if scheduled_at.tzinfo else scheduled_at
     if not start_hour <= scheduled.hour < end_hour:
@@ -76,6 +84,7 @@ def create_contact_attempt(
         case_id=case_id,
         activity_id=activity_id,
         contact_reference=contact_reference,
+        channel=channel,
         scheduled_at=scheduled,
         requested_by=actor_id,
     )
@@ -143,8 +152,41 @@ def retry_contact_attempt(
         activity_id=previous.activity_id,
         contact_reference=previous.contact_reference,
         scheduled_at=scheduled_at,
+        channel=previous.channel,
     )
     row.retry_of_id = previous.id
     row.handoff_reason = f"retry_reason:{reason}"
     db.flush()
     return row
+
+
+def channel_policies(db: Session, tenant_id: str) -> list[dict]:
+    daily, start, end = _limits()
+    state = db.get(IntegrationState, tenant_id)
+    phone = db.scalar(
+        select(ServiceConfig).where(ServiceConfig.tenant_id == tenant_id, ServiceConfig.service_type == "phone")
+    )
+    sandbox = {
+        item.strip() for item in os.getenv("COMMUNICATION_SANDBOX_CHANNELS", "sms,email").split(",") if item.strip()
+    }
+    rows = []
+    for channel in ("phone", "sms", "email"):
+        provider_ready = channel == "phone" and bool(phone and phone.connected and state and state.enabled)
+        sandbox_ready = channel != "phone" and channel in sandbox
+        mode = "provider" if provider_ready else "sandbox" if sandbox_ready else "disabled"
+        rows.append(
+            {
+                "channel": channel,
+                "mode": mode,
+                "ready": provider_ready or sandbox_ready,
+                "daily_limit_shared": daily,
+                "window_start_utc_hour": start,
+                "window_end_utc_hour": end,
+                "detail": "已通过 Provider 自测"
+                if provider_ready
+                else "仅生成沙箱任务，不发送消息"
+                if sandbox_ready
+                else "未配置",
+            }
+        )
+    return rows

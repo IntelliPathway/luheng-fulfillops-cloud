@@ -155,3 +155,41 @@ def test_contact_attempt_can_be_cancelled_and_failed_attempt_retried() -> None:
         )
         assert retried.status_code == 201, retried.text
         assert retried.json()["retry_of_id"] == second["id"]
+
+
+def test_sms_and_email_sandbox_share_frequency_and_never_require_provider_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("CONTACT_MAX_ATTEMPTS_PER_CASE_DAY", "1")
+    monkeypatch.setenv("COMMUNICATION_SANDBOX_CHANNELS", "sms,email")
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        channels = client.get("/api/v1/contact-attempts/channels", headers=headers()).json()
+        assert {row["channel"]: row["mode"] for row in channels} == {
+            "phone": "disabled",
+            "sms": "sandbox",
+            "email": "sandbox",
+        }
+        sms = client.post(
+            "/api/v1/contact-attempts",
+            headers=headers(),
+            json={
+                "case_id": "C004",
+                "channel": "sms",
+                "contact_reference": "CONTACT-REF-C004-SMS",
+                "scheduled_at": "2026-09-20T06:30:00Z",
+                "acknowledged": True,
+            },
+        )
+        assert sms.status_code == 201, sms.text
+        assert sms.json()["channel"] == "sms"
+        email = client.post(
+            "/api/v1/contact-attempts",
+            headers=headers(),
+            json={
+                "case_id": "C004",
+                "channel": "email",
+                "contact_reference": "CONTACT-REF-C004-EMAIL",
+                "scheduled_at": "2026-09-20T08:30:00Z",
+                "acknowledged": True,
+            },
+        )
+        assert email.status_code == 409
+        assert "daily_frequency_exceeded" in email.text

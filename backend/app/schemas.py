@@ -226,6 +226,7 @@ class ContactAttemptCreateRequest(BaseModel):
     case_id: str = Field(min_length=4, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
     activity_id: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z0-9._:-]+$")
     contact_reference: str = Field(min_length=8, max_length=160, pattern=r"^[A-Za-z0-9._:/-]+$")
+    channel: Literal["phone", "sms", "email"] = "phone"
     scheduled_at: datetime
     acknowledged: bool
 
@@ -266,6 +267,16 @@ class ContactAttemptOut(BaseModel):
     cancel_reason: str | None
     last_event_at: datetime | None
     created_at: datetime
+
+
+class ContactChannelPolicyOut(BaseModel):
+    channel: Literal["phone", "sms", "email"]
+    mode: Literal["provider", "sandbox", "disabled"]
+    ready: bool
+    daily_limit_shared: int
+    window_start_utc_hour: int
+    window_end_utc_hour: int
+    detail: str
 
 
 class TelephonyEventOut(BaseModel):
