@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 ARG INSTALL_HARNESS=false
 ARG INSTALL_AWS=false
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt requirements-harness.txt requirements-aws.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INSTALL_HARNESS" = "true" ]; then pip install --no-cache-dir -r requirements-harness.txt; fi \
