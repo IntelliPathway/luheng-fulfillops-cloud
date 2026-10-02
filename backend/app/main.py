@@ -27,6 +27,7 @@ from .asset_import_routes import router as asset_import_router
 from .audit import audit
 from .billing_routes import router as billing_router
 from .bootstrap import bootstrap_database
+from .channel_provider_routes import router as channel_provider_router
 from .config import StartupSettings
 from .contact_routes import router as contact_router
 from .db import build_engine, build_session_factory
@@ -326,6 +327,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(strategy_experiment_router)
     app.include_router(platform_router)
     app.include_router(billing_router)
+    app.include_router(channel_provider_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])

@@ -218,6 +218,19 @@ export const telephonyApi = {
   events: (tenant, limit=100) => request(`/telephony/events${queryString({limit})}`, tenant),
 };
 
+export const channelProviderApi = {
+  list: tenant => request('/channel-providers', tenant),
+  configure: (tenant, channel, payload) => request(`/channel-providers/${channel}`, tenant, {
+    method: 'PUT', body: JSON.stringify({...payload, acknowledged: true}),
+  }),
+  test: (tenant, channel, expectedVersion) => request(`/channel-providers/${channel}/test`, tenant, {
+    method: 'POST', body: JSON.stringify({expected_version: expectedVersion, acknowledged: true}),
+  }),
+  approve: (tenant, channel, expectedVersion) => request(`/channel-providers/${channel}/approve`, tenant, {
+    method: 'POST', body: JSON.stringify({expected_version: expectedVersion, acknowledged: true}),
+  }),
+};
+
 export const harnessApi = {
   catalog: tenant => request('/harnesses/catalog',tenant),
   leaderboard: tenant => request('/harnesses/leaderboard',tenant),

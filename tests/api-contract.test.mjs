@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, platformApi, protectionApi, repaymentApi, securityApi, servicePayload, strategyExperimentApi, telephonyApi} from '../src/api.js';
+import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, channelProviderApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, platformApi, protectionApi, repaymentApi, securityApi, servicePayload, strategyExperimentApi, telephonyApi} from '../src/api.js';
 
 test('loads harness catalog and evidence-based leaderboard',async()=>{
   const calls=[];const originalFetch=globalThis.fetch;
@@ -31,6 +31,14 @@ test('loads invoice preview and immutable usage events',async()=>{
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
   try{await platformApi.invoicePreview('TENANT_A','2026-09');await platformApi.usageEvents('TENANT_A','2026-09',30)}finally{globalThis.fetch=originalFetch}
   assert.deepEqual(calls.map(call=>call.url),['/api/v1/billing/invoice-preview?period=2026-09','/api/v1/billing/usage-events?period=2026-09&limit=30']);
+});
+
+test('uses governed multichannel provider certification endpoints',async()=>{
+  const calls=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>[]}};
+  try{await channelProviderApi.list('TENANT_A');await channelProviderApi.test('TENANT_A','sms',2);await channelProviderApi.approve('TENANT_A','sms',3)}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/channel-providers','/api/v1/channel-providers/sms/test','/api/v1/channel-providers/sms/approve']);
+  assert.equal(JSON.parse(calls[1].options.body).acknowledged,true);
 });
 
 test('governs knowledge versions and loads daily financial close', async () => {

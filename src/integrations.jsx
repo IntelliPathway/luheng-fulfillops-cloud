@@ -1,10 +1,11 @@
-import React,{useMemo,useState} from 'react';
+import React,{useEffect,useMemo,useState} from 'react';
 import {
  ArrowRight,Check,CheckCircle,Cpu,Clock,CloudCheck,Flask,HardDrives,Info,
  LockKey,PhoneCall,Play,Robot,ShieldCheck,SpinnerGap,WarningCircle,Waveform
 } from '@phosphor-icons/react';
 import {useApp} from './context';
 import {APP_VERSION} from './brand';
+import {channelProviderApi} from './api';
 import {Button,Field,Modal,PageHead} from './ui';
 import {serviceVersionSnapshot} from './integration-state';
 
@@ -152,6 +153,8 @@ export function Integrations(){
  const [confirmEnable,setConfirmEnable]=useState(false);
  const [replayRunning,setReplayRunning]=useState(false);
  const [replayMode,setReplayMode]=useState('deterministic-contract');
+ const [channelProviders,setChannelProviders]=useState([]);
+ useEffect(()=>{if(a.backendStatus!=='connected')return;let active=true;channelProviderApi.list(a.tenant).then(rows=>active&&setChannelProviders(rows)).catch(reason=>a.notify(`渠道 Provider 读取失败：${reason.message}`));return()=>{active=false}},[a.backendStatus,a.tenant]);
  const services=a.serviceConfigs;
  const readyCount=Object.values(services).filter(service=>service.tested).length;
  const allReady=a.integrationReadiness.allConnected;
@@ -209,6 +212,12 @@ export function Integrations(){
 
   <section className="integration-service-grid" aria-label="接入服务">
    {Object.entries(serviceMeta).map(([type])=><ServiceCard key={type} type={type} config={services[type]} onOpen={()=>setEditing(type)}/>) }
+  </section>
+
+  <section className="provider-pilot-panel" aria-label="多渠道 Provider 试点">
+   <div className="integration-section-head"><div><span className="eyebrow">PROVIDER PILOT</span><h2>多渠道 Provider 认证</h2><p>配置、契约测试和独立批准分离；真实模式只接受 HTTPS 与外部密钥引用。</p></div><ShieldCheck size={26}/></div>
+   <div className="provider-pilot-grid">{['phone','sms','email'].map(channel=>{const row=channelProviders.find(item=>item.channel===channel);return <article key={channel}><span className="provider-channel">{channel.toUpperCase()}</span><div><b>{row?.provider||'尚未配置 Provider'}</b><small>{row?`${row.mode==='live'?'真实白名单':'安全沙箱'} · 配置 v${row.version}`:'通过服务端 API 创建受审配置'}</small></div><span className={`connection-pill ${row?.status==='enabled'?'ready':row?.status==='tested'?'waiting':'idle'}`}>{row?.status==='enabled'?'已批准':row?.status==='tested'?'待独立批准':row?'等待测试':'未配置'}</span></article>})}</div>
+   <div className="sandbox-boundary"><Info size={18}/><span><b>生产边界</b><small>“已测试”不等于“可发送”；只有另一名管理员批准后才标记启用，页面不会接收或展示明文凭据。</small></span></div>
   </section>
 
   <section className="integration-progress" aria-label="接入进度">

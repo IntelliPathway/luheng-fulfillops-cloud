@@ -101,6 +101,37 @@ class UsageEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class ChannelProviderPilot(Base):
+    __tablename__ = "channel_provider_pilots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "channel"),
+        CheckConstraint("channel IN ('phone','sms','email')", name="ck_channel_provider_pilots_channel"),
+        CheckConstraint("mode IN ('sandbox','live')", name="ck_channel_provider_pilots_mode"),
+        CheckConstraint(
+            "status IN ('configured','tested','enabled')",
+            name="ck_channel_provider_pilots_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CHP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    channel: Mapped[str] = mapped_column(String(16), index=True)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    endpoint_origin: Mapped[str] = mapped_column(String(255), nullable=False)
+    credential_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    callback_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="configured", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    evidence_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    configured_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    tested_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    configured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    tested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class MembershipProposal(Base):
     __tablename__ = "membership_proposals"
     __table_args__ = (
