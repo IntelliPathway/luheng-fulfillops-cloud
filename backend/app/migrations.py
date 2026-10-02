@@ -5,7 +5,6 @@ from pathlib import Path
 
 from sqlalchemy import Engine, text
 
-
 _DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 
 
