@@ -1,8 +1,93 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from sqlalchemy import Engine, text
+
+
+_DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
+def _split_postgres_statements(source: str) -> list[str]:
+    """Split SQL without breaking strings, comments, or dollar-quoted blocks."""
+
+    statements: list[str] = []
+    start = 0
+    index = 0
+    quote: str | None = None
+    dollar_quote: str | None = None
+    block_comment_depth = 0
+    in_line_comment = False
+
+    while index < len(source):
+        if in_line_comment:
+            if source[index] == "\n":
+                in_line_comment = False
+            index += 1
+            continue
+
+        if block_comment_depth:
+            if source.startswith("/*", index):
+                block_comment_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                block_comment_depth -= 1
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if dollar_quote:
+            if source.startswith(dollar_quote, index):
+                index += len(dollar_quote)
+                dollar_quote = None
+            else:
+                index += 1
+            continue
+
+        if quote:
+            if source[index] == "\\":
+                index += 2
+            elif source[index] == quote:
+                if index + 1 < len(source) and source[index + 1] == quote:
+                    index += 2
+                else:
+                    quote = None
+                    index += 1
+            else:
+                index += 1
+            continue
+
+        if source.startswith("--", index):
+            in_line_comment = True
+            index += 2
+            continue
+        if source.startswith("/*", index):
+            block_comment_depth = 1
+            index += 2
+            continue
+        if source[index] in {"'", '"'}:
+            quote = source[index]
+            index += 1
+            continue
+        if source[index] == "$":
+            match = _DOLLAR_QUOTE.match(source, index)
+            if match:
+                dollar_quote = match.group(0)
+                index = match.end()
+                continue
+        if source[index] == ";":
+            statement = source[start:index].strip()
+            if statement:
+                statements.append(statement)
+            start = index + 1
+        index += 1
+
+    statement = source[start:].strip()
+    if statement:
+        statements.append(statement)
+    return statements
 
 
 def _migration_files() -> list[Path]:
@@ -30,10 +115,8 @@ def run_postgres_migrations(engine: Engine) -> list[str]:
         for path in _migration_files():
             if path.name in applied:
                 continue
-            statements = [statement.strip() for statement in path.read_text(encoding="utf-8").split(";")]
-            for statement in statements:
-                if statement:
-                    connection.exec_driver_sql(statement)
+            for statement in _split_postgres_statements(path.read_text(encoding="utf-8")):
+                connection.exec_driver_sql(statement)
             connection.execute(
                 text("INSERT INTO schema_migrations (version) VALUES (:version)"), {"version": path.name}
             )
