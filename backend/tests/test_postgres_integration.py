@@ -16,14 +16,14 @@ from app.main import create_app
 from app.worker import DatabaseWorker
 
 POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
+MIGRATION_ROOT = Path(__file__).resolve().parents[1] / "migrations"
 
 
 def _apply_baseline(database_url: str) -> None:
     engine = sqlalchemy_create_engine(database_url)
-    migration_root = Path(__file__).resolve().parents[1] / "migrations"
     with engine.begin() as connection:
         for version in ("001_initial.sql", "002_identity_agent_jobs.sql", "003_deepseek_harness_runtime.sql"):
-            for statement in (migration_root / version).read_text(encoding="utf-8").split(";"):
+            for statement in (MIGRATION_ROOT / version).read_text(encoding="utf-8").split(";"):
                 if statement.strip():
                     connection.exec_driver_sql(statement.strip())
     engine.dispose()
@@ -92,7 +92,8 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             column["name"] for column in inspector.get_columns("cases")
         }
         with app.state.engine.connect() as connection:
-            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 12
+            expected_migrations = len(list(MIGRATION_ROOT.glob("[0-9][0-9][0-9]_*.sql")))
+            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == expected_migrations
 
         broker = PostgresNotifyBroker(scoped_url)
         broker.start()
