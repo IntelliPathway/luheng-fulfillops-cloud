@@ -238,6 +238,8 @@ export const platformApi = {
   subscription: tenant => request('/platform/subscription', tenant),
   usage: tenant => request('/platform/usage', tenant),
   capabilities: tenant => request('/platform/capabilities', tenant),
+  invoicePreview: (tenant, period) => request(`/billing/invoice-preview${queryString({period})}`, tenant),
+  usageEvents: (tenant, period, limit=200) => request(`/billing/usage-events${queryString({period,limit})}`, tenant),
   updateSubscription: (tenant, planCode, expectedVersion) => request('/platform/subscription', tenant, {
     method: 'PUT', body: JSON.stringify({plan_code: planCode, expected_version: expectedVersion, acknowledged: true}),
   }),

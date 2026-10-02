@@ -26,6 +26,13 @@ test('loads authoritative tenant plan, usage and capabilities',async()=>{
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
 });
 
+test('loads invoice preview and immutable usage events',async()=>{
+  const calls=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
+  try{await platformApi.invoicePreview('TENANT_A','2026-09');await platformApi.usageEvents('TENANT_A','2026-09',30)}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/billing/invoice-preview?period=2026-09','/api/v1/billing/usage-events?period=2026-09&limit=30']);
+});
+
 test('governs knowledge versions and loads daily financial close', async () => {
   const calls=[]; const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>[]}};

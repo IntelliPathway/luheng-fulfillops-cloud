@@ -32,6 +32,7 @@ from .models import (
 )
 from .runtime_adapters import run_runtime_turn, test_agent_runtime
 from .security import RequestContext
+from .usage_metering import record_usage_event
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
 
@@ -222,6 +223,16 @@ def _agent_turn(db: Session, job: AsyncJob) -> dict[str, Any]:
     )
     db.add(run)
     db.flush()
+    record_usage_event(
+        db,
+        tenant_id=job.tenant_id,
+        meter="agent_run",
+        quantity=1,
+        source_type="agent_run",
+        source_id=run.id,
+        idempotency_key=f"agent-run:{run.id}",
+        metadata={"provider": run.provider, "profile": run.profile},
+    )
     # Persist the running record before crossing the provider/process boundary.
     # A Runtime crash must remain visible even when the surrounding turn
     # transaction is rolled back.
@@ -298,7 +309,21 @@ def _model_replay(db: Session, job: AsyncJob) -> dict[str, Any]:
     )
     if not replay:
         raise ValueError("模型回放记录不存在或不属于当前作业")
-    return execute_model_replay(db, replay)
+    result = execute_model_replay(db, replay)
+    tokens = replay.input_tokens + replay.output_tokens
+    if tokens > 0:
+        record_usage_event(
+            db,
+            tenant_id=job.tenant_id,
+            meter="model_token",
+            quantity=tokens,
+            source_type="model_replay_run",
+            source_id=replay.id,
+            idempotency_key=f"model-replay:{replay.id}",
+            amount_cents=round(replay.estimated_cost_usd * 700),
+            metadata={"provider": replay.provider, "profile": replay.profile, "mode": replay.mode},
+        )
+    return result
 
 
 JOB_HANDLERS = {

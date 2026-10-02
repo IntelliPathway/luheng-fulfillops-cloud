@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import AgentRun, ModelReplayRun, TenantMembership, TenantPlan
+from .models import TenantMembership, TenantPlan, UsageEvent
 
 PLAN_CATALOG = {
     "pilot": {
@@ -86,18 +86,20 @@ def usage_snapshot(db: Session, tenant_id: str) -> dict:
     )
     runs = int(
         db.scalar(
-            select(func.count(AgentRun.id)).where(
-                AgentRun.tenant_id == tenant_id,
-                AgentRun.started_at >= start,
+            select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(
+                UsageEvent.tenant_id == tenant_id,
+                UsageEvent.meter == "agent_run",
+                UsageEvent.occurred_at >= start,
             )
         )
         or 0
     )
-    replay_cost_usd = float(
+    model_budget_cents = int(
         db.scalar(
-            select(func.coalesce(func.sum(ModelReplayRun.estimated_cost_usd), 0)).where(
-                ModelReplayRun.tenant_id == tenant_id,
-                ModelReplayRun.created_at >= start,
+            select(func.coalesce(func.sum(UsageEvent.amount_cents), 0)).where(
+                UsageEvent.tenant_id == tenant_id,
+                UsageEvent.meter == "model_token",
+                UsageEvent.occurred_at >= start,
             )
         )
         or 0
@@ -106,7 +108,7 @@ def usage_snapshot(db: Session, tenant_id: str) -> dict:
         "period": start.strftime("%Y-%m"),
         "seats": seats,
         "agent_runs": runs,
-        "model_budget_cents": round(replay_cost_usd * 700),
+        "model_budget_cents": model_budget_cents,
     }
 
 

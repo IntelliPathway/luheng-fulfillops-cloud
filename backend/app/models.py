@@ -77,6 +77,30 @@ class TenantPlan(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key"),
+        Index("ix_usage_events_tenant_occurred", "tenant_id", "occurred_at"),
+        CheckConstraint("quantity > 0", name="ck_usage_events_quantity_positive"),
+        CheckConstraint("amount_cents >= 0", name="ck_usage_events_amount_nonnegative"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("USE"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    meter: Mapped[str] = mapped_column(String(40), index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit: Mapped[str] = mapped_column(String(24), nullable=False)
+    unit_price_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
 class MembershipProposal(Base):
     __tablename__ = "membership_proposals"
     __table_args__ = (

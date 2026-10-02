@@ -25,6 +25,7 @@ from .agent_tools import execute_controlled_tool
 from .asset_catalog_routes import router as asset_catalog_router
 from .asset_import_routes import router as asset_import_router
 from .audit import audit
+from .billing_routes import router as billing_router
 from .bootstrap import bootstrap_database
 from .config import StartupSettings
 from .contact_routes import router as contact_router
@@ -324,6 +325,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(harness_evaluation_router)
     app.include_router(strategy_experiment_router)
     app.include_router(platform_router)
+    app.include_router(billing_router)
 
     @app.get("/api/v1/health", response_model=HealthOut, tags=["system"])
     @app.get("/api/v1/health/ready", response_model=HealthOut, tags=["system"])
