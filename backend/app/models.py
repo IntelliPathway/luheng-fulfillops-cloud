@@ -77,6 +77,62 @@ class TenantPlan(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class TenantLifecycle(Base):
+    __tablename__ = "tenant_lifecycles"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('trial','active','grace','suspended','closed')",
+            name="ck_tenant_lifecycles_stage",
+        ),
+        CheckConstraint("data_retention_days BETWEEN 30 AND 3650", name="ck_tenant_lifecycles_retention"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(24), default="trial", nullable=False)
+    region: Mapped[str] = mapped_column(String(32), default="ap-southeast-1", nullable=False)
+    data_retention_days: Mapped[int] = mapped_column(Integer, default=365, nullable=False)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    contract_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    customer_success_owner: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class TenantLifecycleProposal(Base):
+    __tablename__ = "tenant_lifecycle_proposals"
+    __table_args__ = (
+        Index("ix_tenant_lifecycle_proposals_status", "tenant_id", "status", "created_at"),
+        CheckConstraint(
+            "target_stage IN ('trial','active','grace','suspended','closed')",
+            name="ck_tenant_lifecycle_proposals_target",
+        ),
+        CheckConstraint(
+            "status IN ('pending_review','approved','rejected')",
+            name="ck_tenant_lifecycle_proposals_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("TLPROP"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    current_stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    expected_lifecycle_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    region: Mapped[str] = mapped_column(String(32), nullable=False)
+    data_retention_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    contract_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    customer_success_owner: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    proposal_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class UsageEvent(Base):
     __tablename__ = "usage_events"
     __table_args__ = (

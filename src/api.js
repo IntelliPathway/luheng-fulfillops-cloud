@@ -263,6 +263,14 @@ export const platformApi = {
   subscription: tenant => request('/platform/subscription', tenant),
   usage: tenant => request('/platform/usage', tenant),
   capabilities: tenant => request('/platform/capabilities', tenant),
+  lifecycle: tenant => request('/platform/lifecycle', tenant),
+  lifecycleProposals: tenant => request('/platform/lifecycle/proposals', tenant),
+  proposeLifecycle: (tenant,payload) => request('/platform/lifecycle/proposals', tenant, {
+    method:'POST',body:JSON.stringify({...payload,acknowledged:true}),
+  }),
+  decideLifecycle: (tenant,id,decision,expectedVersion,reviewNote) => request(`/platform/lifecycle/proposals/${id}/decision`, tenant, {
+    method:'POST',body:JSON.stringify({decision,expected_version:expectedVersion,review_note:reviewNote,acknowledged:true}),
+  }),
   invoicePreview: (tenant, period) => request(`/billing/invoice-preview${queryString({period})}`, tenant),
   usageEvents: (tenant, period, limit=200) => request(`/billing/usage-events${queryString({period,limit})}`, tenant),
   updateSubscription: (tenant, planCode, expectedVersion) => request('/platform/subscription', tenant, {

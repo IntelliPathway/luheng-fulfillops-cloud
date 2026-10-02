@@ -26,6 +26,14 @@ test('loads authoritative tenant plan, usage and capabilities',async()=>{
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
 });
 
+test('uses governed enterprise tenant lifecycle endpoints',async()=>{
+  const calls=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
+  try{await platformApi.lifecycle('TENANT_A');await platformApi.proposeLifecycle('TENANT_A',{target_stage:'active',expected_lifecycle_version:0,region:'ap-southeast-1',data_retention_days:365,contract_reference:'contract://pilot/1',proposal_reason:'activate tenant'});await platformApi.decideLifecycle('TENANT_A','TLP-1','approve',1,'verified')}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/platform/lifecycle','/api/v1/platform/lifecycle/proposals','/api/v1/platform/lifecycle/proposals/TLP-1/decision']);
+  assert.equal(JSON.parse(calls[1].options.body).acknowledged,true);
+});
+
 test('loads invoice preview and immutable usage events',async()=>{
   const calls=[];const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
