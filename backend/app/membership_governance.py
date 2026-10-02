@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .entitlements import EntitlementError, require_capacity
 from .models import MembershipProposal, TenantMembership, User
 
 
@@ -110,6 +111,12 @@ def decide_proposal(
     if (current_role, current_status) != (proposal.expected_role, proposal.expected_status):
         raise MembershipGovernanceError("membership_stale", "成员当前状态已变化，必须重新提交提案")
     if decision == "approve":
+        activates_new_seat = proposal.requested_status == "active" and (current is None or current.status != "active")
+        if activates_new_seat:
+            try:
+                require_capacity(db, tenant_id, "seats")
+            except EntitlementError as exc:
+                raise MembershipGovernanceError(exc.code, str(exc), exc.http_status) from exc
         if (
             current
             and current.role == "admin"

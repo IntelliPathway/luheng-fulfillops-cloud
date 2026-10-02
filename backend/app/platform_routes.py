@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -9,39 +8,11 @@ from sqlalchemy import func, select
 
 from .audit import audit
 from .dependencies import Context, Database
-from .models import AgentRun, CaseRecord, ModelReplayRun, TenantMembership, TenantPlan
+from .entitlements import PLAN_CATALOG, plan_view, usage_snapshot
+from .models import CaseRecord, TenantPlan
 from .security import require_role
 
 router = APIRouter(prefix="/api/v1/platform", tags=["platform-control-plane"])
-
-PLAN_CATALOG = {
-    "pilot": {
-        "seat_limit": 5,
-        "monthly_run_limit": 500,
-        "monthly_budget_cents": 50000,
-        "features": ["agents", "ledger"],
-    },
-    "team": {
-        "seat_limit": 25,
-        "monthly_run_limit": 5000,
-        "monthly_budget_cents": 500000,
-        "features": ["agents", "ledger", "experiments", "multichannel", "harness-selector"],
-    },
-    "enterprise": {
-        "seat_limit": 500,
-        "monthly_run_limit": 100000,
-        "monthly_budget_cents": 20000000,
-        "features": [
-            "agents",
-            "ledger",
-            "experiments",
-            "multichannel",
-            "harness-selector",
-            "enterprise-oidc",
-            "audit-export",
-        ],
-    },
-}
 
 
 class PlanUpdate(BaseModel):
@@ -50,34 +21,10 @@ class PlanUpdate(BaseModel):
     acknowledged: bool
 
 
-def _plan_view(row: TenantPlan | None, tenant_id: str) -> dict:
-    if row:
-        return {
-            "tenant_id": tenant_id,
-            "plan_code": row.plan_code,
-            "status": row.status,
-            "seat_limit": row.seat_limit,
-            "monthly_run_limit": row.monthly_run_limit,
-            "monthly_budget_cents": row.monthly_budget_cents,
-            "features": row.features,
-            "version": row.version,
-            "updated_at": row.updated_at,
-        }
-    defaults = PLAN_CATALOG["team"]
-    return {
-        "tenant_id": tenant_id,
-        "plan_code": "team",
-        "status": "active",
-        **defaults,
-        "version": 0,
-        "updated_at": None,
-    }
-
-
 @router.get("/subscription")
 def get_subscription(context: Context, db: Database) -> dict:
     require_role(context, "viewer", "operator", "admin")
-    return _plan_view(db.get(TenantPlan, context.tenant_id), context.tenant_id)
+    return plan_view(db, context.tenant_id)
 
 
 @router.put("/subscription")
@@ -117,59 +64,33 @@ def update_subscription(payload: PlanUpdate, context: Context, db: Database) -> 
         {"plan_code": payload.plan_code, "version": row.version},
     )
     db.commit()
-    return _plan_view(row, context.tenant_id)
+    return plan_view(db, context.tenant_id)
 
 
 @router.get("/usage")
 def get_usage(context: Context, db: Database) -> dict:
     require_role(context, "viewer", "operator", "admin")
-    plan = _plan_view(db.get(TenantPlan, context.tenant_id), context.tenant_id)
-    now = datetime.now(UTC).replace(tzinfo=None)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    seats = (
-        db.scalar(
-            select(func.count(TenantMembership.id)).where(
-                TenantMembership.tenant_id == context.tenant_id, TenantMembership.status == "active"
-            )
-        )
-        or 0
-    )
-    runs = (
-        db.scalar(
-            select(func.count(AgentRun.id)).where(
-                AgentRun.tenant_id == context.tenant_id, AgentRun.started_at >= month_start
-            )
-        )
-        or 0
-    )
-    replay_cost_usd = (
-        db.scalar(
-            select(func.coalesce(func.sum(ModelReplayRun.estimated_cost_usd), 0)).where(
-                ModelReplayRun.tenant_id == context.tenant_id, ModelReplayRun.created_at >= month_start
-            )
-        )
-        or 0
-    )
+    plan = plan_view(db, context.tenant_id)
+    usage = usage_snapshot(db, context.tenant_id)
     cases = db.scalar(select(func.count(CaseRecord.id)).where(CaseRecord.tenant_id == context.tenant_id)) or 0
-    budget_used_cents = round(float(replay_cost_usd) * 700)
     return {
-        "period": month_start.strftime("%Y-%m"),
+        "period": usage["period"],
         "meters": {
-            "seats": {"used": seats, "limit": plan["seat_limit"]},
-            "agent_runs": {"used": runs, "limit": plan["monthly_run_limit"]},
-            "model_budget_cents": {"used": budget_used_cents, "limit": plan["monthly_budget_cents"]},
+            "seats": {"used": usage["seats"], "limit": plan["seat_limit"]},
+            "agent_runs": {"used": usage["agent_runs"], "limit": plan["monthly_run_limit"]},
+            "model_budget_cents": {"used": usage["model_budget_cents"], "limit": plan["monthly_budget_cents"]},
             "managed_cases": {"used": cases, "limit": None},
         },
-        "hard_limit_reached": seats >= plan["seat_limit"]
-        or runs >= plan["monthly_run_limit"]
-        or budget_used_cents >= plan["monthly_budget_cents"],
+        "hard_limit_reached": usage["seats"] >= plan["seat_limit"]
+        or usage["agent_runs"] >= plan["monthly_run_limit"]
+        or usage["model_budget_cents"] >= plan["monthly_budget_cents"],
     }
 
 
 @router.get("/capabilities")
 def get_capabilities(context: Context, db: Database) -> dict:
     require_role(context, "viewer", "operator", "admin")
-    plan = _plan_view(db.get(TenantPlan, context.tenant_id), context.tenant_id)
+    plan = plan_view(db, context.tenant_id)
     return {
         "tenant_id": context.tenant_id,
         "plan_code": plan["plan_code"],

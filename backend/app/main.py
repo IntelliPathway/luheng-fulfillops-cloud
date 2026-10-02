@@ -41,6 +41,7 @@ from .domain import (
     utcnow,
     validate_service_settings,
 )
+from .entitlements import EntitlementError, require_capability, require_capacity
 from .financial_ledger import (
     FinancialLedgerError,
     accept_payment_webhook,
@@ -1360,6 +1361,10 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     ) -> JobOut:
         require_role(context, "admin")
         try:
+            require_capability(db, context.tenant_id, "harness-selector")
+        except EntitlementError as exc:
+            raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
+        try:
             metadata = replay_suite_metadata(payload.suite_name)
         except ReplaySuiteError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -1515,6 +1520,10 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
         "/api/v1/agents/sessions", response_model=AgentSessionOut, status_code=status.HTTP_201_CREATED, tags=["agents"]
     )
     def create_agent_session(payload: AgentSessionCreate, context: Context, db: Database) -> AgentSessionOut:
+        try:
+            require_capability(db, context.tenant_id, "agents")
+        except EntitlementError as exc:
+            raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
         if payload.scope_type != "global" and not payload.scope_id:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="活动或案件会话必须指定 scope_id"
@@ -1621,6 +1630,11 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
         context: Context,
         db: Database,
     ) -> JobOut:
+        try:
+            require_capability(db, context.tenant_id, "agents")
+            require_capacity(db, context.tenant_id, "agent_runs")
+        except EntitlementError as exc:
+            raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
         session = db.scalar(
             select(AgentSession).where(AgentSession.id == session_id, AgentSession.tenant_id == context.tenant_id)
         )
@@ -1719,6 +1733,12 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     )
     def create_activity(payload: ActivityRequest, context: Context, db: Database) -> ActivityOut:
         require_role(context, "operator", "admin")
+        try:
+            require_capability(db, context.tenant_id, "agents")
+            if payload.requested_mode == "channel":
+                require_capability(db, context.tenant_id, "multichannel")
+        except EntitlementError as exc:
+            raise HTTPException(status_code=exc.http_status, detail=f"{exc}（{exc.code}）") from exc
         preflight = activity_preflight(db, context.tenant_id, payload)
         if not preflight["eligible_case_ids"]:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="没有符合条件的可执行案件")

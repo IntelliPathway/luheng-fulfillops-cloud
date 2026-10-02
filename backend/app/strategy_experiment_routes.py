@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from .audit import audit
 from .dependencies import Context, Database
+from .entitlements import EntitlementError, require_capability
 from .models import AssetPackage, CaseRecord, RecoveryLedgerEntry, StrategyExperiment, utcnow
 from .security import require_role
 
@@ -70,6 +71,10 @@ def list_experiments(context: Context, db: Database) -> list[dict]:
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_experiment(payload: ExperimentCreate, context: Context, db: Database) -> dict:
     require_role(context, "operator", "admin")
+    try:
+        require_capability(db, context.tenant_id, "experiments")
+    except EntitlementError as exc:
+        raise HTTPException(exc.http_status, f"{exc}（{exc.code}）") from exc
     if not payload.acknowledged:
         raise HTTPException(422, "必须确认实验创建后仍需另一名管理员启动")
     package = db.scalar(
