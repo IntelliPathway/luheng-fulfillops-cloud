@@ -234,6 +234,18 @@ export const channelProviderApi = {
 export const harnessApi = {
   catalog: tenant => request('/harnesses/catalog',tenant),
   leaderboard: tenant => request('/harnesses/leaderboard',tenant),
+  select: (tenant, requiredCapabilities=['tool-use'], objective='balanced') => request('/harnesses/select',tenant,{
+    method:'POST',body:JSON.stringify({required_capabilities:requiredCapabilities,objective}),
+  }),
+  registerPlugin: (tenant,payload) => request('/harnesses/plugins',tenant,{
+    method:'POST',body:JSON.stringify({...payload,acknowledged:true}),
+  }),
+  verifyPlugin: (tenant,id,expectedVersion) => request(`/harnesses/plugins/${id}/verify`,tenant,{
+    method:'POST',body:JSON.stringify({expected_version:expectedVersion,acknowledged:true}),
+  }),
+  approvePlugin: (tenant,id,expectedVersion) => request(`/harnesses/plugins/${id}/approve`,tenant,{
+    method:'POST',body:JSON.stringify({expected_version:expectedVersion,acknowledged:true}),
+  }),
 };
 
 export const strategyExperimentApi = {

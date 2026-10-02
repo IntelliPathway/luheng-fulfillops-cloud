@@ -132,6 +132,39 @@ class ChannelProviderPilot(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class HarnessPlugin(Base):
+    __tablename__ = "harness_plugins"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "plugin_key"),
+        CheckConstraint(
+            "protocol IN ('native','python-sdk','json-rpc','contract-adapter')",
+            name="ck_harness_plugins_protocol",
+        ),
+        CheckConstraint(
+            "status IN ('registered','verified','enabled','disabled')",
+            name="ck_harness_plugins_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("HPL"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    plugin_key: Mapped[str] = mapped_column(String(80), index=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False)
+    entrypoint_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(24), default="registered", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    manifest_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    registered_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    verified_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class MembershipProposal(Base):
     __tablename__ = "membership_proposals"
     __table_args__ = (

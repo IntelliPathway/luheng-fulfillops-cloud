@@ -5,8 +5,8 @@ import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, channelProv
 test('loads harness catalog and evidence-based leaderboard',async()=>{
   const calls=[];const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({results:[]})}};
-  try{await harnessApi.catalog('TENANT_A');await harnessApi.leaderboard('TENANT_A')}finally{globalThis.fetch=originalFetch}
-  assert.deepEqual(calls.map(call=>call.url),['/api/v1/harnesses/catalog','/api/v1/harnesses/leaderboard']);
+  try{await harnessApi.catalog('TENANT_A');await harnessApi.leaderboard('TENANT_A');await harnessApi.select('TENANT_A',['tool-use'],'balanced')}finally{globalThis.fetch=originalFetch}
+  assert.deepEqual(calls.map(call=>call.url),['/api/v1/harnesses/catalog','/api/v1/harnesses/leaderboard','/api/v1/harnesses/select']);
   assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
 });
 
