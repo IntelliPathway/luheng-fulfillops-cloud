@@ -1,12 +1,21 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 
 from .case_validation import build_case_validation
+from .connection_readiness import build_connection_readiness
 from .dependencies import Context, Database
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
 from .pilot_preflight import build_pilot_preflight
 from .pilot_scorecard import build_pilot_scorecard, build_release_gate
 
 router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
+
+
+@router.get("/connection-readiness")
+def get_connection_readiness(context: Context, db: Database, request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return build_connection_readiness(
+        db, context, request.app.state.startup, request.headers.get("origin"), request.app.state.cors_origins
+    )
 
 
 @router.get("/preflight")

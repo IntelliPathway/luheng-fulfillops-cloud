@@ -295,12 +295,15 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
         openapi_url="/api/openapi.json",
         lifespan=app_lifespan,
     )
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:4177,http://localhost:5173").split(",")
+        if origin.strip()
+    ]
+    app.state.cors_origins = tuple(cors_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            origin.strip()
-            for origin in os.getenv("CORS_ORIGINS", "http://localhost:4177,http://localhost:5173").split(",")
-        ],
+        allow_origins=cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Tenant-ID", "X-Actor-ID"],
