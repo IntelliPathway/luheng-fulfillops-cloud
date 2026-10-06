@@ -104,3 +104,6 @@ Append material versions atomically, preserve originals, prevent branches and cr
 
 ## Functional availability acceptance
 The user requires a complete audit of feature availability, not only visible layout. An unconfigured API may block authoritative writes but must not hide an otherwise useful page. Show available queries and evidence, explicit dependency/role reasons and a working onboarding path. Never display fixed demo metrics, tool steps, costs, test pass counts or stale evidence as online results. Parameter validation is not scenario replay. Agent proposal confirmation must not issue a second business mutation. Cover offline, role restrictions, partial failures, late responses, repeated submissions and mobile controls with meaningful browser regressions.
+
+## v5.0 integration release
+User requires one v5.0 delivery without further small versions. Preserve BoardUI and all v4.x capabilities. Unified acceptance reads fresh current tenant evidence, excludes stale/expired case approvals and cannot authorize external actions. Software CI and synthetic recovery are distinct from production customer acceptance. Test the exact Sites build and old deployed backend compatibility on isolated restored PostgreSQL databases.

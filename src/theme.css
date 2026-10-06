@@ -264,3 +264,5 @@ body{min-width:320px}.main-shell,.main-content,.overview-dashboard{min-width:0}
 
 /* Mobile uses the sticky top AI entry so floating controls never cover content. */
 @media(max-width:700px){.ai-copilot-launcher{display:none}}
+
+.integration-acceptance{margin:20px 0;padding:20px;background:var(--surface);border-radius:16px}.integration-acceptance p{font-size:14px;overflow-wrap:anywhere}.integration-acceptance .release-gate{padding:0}.integration-acceptance .section-title{gap:12px;flex-wrap:wrap}@media(max-width:700px){.integration-acceptance{padding:14px}.integration-acceptance .section-title{align-items:flex-start;flex-direction:column}}

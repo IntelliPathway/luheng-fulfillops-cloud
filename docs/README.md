@@ -16,3 +16,5 @@
 | [发布历史](releases/README.md) | 逐版本发布与验收证据 | 每次发布 |
 
 `design-qa.md` 和 `qa/` 是历史视觉验收证据，不作为当前产品规范的唯一来源。API 的机器可读契约以运行中的 `/api/openapi.json` 为准。
+
+- [v5.0 集成验收](quality/v5-integration-acceptance.md)
