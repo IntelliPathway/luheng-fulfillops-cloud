@@ -16,8 +16,9 @@ test('all 15 offline surfaces stay useful and explicitly distinguish unavailable
 
 for(const width of [1440,390,320])test(`offline command actions and evidence fit ${width}px`,async({page})=>{
  await demo(page);await page.setViewportSize({width,height:1000});await page.goto('/#/control');await page.getByRole('button',{name:'累计回款和佣金是多少？',exact:true}).click();await expect(page.locator('.assistant-answer')).toContainText('经营指标查询结果');
+ await expect(page.locator('.ai-copilot-launcher')).toHaveCount(0);await page.getByLabel('指挥台指令').fill('累计回款和佣金是多少？');await page.getByRole('button',{name:'发送指令',exact:true}).click();await expect(page.locator('.assistant-answer')).toContainText('经营指标查询结果');
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
- await expect(page.locator('img').first()).toHaveJSProperty('complete',true);await page.screenshot({path:`test-results/command-demo-${width}.png`,fullPage:true});
+ await expect(page.locator('img').first()).toHaveJSProperty('complete',true);await page.screenshot({animations:'disabled',path:`test-results/command-demo-${width}.png`,fullPage:true});
 });
 
 test('operator can use command center despite admin-only membership endpoints',async({page})=>{
@@ -75,13 +76,13 @@ test('online activity shows persisted tools and confirms an Agent proposal exact
  await connected(page,`agents/${activity.activity_id}`);await expect(page.getByRole('button',{name:'推进沙箱模拟',exact:true})).toHaveCount(0);await expect(page.getByText('下一检查 2026.09.13 10:00')).toHaveCount(0);await page.getByRole('tab',{name:'用量',exact:true}).click();await expect(page.getByText('活动成本归因待核对',{exact:true})).toBeVisible();await expect(page.getByText('¥0.38',{exact:true})).toHaveCount(0);
  await page.getByRole('tab',{name:'运行概览',exact:true}).click();await page.getByPlaceholder(`向 ${activity.name} Agent 提问或下达目标…`).fill('暂停本活动');await page.getByRole('button',{name:'发送 Agent 指令',exact:true}).click();await expect(page.getByRole('button',{name:'确认草案',exact:true})).toBeVisible();await page.getByRole('button',{name:'确认草案',exact:true}).click();await expect(page).toHaveURL(/activities/);expect(confirmations).toBe(1);expect(transitions).toBe(0);
  const latest=await (await request.get(`${api}/activities`,{headers:actor})).json();expect(latest.find(row=>row.activity_id===activity.activity_id).status).toBe('paused');
- await connected(page,`agents/${activity.activity_id}`);await page.getByRole('tab',{name:'工具轨迹',exact:true}).click();await expect(page.locator('.persisted-agent-run')).not.toHaveCount(0);await expect(page.locator('.persisted-agent-run').first()).toContainText('activity.read');await page.screenshot({path:'test-results/persisted-agent-tools-desktop.png'});
+ await connected(page,`agents/${activity.activity_id}`);await page.getByRole('tab',{name:'工具轨迹',exact:true}).click();await expect(page.locator('.persisted-agent-run')).not.toHaveCount(0);await expect(page.locator('.persisted-agent-run').first()).toContainText('activity.read');await page.screenshot({animations:'disabled',path:'test-results/persisted-agent-tools-desktop.png'});
  await request.post(`${api}/activities/${activity.activity_id}/transition`,{headers:actor,data:{status:'running',reason:'合成验证完成，恢复原始活动状态',acknowledged:true}});
 });
 
 test('new governance forms remain usable at 320px and do not claim executed policy replay',async({page})=>{
- await page.setViewportSize({width:320,height:1000});await connected(page,'strategy');await page.getByRole('tab',{name:'策略实验',exact:true}).click();await page.getByRole('button',{name:'创建实验草稿',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1);await page.screenshot({path:'test-results/experiment-form-mobile.png'});await page.getByRole('button',{name:'关闭弹窗',exact:true}).click();
- await page.goto('/#/settings');await expect(page.getByLabel('租户生命周期治理')).toBeVisible();await page.getByRole('button',{name:'提交生命周期变更',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1);await page.screenshot({path:'test-results/lifecycle-form-mobile.png'});
+ await page.setViewportSize({width:320,height:1000});await connected(page,'strategy');await page.getByRole('tab',{name:'策略实验',exact:true}).click();await page.getByRole('button',{name:'创建实验草稿',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1);await page.screenshot({animations:'disabled',path:'test-results/experiment-form-mobile.png'});await page.getByRole('button',{name:'关闭弹窗',exact:true}).click();
+ await page.goto('/#/settings');await expect(page.getByLabel('租户生命周期治理')).toBeVisible();await page.getByRole('button',{name:'提交生命周期变更',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1);await page.screenshot({animations:'disabled',path:'test-results/lifecycle-form-mobile.png'});
 });
 
 test('online policy accepts server bounds, preserves only supported fields and reports no replay',async({page,request})=>{

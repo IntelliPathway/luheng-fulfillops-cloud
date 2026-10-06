@@ -161,9 +161,9 @@ export function AICopilot(){
   const a=useApp();
   const {query,setQuery,answer,loading,error,submit,suggestions}=useAssistant();
   return <>
-    <button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label={`打开${PRODUCT_NAME}助手`}>
+    {a.page!=='control'&&<button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label={`打开${PRODUCT_NAME}助手`}>
       <Sparkle size={18} weight="fill"/><span>问{PRODUCT_NAME}</span><kbd>⌘ J</kbd>
-    </button>
+    </button>}
     {a.copilotOpen&&<aside className="ai-copilot" role="dialog" aria-modal="false" aria-label={`${PRODUCT_NAME}助手`}>
       <header>
         <span className="copilot-brand"><span><Brain size={22}/></span><span><b>{PRODUCT_NAME}</b><small>Agent + 知识库 + ChatBI</small></span></span>
