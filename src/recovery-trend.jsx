@@ -5,17 +5,31 @@ import {money} from './model';
 
 function RecoveryDay({tenant,day,onClose}){
  const [page,setPage]=useState(1),[retry,setRetry]=useState(0),[state,setState]=useState({report:null,error:'',busy:true});
+ const [form,setForm]=useState({payment:'',refund:''}),[claim,setClaim]=useState({}),[inputError,setInputError]=useState(''),[compared,setCompared]=useState(false);
  const seq=useRef(0);
  useEffect(()=>{
   const current=++seq.current;setState({report:null,error:'',busy:true});
-  operationsApi.recoveryDay(tenant,day,page).then(report=>{if(current===seq.current)setState({report,error:'',busy:false})})
+  operationsApi.recoveryDay(tenant,day,page,claim).then(report=>{if(current===seq.current)setState({report,error:'',busy:false})})
    .catch(error=>{if(current===seq.current)setState({report:null,error:error.message,busy:false})});
   return()=>{seq.current++};
- },[tenant,day,page,retry]);
+ },[tenant,day,page,retry,claim]);
  const report=state.report?.tenant_id===tenant&&state.report?.date===day&&state.report?.page===page?state.report:null;
+ const comparison=report?.external_comparison;
+ const currentComparison=compared&&comparison&&comparison.status!=='not_provided'&&String(comparison.expected_payment_cents)===form.payment&&String(comparison.expected_refund_cents)===form.refund&&claim.expected_payment_cents===comparison.expected_payment_cents&&claim.expected_refund_cents===comparison.expected_refund_cents?comparison:null;
+ const compare=e=>{e.preventDefault();setInputError('');if(![form.payment,form.refund].every(v=>/^(0|[1-9]\d*)$/.test(v)&&Number.isSafeInteger(Number(v)))){setInputError('请同时填写付款与退款金额，单位为非负整数分；无退款填 0。');return}setState({report:null,error:'',busy:true});setCompared(true);setClaim({expected_payment_cents:Number(form.payment),expected_refund_cents:Number(form.refund)});setPage(1)};
+ const change=(key,value)=>{setForm(f=>({...f,[key]:value}));setInputError('');setCompared(false)};
+ const download=()=>{if(!report||!currentComparison)return;const {items,...summary}=report;const url=URL.createObjectURL(new Blob([JSON.stringify({...summary,report_kind:'daily_reconciliation_summary',includes_ledger_items:false},null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`recovery-day-${day}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
  return <Modal title="每日回款明细" subtitle={`${day} · UTC · 全工作空间`} wide onClose={onClose}>
   {state.error?<div role="alert"><Empty title="明细暂不可用" description="读取失败，请重试。" action={<Button onClick={()=>setRetry(x=>x+1)}>重试明细</Button>}/></div>:!report?<Empty title="正在读取每日账簿" description="付款为正，退款为负。"/>:<>
    <div className="recovery-day-summary"><b>当日净回款 {money(report.net_recovery_cents/100)}</b><span>{report.total} 条记录 · 应计佣金 {money(report.accrued_commission_cents/100)}</span></div>
+   <div className="recovery-day-summary"><span>付款 {money((report.payment_total_cents||0)/100)}</span><span>退款 {money((report.refund_total_cents||0)/100)}</span></div>
+   <form className="recovery-day-compare" onSubmit={compare}>
+    <label>外部付款金额（分）<input aria-label="外部付款金额（分）" inputMode="numeric" value={form.payment} onChange={e=>change('payment',e.target.value)} placeholder="如 10000"/></label>
+    <label>外部退款金额（分）<input aria-label="外部退款金额（分）" inputMode="numeric" value={form.refund} onChange={e=>change('refund',e.target.value)} placeholder="无退款填 0"/></label>
+    <Button type="submit">核对当日金额</Button>
+   </form>
+   {inputError&&<p role="alert" className="form-error">{inputError}</p>}
+   {currentComparison&&<div className="recovery-day-result" role="status">{currentComparison.status==='unavailable'?<p>当日回执证据不完整，暂不能比对。</p>:<><b>{currentComparison.status==='matched'?'付款与退款金额均一致':'付款或退款金额存在差异'}</b><p>付款差异 {money(currentComparison.payment_difference_cents/100)} · 退款差异 {money(currentComparison.refund_difference_cents/100)}（平台减外部）</p></>}<Button onClick={download}>下载核对摘要</Button></div>}
    {report.items.length?<div className="recovery-day-table" tabIndex={0} role="region" aria-label="每日账簿记录"><table><thead><tr><th>案件 / 账簿编号</th><th>类型</th><th>回款金额</th><th>应计佣金</th><th>回执证据</th></tr></thead><tbody>{report.items.map(item=><tr key={item.entry_id}><td><b>{item.case_id}</b><small>{item.entry_id}</small></td><td>{item.event_type==='REFUND'?'退款':'付款'}</td><td>{money(item.amount_cents/100)}</td><td>{money(item.commission_cents/100)}</td><td>{item.evidence_status==='linked'?'已关联验签回执':'证据待补全'}<small>{item.receipt_id||'无关联回执'}</small></td></tr>)}</tbody></table></div>:<Empty title="当日暂无账簿记录" description="无记录日期的净回款为 0。"/>}
    {report.items.length>0&&<p className="recovery-day-scroll-hint">左右滑动表格，查看金额与回执证据。</p>}
    {report.total>report.page_size&&<div className="recovery-day-pages"><Button disabled={page===1} onClick={()=>setPage(p=>p-1)}>上一页</Button><span>第 {page} / {Math.ceil(report.total/report.page_size)} 页</span><Button disabled={page*report.page_size>=report.total} onClick={()=>setPage(p=>p+1)}>下一页</Button></div>}

@@ -76,7 +76,7 @@ test('daily ledger details paginate, clear errors and remain usable on mobile',a
  await page.route('**/api/v1/pilot/recovery-day*',route=>{
   const params=new URL(route.request().url()).searchParams;const current=Number(params.get('page'));
   const items=current===1?Array.from({length:20},(_,i)=>({entry_id:`TEST-${i}`,case_id:`C${i}`,event_type:'PAYMENT',amount_cents:500,commission_cents:75,receipt_id:`RECEIPT-${i}`,evidence_status:'linked'})):[{entry_id:'TEST-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:null,evidence_status:'incomplete'}];
-  return route.fulfill({json:{tenant_id:'TENANT_A',date:params.get('day'),page:current,page_size:20,total:21,net_recovery_cents:7000,accrued_commission_cents:1050,items}});
+  return route.fulfill({json:{tenant_id:'TENANT_A',date:params.get('day'),page:current,page_size:20,total:21,net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,items}});
  });
  await page.goto('/');await expect(page.getByRole('button',{name:'查看当日明细',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
@@ -103,4 +103,32 @@ test('daily ledger details paginate, clear errors and remain usable on mobile',a
  await expect(dialog.getByText('当日暂无账簿记录',{exact:true})).toBeVisible();
  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
  await expect(page.getByRole('button',{name:'查看当日明细',exact:true})).toBeFocused();
+});
+
+test('daily comparison detects separate totals and invalidates edited exports',async({page})=>{
+ await page.route('**/api/v1/pilot/recovery-day*',route=>{
+  const p=new URL(route.request().url()).searchParams;const supplied=p.has('expected_payment_cents');
+  const payment=supplied?Number(p.get('expected_payment_cents')):null,refund=supplied?Number(p.get('expected_refund_cents')):null;
+  return route.fulfill({json:{tenant_id:'TENANT_A',date:p.get('day'),page:Number(p.get('page')),page_size:20,total:2,net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,linked_receipt_count:2,real_business_verified:false,enables_external_execution:false,items:[{entry_id:'COMPARE-PAY',case_id:'C901',event_type:'PAYMENT',amount_cents:10000,commission_cents:1500,receipt_id:'COMPARE-RECEIPT',evidence_status:'linked'},{entry_id:'COMPARE-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:'COMPARE-REFUND-RECEIPT',evidence_status:'linked'}],external_comparison:{status:!supplied?'not_provided':payment===10000&&refund===3000?'matched':'mismatch',expected_payment_cents:payment,expected_refund_cents:refund,payment_difference_cents:supplied?10000-payment:null,refund_difference_cents:supplied?3000-refund:null,evidence_kind:'operator_entered_amounts_only',externally_attested:false}}});
+ });
+ await page.goto('/');await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'每日回款明细'});
+ await dialog.getByLabel('外部付款金额（分）').fill('11000');await dialog.getByLabel('外部退款金额（分）').fill('4000');
+ await dialog.getByRole('button',{name:'核对当日金额'}).click();
+ await expect(dialog.getByText('付款或退款金额存在差异',{exact:true})).toBeVisible();
+ const pending=page.waitForEvent('download');await dialog.getByRole('button',{name:'下载核对摘要'}).click();
+ const report=JSON.parse(await readFile(await (await pending).path(),'utf8'));
+ expect(report.external_comparison.payment_difference_cents).toBe(-1000);expect(report.external_comparison.refund_difference_cents).toBe(-1000);
+ expect(report.real_business_verified).toBe(false);expect(report.external_comparison.externally_attested).toBe(false);
+ expect(report.includes_ledger_items).toBe(false);expect(report).not.toHaveProperty('items');
+ await dialog.getByLabel('外部付款金额（分）').fill('10000');await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
+ await dialog.getByLabel('外部付款金额（分）').fill('11000');await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
+ await dialog.getByLabel('外部付款金额（分）').fill('1.5');await dialog.getByRole('button',{name:'核对当日金额'}).click();await expect(dialog.getByRole('alert')).toBeVisible();
+ await dialog.getByLabel('外部付款金额（分）').fill('10000');await dialog.getByLabel('外部退款金额（分）').fill('3000');await dialog.getByRole('button',{name:'核对当日金额'}).click();
+ await expect(dialog.getByText('付款与退款金额均一致',{exact:true})).toBeVisible();
+ await page.setViewportSize({width:320,height:1000});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await dialog.getByRole('button',{name:'下载核对摘要'}).scrollIntoViewIfNeeded();await page.screenshot({path:'test-results/daily-comparison-mobile.png'});
+ await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'核对读取失败'}}));
+ await dialog.getByRole('button',{name:'核对当日金额'}).click();await expect(dialog.getByRole('alert')).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
 });

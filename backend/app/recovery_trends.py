@@ -9,7 +9,15 @@ from sqlalchemy import and_, case, func, select
 from .models import PaymentReceipt, RecoveryLedgerEntry
 
 
-def build_recovery_day(db, tenant_id: str, day: date, page: int, page_size: int) -> dict:
+def build_recovery_day(
+    db,
+    tenant_id: str,
+    day: date,
+    page: int,
+    page_size: int,
+    expected_payment_cents: int | None = None,
+    expected_refund_cents: int | None = None,
+) -> dict:
     """Paginated ledger provenance, never an external business attestation."""
     begin = datetime.combine(day, datetime.min.time())
     end = begin + timedelta(days=1)
@@ -18,18 +26,38 @@ def build_recovery_day(db, tenant_id: str, day: date, page: int, page_size: int)
         RecoveryLedgerEntry.booked_at >= begin,
         RecoveryLedgerEntry.booked_at < end,
     )
-    total, net, commission = db.execute(
+    receipt_join = and_(PaymentReceipt.id == RecoveryLedgerEntry.receipt_id, PaymentReceipt.tenant_id == tenant_id)
+    linked_receipt = and_(
+        PaymentReceipt.signature_verified.is_(True),
+        PaymentReceipt.status == "matched",
+        PaymentReceipt.case_id == RecoveryLedgerEntry.case_id,
+        PaymentReceipt.recovery_entry_id == RecoveryLedgerEntry.entry_id,
+    )
+    total, net, commission, payments, refunds, linked_count = db.execute(
         select(
             func.count(RecoveryLedgerEntry.id),
             func.coalesce(func.sum(RecoveryLedgerEntry.amount_cents), 0),
             func.coalesce(func.sum(RecoveryLedgerEntry.commission_cents), 0),
-        ).where(*scope)
+            func.coalesce(
+                func.sum(
+                    case((RecoveryLedgerEntry.event_type == "PAYMENT", RecoveryLedgerEntry.amount_cents), else_=0)
+                ),
+                0,
+            ),
+            -func.coalesce(
+                func.sum(case((RecoveryLedgerEntry.event_type == "REFUND", RecoveryLedgerEntry.amount_cents), else_=0)),
+                0,
+            ),
+            func.count(case((linked_receipt, RecoveryLedgerEntry.id))),
+        )
+        .outerjoin(PaymentReceipt, receipt_join)
+        .where(*scope)
     ).one()
     rows = db.execute(
         select(RecoveryLedgerEntry, PaymentReceipt)
         .outerjoin(
             PaymentReceipt,
-            and_(PaymentReceipt.id == RecoveryLedgerEntry.receipt_id, PaymentReceipt.tenant_id == tenant_id),
+            receipt_join,
         )
         .where(*scope)
         .order_by(RecoveryLedgerEntry.booked_at, RecoveryLedgerEntry.entry_id)
@@ -57,6 +85,19 @@ def build_recovery_day(db, tenant_id: str, day: date, page: int, page_size: int)
                 "evidence_status": "linked" if linked else "incomplete",
             }
         )
+    comparable = bool(total) and linked_count == total
+    supplied = expected_payment_cents is not None and expected_refund_cents is not None
+    payment_difference = int(payments) - expected_payment_cents if supplied and comparable else None
+    refund_difference = int(refunds) - expected_refund_cents if supplied and comparable else None
+    comparison_status = (
+        "not_provided"
+        if not supplied
+        else "unavailable"
+        if not comparable
+        else "matched"
+        if payment_difference == 0 and refund_difference == 0
+        else "mismatch"
+    )
     return {
         "tenant_id": tenant_id,
         "date": day.isoformat(),
@@ -67,7 +108,19 @@ def build_recovery_day(db, tenant_id: str, day: date, page: int, page_size: int)
         "page_size": page_size,
         "total": total,
         "net_recovery_cents": int(net),
+        "payment_total_cents": int(payments),
+        "refund_total_cents": int(refunds),
+        "linked_receipt_count": linked_count,
         "accrued_commission_cents": int(commission),
+        "external_comparison": {
+            "status": comparison_status,
+            "expected_payment_cents": expected_payment_cents,
+            "expected_refund_cents": expected_refund_cents,
+            "payment_difference_cents": payment_difference,
+            "refund_difference_cents": refund_difference,
+            "evidence_kind": "operator_entered_amounts_only",
+            "externally_attested": False,
+        },
         "items": items,
         "real_business_verified": False,
         "enables_external_execution": False,

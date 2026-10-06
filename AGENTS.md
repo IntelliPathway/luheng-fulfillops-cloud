@@ -71,3 +71,6 @@ Online recovery trends use tenant-scoped immutable recovery ledger entries, grou
 
 ## v4.7 daily ledger provenance
 Daily detail shares the trend's tenant and provider-event UTC date basis. Pagination never changes whole-day totals. Receipt evidence is linked only with same-tenant, same-case, verified matched receipts and correct ledger backlinks. Clear stale detail on date/period/tenant changes and errors. Platform provenance is never external business attestation. Preserve BoardUI layout and modal keyboard/mobile usability.
+
+## v4.8 daily reconciliation
+Compare daily payment and refund amounts independently, using nonnegative integer cents and whole-day receipt provenance across all pages. Net equality cannot hide offsetting differences. Missing evidence makes differences null. Editing either amount invalidates comparison and export until a new request completes. Summary exports omit paginated items and never attest real business or authorize execution.

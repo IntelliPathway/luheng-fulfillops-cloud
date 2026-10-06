@@ -1,5 +1,5 @@
-# v4.7.0 · 每日账簿明细与回执追溯
+# v4.8.0 · 每日付款与退款双项核对
 
-当前版本：[v4.7.0](docs/releases/RELEASE_v4.7.0.md)。
+当前版本：[v4.8.0](docs/releases/RELEASE_v4.8.0.md)。
 
-[生产开通](docs/production-pilot-v4.4.md) · [真实案例材料](docs/real-case-pilot-kit.md)。在线工作台可从趋势核对每日账簿及回执关联；实际生产接入与真实业务验收尚未完成。
+[生产开通](docs/production-pilot-v4.4.md) · [真实案例材料](docs/real-case-pilot-kit.md)。每日账簿可分别核对外部付款与退款金额并下载摘要；手工金额一致不等于真实业务验收。

@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from .case_validation import build_case_validation
 from .connection_readiness import build_connection_readiness
@@ -87,6 +87,12 @@ def get_recovery_day(
     day: Annotated[date, Query(le=MAX_LEDGER_DAY)],
     page: int = Query(default=1, ge=1, le=100000),
     page_size: int = Query(default=20, ge=1, le=100),
+    expected_payment_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
+    expected_refund_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
 ) -> dict:
+    if (expected_payment_cents is None) != (expected_refund_cents is None):
+        raise HTTPException(422, "付款与退款凭证金额必须同时填写，单位为非负整数分")
     response.headers["Cache-Control"] = "no-store"
-    return build_recovery_day(db, context.tenant_id, day, page, page_size)
+    return build_recovery_day(
+        db, context.tenant_id, day, page, page_size, expected_payment_cents, expected_refund_cents
+    )
