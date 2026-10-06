@@ -169,6 +169,7 @@ export const securityApi = {
 };
 
 export const operationsApi = {
+  integrationAcceptance: tenant => request(`/pilot/integration-acceptance?browser_origin=${encodeURIComponent(window.location.origin)}`,tenant),
   materialVersions: (tenant,id) => request(`/material-versions/${encodeURIComponent(id)}`,tenant),
   appendMaterialVersion: (tenant,id,payload) => request(`/material-versions/${encodeURIComponent(id)}`,tenant,{method:'POST',body:JSON.stringify(payload)}),
   evidenceWorkspace: (tenant,id) => request(`/evidence-workspace/${encodeURIComponent(id)}`,tenant),

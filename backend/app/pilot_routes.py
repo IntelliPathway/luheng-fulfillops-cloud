@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from .case_validation import build_case_validation
 from .connection_readiness import build_connection_readiness
 from .dependencies import Context, Database
+from .integration_acceptance import build_integration_acceptance
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
 from .pilot_preflight import build_pilot_preflight
 from .pilot_scorecard import build_pilot_scorecard, build_release_gate
@@ -13,6 +14,19 @@ from .recovery_trends import build_recovery_day, build_recovery_trend
 
 router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
 MAX_LEDGER_DAY = date(9999, 12, 30)
+
+
+@router.get("/integration-acceptance")
+def get_integration_acceptance(context: Context, db: Database, request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return build_integration_acceptance(
+        db,
+        context,
+        request.app.state.startup,
+        request.headers.get("origin"),
+        request.app.state.cors_origins,
+        request.query_params.get("browser_origin"),
+    )
 
 
 @router.get("/connection-readiness")
