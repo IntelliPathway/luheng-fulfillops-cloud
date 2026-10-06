@@ -261,3 +261,6 @@ body{min-width:320px}.main-shell,.main-content,.overview-dashboard{min-width:0}
 @media(max-width:760px){.command-assistant{padding:14px}.command-assistant .copilot-suggestions,.command-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.command-query{flex-direction:column;align-items:stretch}.command-assistant .assistant-facts{grid-template-columns:1fr}.command-query .field{width:100%}.command-entry-grid button{padding:10px;font-size:12px}}
 @media(max-width:360px){.command-assistant .copilot-suggestions{grid-template-columns:1fr}}
 .persisted-agent-run{border-top:1px solid var(--border);padding:16px 0;overflow-wrap:anywhere}.persisted-agent-run p,.assistant-tool-trace{font-size:12px;overflow-wrap:anywhere}.persisted-agent-run small{color:var(--muted)}
+
+/* Mobile uses the sticky top AI entry so floating controls never cover content. */
+@media(max-width:700px){.ai-copilot-launcher{display:none}}
