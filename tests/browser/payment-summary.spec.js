@@ -8,7 +8,8 @@ test('failed payment overview stays unavailable while the business API remains c
  for(const card of cards(page))await expect(card).toHaveText('—');
  await expect(page.getByRole('status').filter({hasText:'财务摘要尚未读取'})).toBeVisible();
  await expect(page.locator('.sync-label')).toHaveText('财务摘要暂不可用');
- await expect(page.locator('.recovery-chart-card')).not.toContainText('¥0');
+ await expect(page.locator('.recovery-chart-card .metric-value-row strong')).toHaveText('—');
+ await expect(page.getByRole('img',{name:'近 30 天服务端净回款趋势，UTC，单位元'})).toBeVisible();
  await expect(page.locator('.commission-card')).not.toContainText('¥0');
  await page.screenshot({path:'test-results/payment-summary-unavailable.png'});
 });

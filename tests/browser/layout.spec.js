@@ -17,7 +17,7 @@ for(const width of [1440,1024,768,390,320]){
 }
 test('connected dashboard never displays fabricated performance and tabs work by keyboard',async({page})=>{
  await page.goto('/');await expect(page.locator('.server-connected')).toContainText('API');
- await expect(page.getByText('暂未提供趋势统计')).toBeVisible();
+ await expect(page.getByRole('img',{name:'近 30 天服务端净回款趋势，UTC，单位元'})).toBeVisible();
  await expect(page.getByText('92.4%',{exact:true})).toHaveCount(0);
  await page.goto('/#/cases');const first=page.getByRole('tab').first();await first.focus();await first.press('ArrowRight');await expect(page.getByRole('tab').nth(1)).toHaveAttribute('aria-selected','true');
 });
