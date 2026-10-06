@@ -19,7 +19,8 @@ test('customer intake maps CSV and preserves evidence boundaries on desktop and 
  await expect(panel.getByRole('cell',{name:'-2000',exact:true})).toHaveCount(2);
  await expect(panel.getByRole('button',{name:'下载材料核对报告'})).toBeVisible();
  await panel.scrollIntoViewIfNeeded();await page.screenshot({path:'test-results/customer-materials-desktop.png'});
- await page.setViewportSize({width:320,height:1000});await panel.scrollIntoViewIfNeeded();
+ await page.setViewportSize({width:320,height:1000});
+ await expect.poll(()=>page.locator('.sidebar').evaluate(el=>el.getBoundingClientRect().right)).toBeLessThanOrEqual(0);await panel.scrollIntoViewIfNeeded();
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
  await panel.getByLabel('来源记录编号').scrollIntoViewIfNeeded();await expect(panel.getByLabel('来源记录编号')).toBeInViewport();
  await page.screenshot({path:'test-results/customer-materials-mobile.png'});
