@@ -77,7 +77,27 @@ def parse_rows(raw: bytes, mapping: dict) -> list[dict]:
         raise HTTPException(422, "CSV 必须是 UTF-8 编码、具有唯一表头的有效文件") from exc
 
 
+def mapping_digest(mapping: dict, source_reference: str) -> str:
+    return hashlib.sha256(
+        json.dumps({"mapping": mapping, "source_reference": source_reference}, sort_keys=True).encode()
+    ).hexdigest()
+
+
+def validate_metadata(row: CustomerMaterial) -> None:
+    if mapping_digest(row.mapping, row.source_reference) != row.mapping_digest:
+        raise HTTPException(503, "材料来源或映射完整性校验失败")
+
+
+def material_aad(
+    tenant_id: str, digest: str, md: str, filename: str, file_kind: str, size_bytes: int, case_count: int
+) -> bytes:
+    return json.dumps(
+        ["customer-material-v1", tenant_id, digest, md, filename, file_kind, size_bytes, case_count], ensure_ascii=False
+    ).encode()
+
+
 def view(row: CustomerMaterial) -> dict:
+    decrypt_material(row, row.tenant_id)
     return {
         f: getattr(row, f)
         for f in (
@@ -92,7 +112,7 @@ def view(row: CustomerMaterial) -> dict:
             "created_by",
             "created_at",
         )
-    } | {"case_count": len(row.normalized_rows), "source_authenticity": "requires_external_attestation"}
+    } | {"case_count": row.case_count, "source_authenticity": "requires_external_attestation"}
 
 
 def find(db, tenant: str, material_id: str) -> CustomerMaterial:
@@ -137,9 +157,7 @@ def create_material(payload: MaterialCreate, context: Context, db: Database) -> 
         raise HTTPException(422, "仅 CSV 支持字段映射；附件不会自动识别或验签")
     rows = parse_rows(raw, payload.mapping) if payload.file_kind == "csv" else []
     digest = hashlib.sha256(raw).hexdigest()
-    md = hashlib.sha256(
-        json.dumps({"mapping": payload.mapping, "source_reference": payload.source_reference}, sort_keys=True).encode()
-    ).hexdigest()
+    md = mapping_digest(payload.mapping, payload.source_reference)
     existing = db.scalar(
         select(CustomerMaterial).where(
             CustomerMaterial.tenant_id == context.tenant_id,
@@ -150,7 +168,7 @@ def create_material(payload: MaterialCreate, context: Context, db: Database) -> 
     if existing:
         return view(existing) | {"idempotent_replay": True}
     nonce = os.urandom(12)
-    aad = f"customer-material-v1:{context.tenant_id}:{digest}:{md}".encode()
+    aad = material_aad(context.tenant_id, digest, md, payload.filename, payload.file_kind, len(raw), len(rows))
     row = CustomerMaterial(
         tenant_id=context.tenant_id,
         filename=payload.filename,
@@ -163,7 +181,7 @@ def create_material(payload: MaterialCreate, context: Context, db: Database) -> 
         nonce=base64.b64encode(nonce).decode(),
         ciphertext=base64.b64encode(AESGCM(keys[version]).encrypt(nonce, raw, aad)).decode(),
         mapping=payload.mapping,
-        normalized_rows=rows,
+        case_count=len(rows),
         created_by=context.actor_id,
     )
     db.add(row)
@@ -194,11 +212,20 @@ def create_material(payload: MaterialCreate, context: Context, db: Database) -> 
 
 
 def decrypt_material(row: CustomerMaterial, tenant_id: str) -> bytes:
+    validate_metadata(row)
     _, keys = keyring()
     if row.key_version not in keys:
         raise HTTPException(503, "材料历史加密密钥不可用")
     try:
-        aad = f"customer-material-v1:{tenant_id}:{row.source_digest}:{row.mapping_digest}".encode()
+        aad = material_aad(
+            tenant_id,
+            row.source_digest,
+            row.mapping_digest,
+            row.filename,
+            row.file_kind,
+            row.size_bytes,
+            row.case_count,
+        )
         raw = AESGCM(keys[row.key_version]).decrypt(base64.b64decode(row.nonce), base64.b64decode(row.ciphertext), aad)
         if hashlib.sha256(raw).hexdigest() != row.source_digest:
             raise ValueError
@@ -229,9 +256,10 @@ def download_material(material_id: str, context: Context, db: Database) -> Respo
 def report_material(material_id: str, context: Context, db: Database, request: Request, response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
     row = find(db, context.tenant_id, material_id)
-    decrypt_material(row, context.tenant_id)  # Fail closed if original evidence is damaged or unavailable.
+    raw = decrypt_material(row, context.tenant_id)
+    claims = parse_rows(raw, row.mapping) if row.file_kind == "csv" else []
     results = []
-    for claim in row.normalized_rows:
+    for claim in claims:
         try:
             r = build_case_validation(db, context.tenant_id, claim["case_id"], request.app.state.startup)
         except HTTPException as exc:

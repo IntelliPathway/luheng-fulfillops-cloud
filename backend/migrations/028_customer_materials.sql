@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS customer_materials (
  nonce varchar(32) NOT NULL,
  ciphertext text NOT NULL,
  mapping json NOT NULL,
- normalized_rows json NOT NULL,
+ case_count integer NOT NULL,
  created_by varchar(80) NOT NULL,
  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CONSTRAINT uq_customer_material_source_mapping UNIQUE(tenant_id, source_digest, mapping_digest)

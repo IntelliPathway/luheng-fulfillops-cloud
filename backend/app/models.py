@@ -1071,6 +1071,6 @@ class CustomerMaterial(Base):
     nonce: Mapped[str] = mapped_column(String(32), nullable=False)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     mapping: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    normalized_rows: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    case_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

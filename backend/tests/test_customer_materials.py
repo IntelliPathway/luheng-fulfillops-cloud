@@ -56,7 +56,8 @@ def test_encrypted_roundtrip_scope_idempotency_and_integrity(monkeypatch):
         with app.state.Session() as db:
             row = db.get(CustomerMaterial, m["id"])
             assert "synthetic-private-content" not in row.ciphertext
-            assert "private_note" not in str(row.normalized_rows)
+            assert not hasattr(row, "normalized_rows")
+            assert row.case_count == 1
             row.ciphertext = "AAAA"
             db.commit()
         assert client.get(f"/api/v1/customer-materials/{m['id']}/content", headers=headers()).status_code == 503
@@ -148,3 +149,26 @@ def test_attachments_permission_and_missing_key(monkeypatch):
             ).status_code
             == 422
         )
+
+
+@pytest.mark.parametrize("field", ["source_reference", "mapping", "filename", "case_count"])
+def test_authenticated_metadata_blocks_tampered_provenance(monkeypatch, field):
+    monkeypatch.setenv("SECRET_MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        m = client.post("/api/v1/customer-materials", headers=headers(), json=payload()).json()
+        with client.app.state.Session() as db:
+            row = db.get(CustomerMaterial, m["id"])
+            setattr(
+                row,
+                field,
+                {"case_id": "refund", "payment_cents": "pay", "refund_cents": "case"}
+                if field == "mapping"
+                else 49
+                if field == "case_count"
+                else "TAMPERED-001",
+            )
+            db.commit()
+        for suffix in ("content", "report"):
+            assert client.get(f"/api/v1/customer-materials/{m['id']}/{suffix}", headers=headers()).status_code == 503
+        if field in {"mapping", "source_reference"}:
+            assert client.get("/api/v1/customer-materials", headers=headers()).status_code == 503
