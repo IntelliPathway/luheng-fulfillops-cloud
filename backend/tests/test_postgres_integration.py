@@ -65,6 +65,7 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             "recovery_ledger_entries",
             "commission_ledger_entries",
             "asset_import_batches",
+            "pilot_evidence",
         } <= set(inspector.get_table_names())
         assert {column["name"] for column in inspector.get_columns("model_replay_runs")} >= {
             "policy_snapshot",
@@ -99,6 +100,25 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
         broker.start()
         headers = {"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-user"}
         with TestClient(app) as client:
+            evidence = client.post(
+                "/api/v1/pilot/evidence",
+                headers=headers,
+                json={
+                    "gate_id": "recovery",
+                    "evidence_reference": "CI/POSTGRES-MIGRATION-001",
+                    "evidence_digest": "b" * 64,
+                    "validity_days": 1,
+                    "acknowledged": True,
+                },
+            )
+            assert evidence.status_code == 201, evidence.text
+            reviewed = client.post(
+                f"/api/v1/pilot/evidence/{evidence.json()['id']}/decision",
+                headers={"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "Terry"},
+                json={"decision": "approve", "expected_version": 1, "acknowledged": True},
+            )
+            assert reviewed.status_code == 200, reviewed.text
+            assert reviewed.json()["effective_status"] == "approved"
             payment = client.post(
                 "/api/v1/payments/sandbox-receipts",
                 headers={"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-operator"},

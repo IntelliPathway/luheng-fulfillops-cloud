@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .config import StartupConfigurationError, StartupSettings
 from .financial_ledger import financial_summary
 from .models import (
     Activity,
@@ -17,6 +18,7 @@ from .models import (
     RepaymentPlan,
     TelephonyEvent,
 )
+from .pilot_acceptance import configuration_digest, list_evidence
 
 
 def _count(db: Session, model, tenant_id: str, *filters) -> int:
@@ -47,6 +49,8 @@ def build_pilot_scorecard(db: Session, tenant_id: str) -> dict:
         blockers.append(f"{draft_packages} 个资产包策略尚未发布")
     if pending_policies:
         blockers.append(f"{pending_policies} 个策略提案等待复核")
+    if pending_plans:
+        blockers.append(f"{pending_plans} 个履约方案等待复核")
     if money["pending_receipt_count"] or pending_reconciliations:
         blockers.append("存在尚未完成复核的支付回执")
     return {
@@ -84,7 +88,7 @@ def build_pilot_scorecard(db: Session, tenant_id: str) -> dict:
     }
 
 
-def build_release_gate(db: Session, tenant_id: str) -> dict:
+def build_release_gate(db: Session, tenant_id: str, startup=None) -> dict:
     def enabled(name: str, default: bool = False) -> bool:
         value = os.getenv(name)
         return default if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
@@ -131,17 +135,85 @@ def build_release_gate(db: Session, tenant_id: str) -> dict:
             "detail": "versioned migrations" if not enabled("AUTO_CREATE_SCHEMA", True) else "auto create enabled",
         },
     ]
+    if startup is not None:
+        effective = {
+            "oidc": startup.auth_mode == "oidc"
+            and bool(os.getenv("OIDC_ISSUER"))
+            and bool(os.getenv("OIDC_AUDIENCE"))
+            and bool(os.getenv("OIDC_JWKS_URL")),
+            "dev-auth": not startup.allow_dev_header_auth and not startup.allow_dev_token,
+            "seed": not startup.seed_demo_data,
+            "migration": not startup.auto_create_schema,
+        }
+        for check in checks:
+            if check["id"] in effective:
+                check["status"] = effective[check["id"]]
+                check["detail"] = "effective startup configuration"
+    try:
+        strict = StartupSettings(
+            environment="production",
+            database_url=str(db.get_bind().url),
+            seed_demo_data=startup.seed_demo_data if startup else enabled("SEED_DEMO_DATA", True),
+            auto_create_schema=startup.auto_create_schema if startup else enabled("AUTO_CREATE_SCHEMA", True),
+            auth_mode=startup.auth_mode if startup else auth_mode,
+            allow_dev_header_auth=startup.allow_dev_header_auth if startup else enabled("ALLOW_DEV_HEADER_AUTH", True),
+            allow_dev_token=startup.allow_dev_token if startup else enabled("ALLOW_DEV_TOKEN", True),
+        )
+        strict.validate()
+        safe = True
+    except StartupConfigurationError:
+        safe = False
+    checks.extend(
+        [
+            {
+                "id": "deployment-revision",
+                "label": "试点部署修订编号",
+                "status": bool(os.getenv("PILOT_DEPLOYMENT_REVISION", "").strip()),
+                "detail": "configured" if os.getenv("PILOT_DEPLOYMENT_REVISION", "").strip() else "missing",
+            },
+            {
+                "id": "environment",
+                "label": "生产环境标识",
+                "status": startup.production if startup else os.getenv("APP_ENV") == "production",
+                "detail": startup.environment if startup else os.getenv("APP_ENV", "development"),
+            },
+            {
+                "id": "production-profile",
+                "label": "生产启动安全校验",
+                "status": safe,
+                "detail": "passed" if safe else "生产配置校验未通过",
+            },
+            {
+                "id": "worker",
+                "label": "独立 Worker 模式",
+                "status": os.getenv("JOB_EXECUTION_MODE") == "external",
+                "detail": "仅检查执行模式；存活与恢复需独立演练",
+            },
+        ]
+    )
     external = [
         {"id": "identity", "label": "企业身份与成员映射", "status": "manual_confirmation"},
         {"id": "compliance", "label": "联系与录音合规批准", "status": "manual_confirmation"},
         {"id": "providers", "label": "模型、通信与支付 Provider", "status": "manual_confirmation"},
         {"id": "recovery", "label": "备份恢复与告警演练", "status": "manual_confirmation"},
     ]
+    evidence = list_evidence(db, tenant_id, startup)
+    for item in external:
+        latest = next((row for row in evidence if row["gate_id"] == item["id"]), None)
+        item["status"] = latest["effective_status"] if latest else "manual_confirmation"
+        item["evidence"] = latest
+    scorecard = build_pilot_scorecard(db, tenant_id)
     passed = sum(item["status"] is True for item in checks)
+    manual_passed = all(item["status"] == "approved" for item in external)
+    ready = passed == len(checks) and manual_passed and scorecard["status"] == "ready"
     return {
         "tenant_id": tenant_id,
         "generated_at": datetime.now(UTC),
-        "status": "ready_for_manual_acceptance" if passed == len(checks) else "blocked",
+        "status": "accepted" if ready else "ready_for_manual_acceptance" if passed == len(checks) else "blocked",
         "automated": {"passed": passed, "total": len(checks), "checks": checks},
         "external": external,
+        "business": {"status": scorecard["status"], "blockers": scorecard["blockers"]},
+        "configuration_digest": configuration_digest(db, tenant_id, startup),
+        "scope": "readiness_evidence_only",
+        "enables_external_execution": False,
     }
