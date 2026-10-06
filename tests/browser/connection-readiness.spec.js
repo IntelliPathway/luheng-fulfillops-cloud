@@ -90,6 +90,9 @@ test('daily ledger details paginate, clear errors and remain usable on mobile',a
  await expect(dialog.getByRole('button',{name:'下一页'})).toBeDisabled();
  await page.setViewportSize({width:320,height:1000});
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await expect(dialog.getByText('左右滑动表格，查看金额与回执证据。',{exact:true})).toBeVisible();
+ const table=dialog.getByRole('region',{name:'每日账簿记录'});await table.evaluate(el=>{el.scrollLeft=el.scrollWidth});
+ await expect(dialog.getByText('证据待补全',{exact:false})).toBeInViewport();
  await page.screenshot({path:'test-results/recovery-day-mobile.png'});
  await dialog.getByRole('button',{name:'关闭弹窗'}).click();
  await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'明细读取失败'}}));

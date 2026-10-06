@@ -17,6 +17,7 @@ function RecoveryDay({tenant,day,onClose}){
   {state.error?<div role="alert"><Empty title="明细暂不可用" description="读取失败，请重试。" action={<Button onClick={()=>setRetry(x=>x+1)}>重试明细</Button>}/></div>:!report?<Empty title="正在读取每日账簿" description="付款为正，退款为负。"/>:<>
    <div className="recovery-day-summary"><b>当日净回款 {money(report.net_recovery_cents/100)}</b><span>{report.total} 条记录 · 应计佣金 {money(report.accrued_commission_cents/100)}</span></div>
    {report.items.length?<div className="recovery-day-table" tabIndex={0} role="region" aria-label="每日账簿记录"><table><thead><tr><th>案件 / 账簿编号</th><th>类型</th><th>回款金额</th><th>应计佣金</th><th>回执证据</th></tr></thead><tbody>{report.items.map(item=><tr key={item.entry_id}><td><b>{item.case_id}</b><small>{item.entry_id}</small></td><td>{item.event_type==='REFUND'?'退款':'付款'}</td><td>{money(item.amount_cents/100)}</td><td>{money(item.commission_cents/100)}</td><td>{item.evidence_status==='linked'?'已关联验签回执':'证据待补全'}<small>{item.receipt_id||'无关联回执'}</small></td></tr>)}</tbody></table></div>:<Empty title="当日暂无账簿记录" description="无记录日期的净回款为 0。"/>}
+   {report.items.length>0&&<p className="recovery-day-scroll-hint">左右滑动表格，查看金额与回执证据。</p>}
    {report.total>report.page_size&&<div className="recovery-day-pages"><Button disabled={page===1} onClick={()=>setPage(p=>p-1)}>上一页</Button><span>第 {page} / {Math.ceil(report.total/report.page_size)} 页</span><Button disabled={page*report.page_size>=report.total} onClick={()=>setPage(p=>p+1)}>下一页</Button></div>}
    <p className="muted recovery-day-note">关联验签回执仅表示平台证据可追溯，仍需外部银行或服务商核对，不能替代真实业务验收。</p>
   </>}
