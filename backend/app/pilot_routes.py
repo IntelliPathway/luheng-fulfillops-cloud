@@ -87,12 +87,14 @@ def get_recovery_day(
     day: Annotated[date, Query(le=MAX_LEDGER_DAY)],
     page: int = Query(default=1, ge=1, le=100000),
     page_size: int = Query(default=20, ge=1, le=100),
-    expected_payment_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
-    expected_refund_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
+    expected_payment_cents: str | None = Query(default=None, pattern=r"^(0|[1-9][0-9]*)$", max_length=16),
+    expected_refund_cents: str | None = Query(default=None, pattern=r"^(0|[1-9][0-9]*)$", max_length=16),
 ) -> dict:
     if (expected_payment_cents is None) != (expected_refund_cents is None):
         raise HTTPException(422, "付款与退款凭证金额必须同时填写，单位为非负整数分")
+    payment_cents = int(expected_payment_cents) if expected_payment_cents is not None else None
+    refund_cents = int(expected_refund_cents) if expected_refund_cents is not None else None
+    if any(value is not None and value > 9007199254740991 for value in (payment_cents, refund_cents)):
+        raise HTTPException(422, "金额超出安全整数分范围")
     response.headers["Cache-Control"] = "no-store"
-    return build_recovery_day(
-        db, context.tenant_id, day, page, page_size, expected_payment_cents, expected_refund_cents
-    )
+    return build_recovery_day(db, context.tenant_id, day, page, page_size, payment_cents, refund_cents)
