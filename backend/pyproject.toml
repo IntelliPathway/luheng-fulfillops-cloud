@@ -1,6 +1,6 @@
 [project]
 name = "luheng-fulfillops-api"
-version = "4.0.0"
+version = "4.2.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.142.2",
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest==8.4.1", "ruff==0.16.7"]
+test = ["pytest==9.0.3", "ruff==0.16.7"]
 harness = ["deepseek-harness-sdk==0.1.5rc1"]
 aws = ["boto3==1.43.93"]
 

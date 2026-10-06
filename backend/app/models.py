@@ -50,6 +50,29 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
+class PilotEvidence(Base):
+    __tablename__ = "pilot_evidence"
+    __table_args__ = (
+        CheckConstraint("gate_id IN ('identity','compliance','providers','recovery')", name="ck_pilot_evidence_gate"),
+        CheckConstraint("status IN ('pending_review','approved','rejected')", name="ck_pilot_evidence_status"),
+        Index("ix_pilot_evidence_tenant_gate", "tenant_id", "gate_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("PILOT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    gate_id: Mapped[str] = mapped_column(String(24), nullable=False)
+    evidence_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    configuration_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class TenantMembership(Base):
     __tablename__ = "tenant_memberships"
     __table_args__ = (UniqueConstraint("tenant_id", "user_id"),)

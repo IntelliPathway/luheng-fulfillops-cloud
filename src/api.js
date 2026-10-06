@@ -1,5 +1,6 @@
 import {PRODUCT_NAME} from './brand.js';
 import {ensureFreshAccessToken} from './oidc-client.js';
+import {publicRuntimeConfig} from './runtime-config.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || '/api/v1';
 
@@ -25,7 +26,8 @@ const headers = async tenant => {
 };
 
 async function request(path, tenant, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const apiBase=publicRuntimeConfig().api_base_url||API_BASE;
+  const response = await fetch(`${apiBase}${path}`, {
     ...options,
     headers: {...await headers(tenant), ...(options.headers || {})},
   });
@@ -42,6 +44,7 @@ async function request(path, tenant, options = {}) {
 }
 
 export function classifyApiFailure(error) {
+  if(publicRuntimeConfig().mode==='connected')return error instanceof ApiError&&[401,403].includes(error.status)?'auth-required':'api-error';
   if (error instanceof ApiError && error.details?.mode === 'sites-demo') return 'offline';
   if (error instanceof ApiError && [401, 403].includes(error.status)) return 'auth-required';
   if (error instanceof ApiError) return 'api-error';
@@ -168,6 +171,10 @@ export const securityApi = {
 export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   releaseGate: tenant => request('/pilot/release-gate', tenant),
+  pilotPreflight: tenant => request('/pilot/preflight', tenant),
+  pilotEvidence: tenant => request('/pilot/evidence', tenant),
+  proposePilotEvidence: (tenant,payload) => request('/pilot/evidence', tenant, {method:'POST',body:JSON.stringify(payload)}),
+  decidePilotEvidence: (tenant,id,payload) => request(`/pilot/evidence/${encodeURIComponent(id)}/decision`, tenant, {method:'POST',body:JSON.stringify(payload)}),
   metrics: tenant => request('/observability/metrics', tenant),
   providerScorecard: tenant => request('/provider-operations/scorecard', tenant),
   dailyClose: tenant => request('/provider-operations/daily-close', tenant),

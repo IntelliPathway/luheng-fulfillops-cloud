@@ -1,6 +1,6 @@
 {
   "name": "luheng-fulfillops-cloud",
-  "version": "4.0.0",
+  "version": "4.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,18 +9,22 @@
     "preview": "vite preview",
     "verify": "bash scripts/verify.sh",
     "test": "npm run test:domain && npm run test:documentation && npm run test:deployment && npm run test:security && npm run build && npm run test:sites",
-    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs tests/repayment-state.test.mjs tests/brand-contract.test.mjs tests/oidc-contract.test.mjs",
+    "test:domain": "node --test tests/integration-state.test.mjs tests/activity-preflight.test.mjs tests/api-contract.test.mjs tests/repayment-state.test.mjs tests/brand-contract.test.mjs tests/oidc-contract.test.mjs tests/runtime-config.test.mjs",
     "test:documentation": "node --test tests/documentation-contract.test.mjs",
     "test:deployment": "node --test tests/deployment-contract.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "test:security": "node --test tests/security-contract.test.mjs",
-    "sbom": "node scripts/generate-sbom.mjs"
+    "sbom": "node scripts/generate-sbom.mjs",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
     "@vitejs/plugin-react": "5.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "vite": "6.4.2"
+    "vite": "6.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
   }
 }

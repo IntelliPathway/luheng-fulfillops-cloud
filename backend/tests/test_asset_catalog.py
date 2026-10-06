@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -138,7 +138,7 @@ def test_future_mandate_is_not_counted_as_executable(client: TestClient) -> None
             )
         )
         assert profile is not None
-        profile.mandate_start = date.today() + timedelta(days=1)
+        profile.mandate_start = datetime.now(UTC).date() + timedelta(days=1)
         profile.mandate_end = profile.mandate_start + timedelta(days=30)
         db.commit()
 
