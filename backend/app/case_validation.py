@@ -53,7 +53,6 @@ def build_case_validation(db, tenant_id: str, case_id: str, startup) -> dict:
             select(PaymentReceipt).where(PaymentReceipt.tenant_id == tenant_id, PaymentReceipt.case_id == case_id)
         )
     }
-    linked = [receipts[e.receipt_id] for e in entries if e.receipt_id in receipts]
     source_ok = bool(
         batch
         and batch.status == "committed"
@@ -95,9 +94,14 @@ def build_case_validation(db, tenant_id: str, case_id: str, startup) -> dict:
             "id": "outcome",
             "label": "可核对的回款证据链",
             "passed": bool(entries)
-            and len(linked) == len(entries)
-            and all(r.signature_verified and r.status == "accepted" for r in linked),
-            "detail": "每条账簿记录必须关联验签且已接受的回执；仍需外部银行或服务商核对",
+            and all(
+                (receipt := receipts.get(entry.receipt_id)) is not None
+                and receipt.signature_verified
+                and receipt.status == "matched"
+                and receipt.recovery_entry_id == entry.entry_id
+                for entry in entries
+            ),
+            "detail": "每条账簿记录必须关联验签且已匹配入账的回执；仍需外部银行或服务商核对",
         },
         {
             "id": "environment",
