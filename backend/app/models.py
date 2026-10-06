@@ -1092,3 +1092,23 @@ class CustomerSyncEvent(Base):
     job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class MaterialAssociation(Base):
+    __tablename__ = "material_associations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "material_id", "case_id", name="uq_material_association"),
+        CheckConstraint("status IN ('pending_review','approved','rejected')", name="ck_material_association_status"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("LINK"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
