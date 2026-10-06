@@ -80,7 +80,7 @@ export function PolicyModal({packageId,onClose}){
   const [error,setError]=useState('');
   const [proposal,setProposal]=useState(null);
   const [reason,setReason]=useState('根据资产结构与保护边界调整预算及协商授权参数，提交独立复核。');
-  const [reviewNote,setReviewNote]=useState('已独立核验策略参数、场景评估结果与资产包适用范围。');
+  const [reviewNote,setReviewNote]=useState('已独立核验策略参数与资产包适用范围；当前提案未执行场景回放。');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{if(!serverGoverned)return;policyApi.list(a.tenant,packageId).then(rows=>setProposal(rows.find(row=>row.status==='pending_review')||null)).catch(err=>setError(err.message))},[a.tenant,packageId,serverGoverned]);
   const update=(key,value)=>{setForm(old=>({...old,[key]:value}));setPhase('edit');setError('')};
