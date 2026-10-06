@@ -176,6 +176,9 @@ export const operationsApi = {
   caseValidation: (tenant,caseId,expectedNet) => request(`/pilot/case-validation${queryString({case_id:caseId,expected_net_recovery_cents:expectedNet})}`, tenant),
   connectionReadiness: tenant => request(`/pilot/connection-readiness${queryString({browser_origin:globalThis.location?.origin})}`, tenant),
   pilotPreflight: tenant => request('/pilot/preflight', tenant),
+  customerMaterials: tenant => request('/customer-materials',tenant),
+  createCustomerMaterial: (tenant,payload) => request('/customer-materials',tenant,{method:'POST',body:JSON.stringify(payload)}),
+  customerMaterialReport: (tenant,id) => request(`/customer-materials/${encodeURIComponent(id)}/report`,tenant),
   pilotEvidence: tenant => request('/pilot/evidence', tenant),
   proposePilotEvidence: (tenant,payload) => request('/pilot/evidence', tenant, {method:'POST',body:JSON.stringify(payload)}),
   decidePilotEvidence: (tenant,id,payload) => request(`/pilot/evidence/${encodeURIComponent(id)}/decision`, tenant, {method:'POST',body:JSON.stringify(payload)}),
@@ -515,3 +518,10 @@ export const repaymentApi = {
     body: JSON.stringify({decision, review_note: reviewNote, expected_version: expectedVersion, acknowledged: true}),
   }),
 };
+
+export async function downloadCustomerMaterial(tenant,id){
+ const base=publicRuntimeConfig().api_base_url||API_BASE;
+ const response=await fetch(`${base}/customer-materials/${encodeURIComponent(id)}/content`,{headers:await headers(tenant)});
+ if(!response.ok)throw new ApiError('原件下载失败，请检查权限和加密服务',response.status);
+ return response.blob();
+}

@@ -1050,3 +1050,27 @@ class CommissionLedgerEntry(Base):
     created_by: Mapped[str] = mapped_column(String(80))
     occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class CustomerMaterial(Base):
+    __tablename__ = "customer_materials"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_digest", "mapping_digest", name="uq_customer_material_source_mapping"),
+        Index("ix_customer_material_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("MAT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    filename: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    mapping_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_kind: Mapped[str] = mapped_column(String(12), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    key_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(32), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    mapping: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    normalized_rows: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

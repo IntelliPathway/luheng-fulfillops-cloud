@@ -320,6 +320,9 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(asset_import_router)
     app.include_router(policy_router)
     app.include_router(telephony_router)
+    from .customer_materials import router as customer_material_router
+
+    app.include_router(customer_material_router)
     app.include_router(pilot_router)
     app.include_router(membership_router)
     app.include_router(contact_router)
