@@ -61,10 +61,10 @@ test('case comparison rejects stale exports and clears failed evidence',async({p
 test('server ledger trend switches periods and fails without demo fallback',async({page})=>{
  await page.goto('/');
  await expect(page.getByRole('img',{name:'近 30 天服务端净回款趋势，UTC，单位元'})).toBeVisible();
- await page.getByRole('button',{name:'周',exact:true}).click();
+ await page.locator('.recovery-chart-card').getByRole('button',{name:'周',exact:true}).click();
  await expect(page.getByRole('img',{name:'近 7 天服务端净回款趋势，UTC，单位元'})).toBeVisible();
  await page.route('**/api/v1/pilot/recovery-trend*',route=>route.fulfill({status:503,contentType:'application/json',body:'{"detail":"趋势暂不可用"}'}));
- await page.getByRole('button',{name:'季',exact:true}).click();
+ await page.locator('.recovery-chart-card').getByRole('button',{name:'季',exact:true}).click();
  await expect(page.getByRole('alert').getByText('趋势暂不可用',{exact:true})).toBeVisible();
  await expect(page.getByRole('img',{name:/服务端净回款趋势/})).toHaveCount(0);
  await expect(page.getByRole('img',{name:/^近.*确认净回款趋势$/})).toHaveCount(0);
