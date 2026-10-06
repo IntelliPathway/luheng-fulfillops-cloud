@@ -1,6 +1,10 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 
+test.afterEach(async({page})=>{
+ await page.unrouteAll({behavior:'wait'});
+});
+
 test('connection diagnostics export scoped evidence and clear failed refresh results',async({page})=>{
  await page.goto('/#/pilot');const panel=page.getByRole('region',{name:'生产连接诊断'});
  await expect(panel.getByText('当前企业身份',{exact:true})).toBeVisible();
@@ -29,4 +33,5 @@ test('backend ready response cannot turn an unconfigured demo Site into producti
  await page.goto('/#/pilot');const panel=page.getByRole('region',{name:'生产连接诊断'});
  await expect(panel.getByText('技术接入尚未就绪，请处理下方检查项。')).toBeVisible();
  await expect(panel.getByText('待配置',{exact:true})).toBeVisible();
+ await expect(panel.getByRole('button',{name:'下载接入报告'})).toBeVisible();
 });
