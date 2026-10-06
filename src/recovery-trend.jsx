@@ -1,7 +1,33 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {operationsApi} from './api';
-import {Empty,Button} from './ui';
+import {Empty,Button,Modal} from './ui';
 import {money} from './model';
+
+function RecoveryDay({tenant,day,onClose}){
+ const [page,setPage]=useState(1),[retry,setRetry]=useState(0),[state,setState]=useState({report:null,error:'',busy:true});
+ const seq=useRef(0);
+ useEffect(()=>{
+  const current=++seq.current;setState({report:null,error:'',busy:true});
+  operationsApi.recoveryDay(tenant,day,page).then(report=>{if(current===seq.current)setState({report,error:'',busy:false})})
+   .catch(error=>{if(current===seq.current)setState({report:null,error:error.message,busy:false})});
+  return()=>{seq.current++};
+ },[tenant,day,page,retry]);
+ const report=state.report?.tenant_id===tenant&&state.report?.date===day&&state.report?.page===page?state.report:null;
+ return <Modal title="每日回款明细" subtitle={`${day} · UTC · 全工作空间`} wide onClose={onClose}>
+  {state.error?<div role="alert"><Empty title="明细暂不可用" description="读取失败，请重试。" action={<Button onClick={()=>setRetry(x=>x+1)}>重试明细</Button>}/></div>:!report?<Empty title="正在读取每日账簿" description="付款为正，退款为负。"/>:<>
+   <div className="recovery-day-summary"><b>当日净回款 {money(report.net_recovery_cents/100)}</b><span>{report.total} 条记录 · 应计佣金 {money(report.accrued_commission_cents/100)}</span></div>
+   {report.items.length?<div className="recovery-day-table" tabIndex={0} role="region" aria-label="每日账簿记录"><table><thead><tr><th>案件 / 账簿编号</th><th>类型</th><th>回款金额</th><th>应计佣金</th><th>回执证据</th></tr></thead><tbody>{report.items.map(item=><tr key={item.entry_id}><td><b>{item.case_id}</b><small>{item.entry_id}</small></td><td>{item.event_type==='REFUND'?'退款':'付款'}</td><td>{money(item.amount_cents/100)}</td><td>{money(item.commission_cents/100)}</td><td>{item.evidence_status==='linked'?'已关联验签回执':'证据待补全'}<small>{item.receipt_id||'无关联回执'}</small></td></tr>)}</tbody></table></div>:<Empty title="当日暂无账簿记录" description="无记录日期的净回款为 0。"/>}
+   {report.items.length>0&&<p className="recovery-day-scroll-hint">左右滑动表格，查看金额与回执证据。</p>}
+   {report.total>report.page_size&&<div className="recovery-day-pages"><Button disabled={page===1} onClick={()=>setPage(p=>p-1)}>上一页</Button><span>第 {page} / {Math.ceil(report.total/report.page_size)} 页</span><Button disabled={page*report.page_size>=report.total} onClick={()=>setPage(p=>p+1)}>下一页</Button></div>}
+   <p className="muted recovery-day-note">关联验签回执仅表示平台证据可追溯，仍需外部银行或服务商核对，不能替代真实业务验收。</p>
+  </>}
+ </Modal>;
+}
+
+function DayPicker({tenant,report}){
+ const [day,setDay]=useState(report.end_date),[open,setOpen]=useState(false);
+ return <><div className="recovery-day-picker"><label>核对日期（UTC）<select aria-label="核对日期（UTC）" value={day} onChange={e=>{setDay(e.target.value);setOpen(false)}}>{report.points.map(p=><option key={p.date} value={p.date}>{p.date} · {p.ledger_entry_count} 条</option>)}</select></label><Button onClick={()=>setOpen(true)}>查看当日明细</Button></div>{open&&<RecoveryDay key={`${tenant}:${day}`} tenant={tenant} day={day} onClose={()=>setOpen(false)}/>}</>;
+}
 
 export function RecoveryTrend({tenant,range}){
  const days={week:7,month:30,quarter:90}[range];
@@ -28,5 +54,6 @@ export function RecoveryTrend({tenant,range}){
   </svg>
   <p className="muted">全工作空间 · UTC · 按服务商事件时间，退款计负值；无记录日期为 0。</p>
   {report.ledger_entry_count===0&&<p className="muted">所选期间暂无回款账簿记录。</p>}
+  <DayPicker key={`${tenant}:${days}:${report.end_date}`} tenant={tenant} report={report}/>
  </div>;
 }

@@ -71,3 +71,36 @@ test('server ledger trend switches periods and fails without demo fallback',asyn
  await page.unrouteAll({behavior:'wait'});await page.getByRole('button',{name:'重试趋势',exact:true}).click();
  await expect(page.getByRole('img',{name:'近 90 天服务端净回款趋势，UTC，单位元'})).toBeVisible();
 });
+
+test('daily ledger details paginate, clear errors and remain usable on mobile',async({page})=>{
+ await page.route('**/api/v1/pilot/recovery-day*',route=>{
+  const params=new URL(route.request().url()).searchParams;const current=Number(params.get('page'));
+  const items=current===1?Array.from({length:20},(_,i)=>({entry_id:`TEST-${i}`,case_id:`C${i}`,event_type:'PAYMENT',amount_cents:500,commission_cents:75,receipt_id:`RECEIPT-${i}`,evidence_status:'linked'})):[{entry_id:'TEST-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:null,evidence_status:'incomplete'}];
+  return route.fulfill({json:{tenant_id:'TENANT_A',date:params.get('day'),page:current,page_size:20,total:21,net_recovery_cents:7000,accrued_commission_cents:1050,items}});
+ });
+ await page.goto('/');await expect(page.getByRole('button',{name:'查看当日明细',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'每日回款明细'});
+ await expect(dialog.getByText('当日净回款 ¥70',{exact:true})).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'上一页'})).toBeDisabled();
+ await dialog.getByRole('button',{name:'下一页'}).click();
+ await expect(dialog.getByText('TEST-REFUND',{exact:true})).toBeVisible();
+ await expect(dialog.getByText('证据待补全',{exact:false})).toBeVisible();
+ await expect(dialog.getByText('当日净回款 ¥70',{exact:true})).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'下一页'})).toBeDisabled();
+ await page.setViewportSize({width:320,height:1000});
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await expect(dialog.getByText('左右滑动表格，查看金额与回执证据。',{exact:true})).toBeVisible();
+ const table=dialog.getByRole('region',{name:'每日账簿记录'});await table.evaluate(el=>{el.scrollLeft=el.scrollWidth});
+ await expect(dialog.getByText('证据待补全',{exact:false})).toBeInViewport();
+ await page.screenshot({path:'test-results/recovery-day-mobile.png'});
+ await dialog.getByRole('button',{name:'关闭弹窗'}).click();
+ await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'明细读取失败'}}));
+ await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
+ await expect(dialog.getByRole('alert')).toBeVisible();
+ await expect(dialog.getByText('TEST-REFUND',{exact:true})).toHaveCount(0);
+ await page.unrouteAll({behavior:'wait'});await dialog.getByRole('button',{name:'重试明细'}).click();
+ await expect(dialog.getByText('当日暂无账簿记录',{exact:true})).toBeVisible();
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'查看当日明细',exact:true})).toBeFocused();
+});
