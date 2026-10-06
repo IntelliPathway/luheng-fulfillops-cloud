@@ -97,3 +97,7 @@ Record external acceptance references/digests with independent administrator rev
 
 ## v4.14 customer feed connectors
 Customer connectors use exact deployment HTTPS host allowlists, validated public DNS addresses pinned for each TLS request, no redirects or proxies, encrypted Bearer secrets and three strict integer-cent mappings. Current configuration test and admin enablement precede pulls; configuration changes and failed retests revoke readiness. Workers recheck current administrator permissions. Persist encrypted idempotent events before cursor advancement; partial pages replay without financial ledger writes. Scheduled pulls reuse leased jobs and block bypassing retryable failed pages.
+
+
+## v4.15 immutable versions and evidence assistance
+Append material versions atomically, preserve originals, prevent branches and cross-series adoption, and bind reviews to the latest version state. Show historical evidence explicitly. Evidence workspace is tenant/case scoped; current source citations and digest govern suggestions and tasks. Rule mode is never labelled a model success. Model mode requires explicit permission to share sanitized checks, existing tested tenant model configuration and Gateway controls; never send originals, case IDs, source references or amounts. Reject invented citations and nonconforming output. Task recording cannot alter facts or approve acceptance; stale evidence invalidates decisions and exports. Preserve BoardUI mobile and error states.

@@ -8,7 +8,7 @@
 
 | 当前版本 | 前端 | 业务服务 | 数据与任务 | 生产模板 |
 |---|---|---|---|---|
-| `v4.14.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
+| `v4.15.0` | React 19 + Vite 6 | FastAPI + 受控 Agent Gateway | PostgreSQL + 独立 Worker | ECS + 1Panel Compose |
 
 > AI 负责查询、解释和生成提案；权限、策略、保护状态、双人复核与账务内核拥有最终决定权。真实外呼、支付和模型调用默认关闭。
 
@@ -183,3 +183,5 @@ flowchart TB
 项目为私有业务代码仓库，尚未发布开源许可证。
 
 客户数据接入：[统一连接器协议](docs/integrations/customer-feed.md)。
+
+材料与核验：[证据工作台使用及边界](docs/integrations/evidence-workspace.md)。

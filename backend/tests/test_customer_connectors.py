@@ -177,3 +177,38 @@ def test_ssrf_response_contract_and_amount_validation(client, monkeypatch):
             ).status_code
             == 422
         )
+
+
+def test_transport_pins_public_address_and_rejects_redirects(monkeypatch):
+    import json
+
+    monkeypatch.setenv("CUSTOMER_CONNECTOR_EGRESS_ALLOWLIST", "customer.example")
+    monkeypatch.setattr(connectors, "public_addresses", lambda host: ["93.184.216.34"])
+    captured = []
+
+    class Connection:
+        status = 200
+
+        def __init__(self, host, address):
+            captured.append((host, address))
+
+        def request(self, method, path, headers):
+            captured.append((method, path, headers))
+
+        def getresponse(self):
+            return self
+
+        def read(self, count):
+            return json.dumps(page()).encode()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(connectors, "PinnedHTTPS", Connection)
+    assert connectors.fetch_page("https://customer.example/events", "synthetic-token", "a/b") == page()
+    assert captured[0] == ("customer.example", "93.184.216.34")
+    assert "cursor=a%2Fb" in captured[1][1] and captured[1][2]["Authorization"] == "Bearer synthetic-token"
+    Connection.status = 302
+    with pytest.raises(HTTPException) as exc:
+        connectors.fetch_page("https://customer.example/events", "synthetic-token", "")
+    assert "synthetic-token" not in exc.value.detail
