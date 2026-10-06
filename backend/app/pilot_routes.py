@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -89,6 +89,7 @@ def get_recovery_day(
     page_size: int = Query(default=20, ge=1, le=100),
     expected_payment_cents: str | None = Query(default=None, pattern=r"^(0|[1-9][0-9]*)$", max_length=16),
     expected_refund_cents: str | None = Query(default=None, pattern=r"^(0|[1-9][0-9]*)$", max_length=16),
+    evidence_status: Literal["all", "linked", "incomplete"] = "all",
 ) -> dict:
     if (expected_payment_cents is None) != (expected_refund_cents is None):
         raise HTTPException(422, "付款与退款凭证金额必须同时填写，单位为非负整数分")
@@ -97,4 +98,4 @@ def get_recovery_day(
     if any(value is not None and value > 9007199254740991 for value in (payment_cents, refund_cents)):
         raise HTTPException(422, "金额超出安全整数分范围")
     response.headers["Cache-Control"] = "no-store"
-    return build_recovery_day(db, context.tenant_id, day, page, page_size, payment_cents, refund_cents)
+    return build_recovery_day(db, context.tenant_id, day, page, page_size, payment_cents, refund_cents, evidence_status)

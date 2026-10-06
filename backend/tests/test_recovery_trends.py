@@ -199,3 +199,61 @@ def test_daily_comparison_detects_offsetting_differences_and_checks_all_pages(le
         headers=actor,
     ).json()
     assert empty["external_comparison"]["status"] == "unavailable"
+
+
+def test_evidence_filters_and_gap_reasons_keep_whole_day_money_and_comparison(ledger_case):
+    client, actor, secret = ledger_case
+    post_report_payment(client, secret, "REPORT-PAYMENT")
+    post_report_payment(client, secret, "REPORT-REFUND", refund=True)
+    path = "/api/v1/pilot/recovery-day"
+    params = {"day": "2026-10-06", "expected_payment_cents": 10000, "expected_refund_cents": 3000, "page_size": 1}
+    complete = client.get(path, params={**params, "evidence_status": "incomplete"}, headers=actor).json()
+    assert complete["filtered_total"] == 0 and complete["items"] == []
+    assert complete["external_comparison"]["status"] == "matched"
+    with client.app.state.Session() as db:
+        refund = db.scalar(
+            select(RecoveryLedgerEntry).where(
+                RecoveryLedgerEntry.case_id == "C901", RecoveryLedgerEntry.event_type == "REFUND"
+            )
+        )
+        receipt = db.get(PaymentReceipt, refund.receipt_id)
+        for field, wrong, original, reason in [
+            ("signature_verified", False, True, "unverified_signature"),
+            ("status", "unmatched", "matched", "unmatched_receipt"),
+            ("case_id", "C002", "C901", "case_mismatch"),
+            ("case_id", None, "C901", "case_mismatch"),
+            ("recovery_entry_id", None, refund.entry_id, "ledger_backlink_mismatch"),
+            ("tenant_id", "TENANT_B", "TENANT_A", "missing_receipt"),
+        ]:
+            setattr(receipt, field, wrong)
+            db.commit()
+            for evidence_filter in ["all", "linked", "incomplete"]:
+                report = client.get(path, params={**params, "evidence_status": evidence_filter}, headers=actor).json()
+                assert report["evidence_filter"] == evidence_filter
+                assert report["total"] == 2
+                assert report["filtered_total"] == (2 if evidence_filter == "all" else 1)
+                assert report["linked_receipt_count"] == 1
+                assert report["net_recovery_cents"] == 7000
+                assert report["payment_total_cents"] == 10000 and report["refund_total_cents"] == 3000
+                assert report["external_comparison"]["status"] == "unavailable"
+                assert report["external_comparison"]["payment_difference_cents"] is None
+                if evidence_filter == "incomplete":
+                    assert report["items"][0]["entry_id"] == refund.entry_id
+                    assert report["items"][0]["evidence_gap"] == reason
+                    if field == "tenant_id":
+                        assert report["items"][0]["receipt_id"] is None
+                elif evidence_filter == "linked":
+                    assert report["items"][0]["evidence_gap"] is None
+            setattr(receipt, field, original)
+            db.commit()
+        refund.receipt_id = None
+        db.commit()
+        missing = client.get(path, params={**params, "evidence_status": "incomplete"}, headers=actor).json()
+        assert missing["filtered_total"] == 1 and missing["items"][0]["evidence_gap"] == "missing_receipt"
+    second_page = client.get(path, params={**params, "evidence_status": "incomplete", "page": 2}, headers=actor).json()
+    assert second_page["items"] == [] and second_page["filtered_total"] == 1
+    other = client.get(
+        path, params={**params, "evidence_status": "incomplete"}, headers={**actor, "X-Tenant-ID": "TENANT_B"}
+    ).json()
+    assert other["total"] == other["filtered_total"] == 0 and other["items"] == []
+    assert client.get(path, params={**params, "evidence_status": "unknown"}, headers=actor).status_code == 422

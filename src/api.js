@@ -172,7 +172,7 @@ export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   releaseGate: tenant => request('/pilot/release-gate', tenant),
   recoveryTrend: (tenant,days) => request(`/pilot/recovery-trend${queryString({days})}`, tenant),
-  recoveryDay: (tenant,day,page=1,comparison={}) => request(`/pilot/recovery-day${queryString({day,page,page_size:20,...comparison})}`, tenant),
+  recoveryDay: (tenant,day,page=1,comparison={},evidenceStatus='all') => request(`/pilot/recovery-day${queryString({day,page,page_size:20,...comparison,evidence_status:evidenceStatus})}`, tenant),
   caseValidation: (tenant,caseId,expectedNet) => request(`/pilot/case-validation${queryString({case_id:caseId,expected_net_recovery_cents:expectedNet})}`, tenant),
   connectionReadiness: tenant => request(`/pilot/connection-readiness${queryString({browser_origin:globalThis.location?.origin})}`, tenant),
   pilotPreflight: tenant => request('/pilot/preflight', tenant),
