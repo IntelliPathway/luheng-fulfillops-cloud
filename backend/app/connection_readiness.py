@@ -30,9 +30,9 @@ def https_origin(value: str | None) -> str | None:
         return None
 
 
-def build_connection_readiness(db, context, startup, origin, allowed_origins) -> dict:
+def build_connection_readiness(db, context, startup, origin, allowed_origins, browser_origin=None) -> dict:
     preflight = build_pilot_preflight(db, context.tenant_id, startup)
-    request_origin = https_origin(origin)
+    request_origin = https_origin(origin if origin is not None else browser_origin)
     production = (
         startup.environment == "production"
         and not startup.seed_demo_data
@@ -93,7 +93,9 @@ def build_connection_readiness(db, context, startup, origin, allowed_origins) ->
         "status": "ready_for_pilot" if all(c["passed"] for c in checks) else "blocked",
         "generated_at": preflight["generated_at"],
         "report_digest": hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
-        "origin_evidence": "request_header_and_server_allowlist_only",
+        "origin_evidence": "origin_header_and_server_allowlist_only"
+        if origin is not None
+        else "browser_claim_and_server_allowlist_only",
         "real_business_verified": False,
         "enables_external_execution": False,
     }

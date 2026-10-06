@@ -14,7 +14,12 @@ router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
 def get_connection_readiness(context: Context, db: Database, request: Request, response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
     return build_connection_readiness(
-        db, context, request.app.state.startup, request.headers.get("origin"), request.app.state.cors_origins
+        db,
+        context,
+        request.app.state.startup,
+        request.headers.get("origin"),
+        request.app.state.cors_origins,
+        browser_origin=request.query_params.get("browser_origin"),
     )
 
 

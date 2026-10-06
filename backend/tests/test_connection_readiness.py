@@ -94,3 +94,65 @@ def test_ready_infrastructure_does_not_claim_business_acceptance(monkeypatch):
     assert report["enables_external_execution"] is False
     context.auth_mode = "development"
     assert build_connection_readiness(db, context, startup, ORIGIN, [ORIGIN])["status"] == "blocked"
+
+
+def test_same_origin_browser_claim_is_allowed_only_without_origin_header(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", ORIGIN)
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        headers = {"X-Tenant-ID": "TENANT_A", "X-Actor-ID": "test-viewer"}
+        path = "/api/v1/pilot/connection-readiness"
+        response = client.get(path, params={"browser_origin": ORIGIN}, headers=headers)
+        report = response.json()
+        assert response.status_code == 200
+        assert next(c for c in report["checks"] if c["id"] == "site-origin")["passed"]
+        assert report["origin_evidence"] == "browser_claim_and_server_allowlist_only"
+        for claim in ["https://foreign.example.com", "https://user:secret@example.com", "null"]:
+            report = client.get(path, params={"browser_origin": claim}, headers=headers).json()
+            assert not next(c for c in report["checks"] if c["id"] == "site-origin")["passed"]
+            assert "secret@" not in str(report)
+        report = client.get(path, params={"browser_origin": ORIGIN}, headers={**headers, "Origin": "null"}).json()
+        assert not next(c for c in report["checks"] if c["id"] == "site-origin")["passed"]
+        assert report["origin_evidence"] == "origin_header_and_server_allowlist_only"
+
+
+@pytest.mark.parametrize("has_records", [False, True])
+def test_incomplete_postgres_migrations_skip_current_schema_queries(monkeypatch, has_records):
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from app.migrations import _migration_files
+
+    engine = create_engine("sqlite:///:memory:")
+    # Execute real SQL against an intentionally incomplete schema; emulate only the dialect label.
+    monkeypatch.setattr(engine.dialect, "name", "postgresql")
+    if has_records:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE schema_migrations (version TEXT PRIMARY KEY)"))
+            for path in _migration_files():
+                if path.name != "027_pilot_evidence.sql":
+                    connection.execute(text("INSERT INTO schema_migrations VALUES (:version)"), {"version": path.name})
+    with Session(engine) as db:
+        report = build_connection_readiness(
+            db,
+            SimpleNamespace(tenant_id="ISOLATED_TEST", auth_mode="oidc"),
+            SimpleNamespace(
+                environment="production",
+                seed_demo_data=False,
+                auto_create_schema=False,
+                allow_dev_header_auth=False,
+                allow_dev_token=False,
+                auth_mode="oidc",
+            ),
+            None,
+            [ORIGIN],
+            browser_origin=ORIGIN,
+        )
+    assert report["status"] == "blocked"
+    checks = {c["id"]: c for c in report["checks"]}
+    assert "027_pilot_evidence.sql" in checks["migrations"]["detail"]["missing"]
+    if has_records:
+        assert checks["migrations"]["detail"]["missing"] == ["027_pilot_evidence.sql"]
+    assert checks["worker-heartbeat"]["detail"]["reason"] == "migrations_pending"
+    assert report["business_acceptance_status"] == "unavailable"
+    assert report["configuration_digest"] is None
+    engine.dispose()
