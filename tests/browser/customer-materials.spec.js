@@ -9,6 +9,7 @@ test('customer intake maps CSV and preserves evidence boundaries on desktop and 
  });
  await page.route('**/api/v1/customer-materials/MAT-TEST/report',route=>route.fulfill({json:report}));
  await page.goto('/#/pilot');const panel=page.getByRole('region',{name:'客户材料接入'});
+ await expect(panel.getByRole('button',{name:'刷新材料'})).toBeEnabled();await expect(panel.getByLabel('客户材料文件')).toBeEnabled();
  await panel.getByLabel('客户材料文件').setInputFiles({name:'customer.csv',mimeType:'text/csv',buffer:Buffer.from('客户案件,累计付款,累计退款\nC002,12000,5000\n')});
  for(const [label,value] of [['案件编号列','客户案件'],['付款金额列（分）','累计付款'],['退款金额列（分）','累计退款']])await panel.getByLabel(label,{exact:true}).selectOption(value);
  await panel.getByLabel('来源记录编号').fill('BANK/TEST-001');
@@ -20,7 +21,7 @@ test('customer intake maps CSV and preserves evidence boundaries on desktop and 
  await panel.scrollIntoViewIfNeeded();await page.screenshot({path:'test-results/customer-materials-desktop.png'});
  await page.setViewportSize({width:320,height:1000});await panel.scrollIntoViewIfNeeded();
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
- await expect(panel.getByLabel('来源记录编号')).toBeInViewport();
+ await panel.getByLabel('来源记录编号').scrollIntoViewIfNeeded();await expect(panel.getByLabel('来源记录编号')).toBeInViewport();
  await page.screenshot({path:'test-results/customer-materials-mobile.png'});
  await page.route('**/api/v1/customer-materials/MAT-TEST/report',route=>route.fulfill({status:503,json:{detail:'材料完整性校验失败'}}));
  await panel.getByRole('button',{name:'重新核对',exact:true}).click();
