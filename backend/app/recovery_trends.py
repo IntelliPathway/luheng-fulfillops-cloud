@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import and_, case, func, select
 
 from .models import PaymentReceipt, RecoveryLedgerEntry
+
+
+def receipt_gap(entry: RecoveryLedgerEntry, receipt: PaymentReceipt | None) -> str | None:
+    if receipt is None:
+        return "missing_receipt"
+    if not receipt.signature_verified:
+        return "unverified_signature"
+    if receipt.status != "matched":
+        return "unmatched_receipt"
+    if receipt.case_id != entry.case_id:
+        return "case_mismatch"
+    if receipt.recovery_entry_id != entry.entry_id:
+        return "ledger_backlink_mismatch"
+    return None
 
 
 def build_recovery_day(
@@ -17,6 +32,7 @@ def build_recovery_day(
     page_size: int,
     expected_payment_cents: int | None = None,
     expected_refund_cents: int | None = None,
+    evidence_status: Literal["all", "linked", "incomplete"] = "all",
 ) -> dict:
     """Paginated ledger provenance, never an external business attestation."""
     begin = datetime.combine(day, datetime.min.time())
@@ -53,26 +69,28 @@ def build_recovery_day(
         .outerjoin(PaymentReceipt, receipt_join)
         .where(*scope)
     ).one()
+    filtered_total = (
+        total if evidence_status == "all" else linked_count if evidence_status == "linked" else total - linked_count
+    )
+    evidence_scope = (
+        []
+        if evidence_status == "all"
+        else [linked_receipt.is_(True) if evidence_status == "linked" else linked_receipt.is_not(True)]
+    )
     rows = db.execute(
         select(RecoveryLedgerEntry, PaymentReceipt)
         .outerjoin(
             PaymentReceipt,
             receipt_join,
         )
-        .where(*scope)
+        .where(*scope, *evidence_scope)
         .order_by(RecoveryLedgerEntry.booked_at, RecoveryLedgerEntry.entry_id)
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
     items = []
     for entry, receipt in rows:
-        linked = bool(
-            receipt
-            and receipt.signature_verified
-            and receipt.status == "matched"
-            and receipt.case_id == entry.case_id
-            and receipt.recovery_entry_id == entry.entry_id
-        )
+        gap = receipt_gap(entry, receipt)
         items.append(
             {
                 "entry_id": entry.entry_id,
@@ -82,7 +100,8 @@ def build_recovery_day(
                 "commission_cents": entry.commission_cents,
                 "occurred_at": entry.booked_at,
                 "receipt_id": receipt.id if receipt else None,
-                "evidence_status": "linked" if linked else "incomplete",
+                "evidence_status": "incomplete" if gap else "linked",
+                "evidence_gap": gap,
             }
         )
     comparable = bool(total) and linked_count == total
@@ -107,6 +126,8 @@ def build_recovery_day(
         "page": page,
         "page_size": page_size,
         "total": total,
+        "filtered_total": filtered_total,
+        "evidence_filter": evidence_status,
         "net_recovery_cents": int(net),
         "payment_total_cents": int(payments),
         "refund_total_cents": int(refunds),

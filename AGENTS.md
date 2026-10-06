@@ -74,3 +74,6 @@ Daily detail shares the trend's tenant and provider-event UTC date basis. Pagina
 
 ## v4.8 daily reconciliation
 Compare daily payment and refund amounts independently, using nonnegative integer cents and whole-day receipt provenance across all pages. Net equality cannot hide offsetting differences. Missing evidence makes differences null. Editing either amount invalidates comparison and export until a new request completes. Summary exports omit paginated items and never attest real business or authorize execution.
+
+## v4.9 evidence gap triage
+Daily evidence filters affect only the paginated detail rows and filtered count. Whole-day money, receipt completeness and comparison never narrow to the selected subset. SQL null links must remain incomplete. Report the first provenance gap without exposing other-tenant receipts. Reset pagination and clear stale results on filter changes; late responses cannot overwrite newer selections.

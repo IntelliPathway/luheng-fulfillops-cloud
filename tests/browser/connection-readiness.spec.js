@@ -76,7 +76,7 @@ test('daily ledger details paginate, clear errors and remain usable on mobile',a
  await page.route('**/api/v1/pilot/recovery-day*',route=>{
   const params=new URL(route.request().url()).searchParams;const current=Number(params.get('page'));
   const items=current===1?Array.from({length:20},(_,i)=>({entry_id:`TEST-${i}`,case_id:`C${i}`,event_type:'PAYMENT',amount_cents:500,commission_cents:75,receipt_id:`RECEIPT-${i}`,evidence_status:'linked'})):[{entry_id:'TEST-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:null,evidence_status:'incomplete'}];
-  return route.fulfill({json:{tenant_id:'TENANT_A',date:params.get('day'),page:current,page_size:20,total:21,net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,items}});
+  return route.fulfill({json:{tenant_id:'TENANT_A',date:params.get('day'),page:current,page_size:20,total:21,filtered_total:21,evidence_filter:params.get('evidence_status'),net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,items}});
  });
  await page.goto('/');await expect(page.getByRole('button',{name:'查看当日明细',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
@@ -109,7 +109,7 @@ test('daily comparison detects separate totals and invalidates edited exports',a
  await page.route('**/api/v1/pilot/recovery-day*',route=>{
   const p=new URL(route.request().url()).searchParams;const supplied=p.has('expected_payment_cents');
   const payment=supplied?Number(p.get('expected_payment_cents')):null,refund=supplied?Number(p.get('expected_refund_cents')):null;
-  return route.fulfill({json:{tenant_id:'TENANT_A',date:p.get('day'),page:Number(p.get('page')),page_size:20,total:2,net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,linked_receipt_count:2,real_business_verified:false,enables_external_execution:false,items:[{entry_id:'COMPARE-PAY',case_id:'C901',event_type:'PAYMENT',amount_cents:10000,commission_cents:1500,receipt_id:'COMPARE-RECEIPT',evidence_status:'linked'},{entry_id:'COMPARE-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:'COMPARE-REFUND-RECEIPT',evidence_status:'linked'}],external_comparison:{status:!supplied?'not_provided':payment===10000&&refund===3000?'matched':'mismatch',expected_payment_cents:payment,expected_refund_cents:refund,payment_difference_cents:supplied?10000-payment:null,refund_difference_cents:supplied?3000-refund:null,evidence_kind:'operator_entered_amounts_only',externally_attested:false}}});
+  return route.fulfill({json:{tenant_id:'TENANT_A',date:p.get('day'),page:Number(p.get('page')),page_size:20,total:2,filtered_total:2,evidence_filter:p.get('evidence_status'),net_recovery_cents:7000,accrued_commission_cents:1050,payment_total_cents:10000,refund_total_cents:3000,linked_receipt_count:2,real_business_verified:false,enables_external_execution:false,items:[{entry_id:'COMPARE-PAY',case_id:'C901',event_type:'PAYMENT',amount_cents:10000,commission_cents:1500,receipt_id:'COMPARE-RECEIPT',evidence_status:'linked'},{entry_id:'COMPARE-REFUND',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:'COMPARE-REFUND-RECEIPT',evidence_status:'linked'}],external_comparison:{status:!supplied?'not_provided':payment===10000&&refund===3000?'matched':'mismatch',expected_payment_cents:payment,expected_refund_cents:refund,payment_difference_cents:supplied?10000-payment:null,refund_difference_cents:supplied?3000-refund:null,evidence_kind:'operator_entered_amounts_only',externally_attested:false}}});
  });
  await page.goto('/');await page.getByRole('button',{name:'查看当日明细',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'每日回款明细'});
@@ -131,4 +131,38 @@ test('daily comparison detects separate totals and invalidates edited exports',a
  await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'核对读取失败'}}));
  await dialog.getByRole('button',{name:'核对当日金额'}).click();await expect(dialog.getByRole('alert')).toBeVisible();
  await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
+});
+
+test('evidence filters reset pagination and preserve whole-day unavailable comparison',async({page})=>{
+ const requested=[];let holdLinked=false,linkedDone=false,releaseLinked;const linkedLatch=new Promise(resolve=>{releaseLinked=resolve});
+ await page.route('**/api/v1/pilot/recovery-day*',async route=>{
+  const p=new URL(route.request().url()).searchParams;const filter=p.get('evidence_status'),current=Number(p.get('page'));requested.push({filter,page:current});
+  const good=Array.from({length:20},(_,i)=>({entry_id:`GOOD-${i}`,case_id:`C${i}`,event_type:'PAYMENT',amount_cents:500,commission_cents:75,receipt_id:`RECEIPT-${i}`,evidence_status:'linked',evidence_gap:null}));
+  const bad={entry_id:'BAD-SIGNATURE',case_id:'C901',event_type:'REFUND',amount_cents:-3000,commission_cents:-450,receipt_id:'FAILED-RECEIPT',evidence_status:'incomplete',evidence_gap:'unverified_signature'};
+  if(filter==='linked'&&holdLinked)await linkedLatch;
+  const supplied=p.has('expected_payment_cents');
+  await route.fulfill({json:{tenant_id:'TENANT_A',date:p.get('day'),page:current,page_size:20,total:21,filtered_total:filter==='all'?21:filter==='linked'?20:1,evidence_filter:filter,net_recovery_cents:7000,payment_total_cents:10000,refund_total_cents:3000,accrued_commission_cents:1050,linked_receipt_count:20,items:filter==='incomplete'||filter==='all'&&current===2?[bad]:good,external_comparison:{status:supplied?'unavailable':'not_provided',expected_payment_cents:supplied?Number(p.get('expected_payment_cents')):null,expected_refund_cents:supplied?Number(p.get('expected_refund_cents')):null,payment_difference_cents:null,refund_difference_cents:null,externally_attested:false}}});
+  if(filter==='linked'&&holdLinked)linkedDone=true;
+ });
+ await page.goto('/');await page.getByRole('button',{name:'查看当日明细',exact:true}).click();const dialog=page.getByRole('dialog',{name:'每日回款明细'});
+ await dialog.getByRole('button',{name:'下一页'}).click();await expect(dialog.getByText('BAD-SIGNATURE',{exact:true})).toBeVisible();
+ await dialog.getByLabel('回执证据筛选').selectOption('incomplete');
+ await expect(dialog.getByText('符合筛选 1 条 / 当日 21 条',{exact:true})).toBeVisible();expect(requested.at(-1)).toEqual({filter:'incomplete',page:1});
+ await expect(dialog.getByText('回执验签未通过',{exact:true})).toBeVisible();await expect(dialog.getByText('当日净回款 ¥70',{exact:true})).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'下一页'})).toHaveCount(0);
+ await dialog.getByLabel('外部付款金额（分）').fill('10000');await dialog.getByLabel('外部退款金额（分）').fill('3000');await dialog.getByRole('button',{name:'核对当日金额'}).click();
+ await expect(dialog.getByText('当日回执证据不完整，暂不能比对。',{exact:true})).toBeVisible();
+ await page.screenshot({path:'test-results/evidence-gap-desktop.png'});
+ await page.setViewportSize({width:320,height:1000});const gapTable=dialog.getByRole('region',{name:'每日账簿记录'});await gapTable.evaluate(el=>{el.scrollLeft=el.scrollWidth});await dialog.getByText('回执验签未通过',{exact:true}).scrollIntoViewIfNeeded();await expect(dialog.getByText('回执验签未通过',{exact:true})).toBeInViewport();await page.screenshot({path:'test-results/evidence-gap-mobile.png'});await page.setViewportSize({width:1440,height:1000});
+ await dialog.getByLabel('回执证据筛选').selectOption('linked');await expect(dialog.getByText('符合筛选 20 条 / 当日 21 条',{exact:true})).toBeVisible();
+ await expect(dialog.getByText('BAD-SIGNATURE',{exact:true})).toHaveCount(0);await expect(dialog.getByText('当日回执证据不完整，暂不能比对。',{exact:true})).toBeVisible();
+ await page.setViewportSize({width:320,height:1000});await dialog.getByLabel('回执证据筛选').scrollIntoViewIfNeeded();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await page.screenshot({path:'test-results/evidence-filter-mobile.png'});
+ await dialog.getByLabel('回执证据筛选').selectOption('all');await expect(dialog.getByText('符合筛选 21 条 / 当日 21 条',{exact:true})).toBeVisible();
+ holdLinked=true;try{await dialog.getByLabel('回执证据筛选').selectOption('linked');await expect.poll(()=>requested.at(-1).filter).toBe('linked');
+ await dialog.getByLabel('回执证据筛选').selectOption('all');await expect(dialog.getByText('符合筛选 21 条 / 当日 21 条',{exact:true})).toBeVisible()}finally{releaseLinked()}
+ await expect.poll(()=>linkedDone).toBe(true);await expect(dialog.getByText('符合筛选 21 条 / 当日 21 条',{exact:true})).toBeVisible();await expect(dialog.getByLabel('回执证据筛选')).toHaveValue('all');
+ await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'筛选读取失败'}}));
+ await dialog.getByLabel('回执证据筛选').selectOption('incomplete');await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
+ await expect(dialog.getByRole('region',{name:'每日账簿记录'})).toHaveCount(0);
 });
