@@ -76,7 +76,7 @@ def test_full_schema_backup_restores_encrypted_material_and_app_rollback(monkeyp
         # Start the actually deployed v4.15 backend against the restored current schema.
         with TemporaryDirectory() as checkout, TemporaryFile() as source_archive:
             subprocess.run(
-                ["git", "archive", "bc18800ec66ed249b4ca665101b09783761163fb", "backend/app"],
+                ["git", "archive", "bc18800ec66ed249b4ca665101b09783761163fb", "backend/app", "backend/migrations"],
                 stdout=source_archive,
                 cwd=Path(__file__).resolve().parents[2],
                 check=True,
