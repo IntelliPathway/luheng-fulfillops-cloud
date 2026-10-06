@@ -62,3 +62,6 @@ Keep the BoardUI dashboard composition, readable supporting labels, undistorted 
 
 ## v4.4 connection diagnostics
 Production connection readiness is a read-only technical gate, separate from business acceptance. Require a production profile, the current OIDC session, explicitly allowed HTTPS request origin, PostgreSQL migrations, healthy external Worker, independent admins and active tenant. Never treat a request Origin header alone as proof of browser CORS or external execution permission. Failed diagnostics clear stale results and exports; local/development or demo runtime cannot claim a production-ready Site.
+
+## v4.5 external amount comparison
+Case comparison accepts only an optional nonnegative integer-cent net amount for all periods. Treat it as an operator claim, never as external attestation. Missing or invalid receipt evidence must make comparison unavailable with a null difference. Changing case, amount, tenant or connection state clears prior exports.

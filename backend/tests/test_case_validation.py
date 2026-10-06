@@ -171,3 +171,94 @@ def test_invalid_receipt_evidence_does_not_pass_outcome(ledger_case, invalid):
     report = client.get("/api/v1/pilot/case-validation?case_id=C901", headers=actor).json()
     assert not next(c for c in report["checks"] if c["id"] == "outcome")["passed"]
     assert report["status"] == "evidence_incomplete"
+
+
+def test_external_amount_comparison_tracks_refunds_and_does_not_attest_business(ledger_case):
+    client, actor, secret = ledger_case
+    path = "/api/v1/pilot/case-validation"
+    no_evidence = client.get(path, params={"case_id": "C901", "expected_net_recovery_cents": 0}, headers=actor).json()
+    assert no_evidence["external_comparison"]["status"] == "unavailable"
+    assert no_evidence["external_comparison"]["difference_cents"] is None
+    post_report_payment(client, secret, "REPORT-PAYMENT")
+    post_report_payment(client, secret, "REPORT-REFUND", refund=True)
+    for expected, status, difference in [(7000, "matched", 0), (7001, "mismatch", -1), (0, "mismatch", 7000)]:
+        response = client.get(path, params={"case_id": "C901", "expected_net_recovery_cents": expected}, headers=actor)
+        assert response.status_code == 200
+        report = response.json()
+        assert report["payment_total_cents"] == 10000
+        assert report["refund_total_cents"] == 3000
+        assert report["confirmed_net_recovery_cents"] == 7000
+        assert report["external_comparison"]["status"] == status
+        assert report["external_comparison"]["difference_cents"] == difference
+        assert not report["external_comparison"]["externally_attested"]
+        assert not report["real_business_verified"]
+        assert not report["enables_external_execution"]
+    no_amount = client.get(path, params={"case_id": "C901"}, headers=actor).json()
+    assert no_amount["external_comparison"]["status"] == "not_provided"
+    assert no_amount["report_digest"] != report["report_digest"]
+    assert (
+        client.get(
+            path,
+            params={"case_id": "C901", "expected_net_recovery_cents": 7000},
+            headers={**actor, "X-Tenant-ID": "TENANT_B"},
+        ).status_code
+        == 404
+    )
+    for bad in ["-1", "1.5", "NaN", "9007199254740992"]:
+        assert (
+            client.get(path, params={"case_id": "C901", "expected_net_recovery_cents": bad}, headers=actor).status_code
+            == 422
+        )
+
+
+def test_duplicate_and_invalid_signature_do_not_change_case_comparison(ledger_case):
+    client, actor, secret = ledger_case
+    post_report_payment(client, secret, "REPORT-PAYMENT")
+    path = "/api/v1/pilot/case-validation?case_id=C901&expected_net_recovery_cents=10000"
+    before = client.get(path, headers=actor).json()
+    post_report_payment(client, secret, "REPORT-PAYMENT")
+    raw = json.dumps(
+        {
+            "event_id": "INVALID-CASE-REPORT",
+            "event_type": "payment",
+            "amount_cents": 5000,
+            "currency": "CNY",
+            "occurred_at": "2026-10-06T07:00:00Z",
+            "case_id": "C901",
+        }
+    ).encode()
+    timestamp = str(int(time.time()))
+    invalid = client.post(
+        "/api/v1/webhooks/payments/TENANT_A/sandbox-amc",
+        content=raw,
+        headers={
+            "Content-Type": "application/json",
+            "X-FulfillOps-Timestamp": timestamp,
+            "X-FulfillOps-Signature": sign_payment_webhook("wrong-synthetic-secret", timestamp, raw),
+        },
+    )
+    assert invalid.status_code in {400, 401, 403}
+    after = client.get(path, headers=actor).json()
+    assert after["report_digest"] == before["report_digest"]
+    assert len(after["ledger"]) == 1
+    assert after["external_comparison"]["status"] == "matched"
+
+
+def test_invalid_evidence_and_protected_case_cannot_be_real_acceptance(ledger_case):
+    from app.models import CaseRecord
+
+    client, actor, secret = ledger_case
+    receipt = post_report_payment(client, secret, "REPORT-PAYMENT")
+    with client.app.state.Session() as db:
+        db.get(PaymentReceipt, receipt["id"]).signature_verified = False
+        case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == "TENANT_A", CaseRecord.case_id == "C901"))
+        case.blocked = True
+        db.commit()
+    report = client.get(
+        "/api/v1/pilot/case-validation?case_id=C901&expected_net_recovery_cents=10000", headers=actor
+    ).json()
+    assert report["external_comparison"]["status"] == "unavailable"
+    assert report["external_comparison"]["difference_cents"] is None
+    assert not next(c for c in report["checks"] if c["id"] == "protection")["passed"]
+    assert report["status"] == "evidence_incomplete"
+    assert not report["real_business_verified"]

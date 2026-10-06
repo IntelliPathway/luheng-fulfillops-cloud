@@ -35,3 +35,25 @@ test('backend ready response cannot turn an unconfigured demo Site into producti
  await expect(panel.getByText('待配置',{exact:true})).toBeVisible();
  await expect(panel.getByRole('button',{name:'下载接入报告'})).toBeVisible();
 });
+
+test('case comparison rejects stale exports and clears failed evidence',async({page})=>{
+ await page.goto('/#/pilot');const panel=page.getByRole('region',{name:'真实案例证据核对'});
+ await panel.getByPlaceholder('输入已导入的案件编号').fill('C002');
+ await panel.getByLabel('外部凭证净额（分，可选）').fill('0');
+ await panel.getByRole('button',{name:'核对案例证据',exact:true}).click();
+ await expect(panel.getByText('证据链不完整，暂不能比对。手工录入金额不能替代外部凭证或真实业务验收。',{exact:true})).toBeVisible();
+ const pending=page.waitForEvent('download');await panel.getByRole('button',{name:'下载报告',exact:true}).click();
+ const report=JSON.parse(await readFile(await (await pending).path(),'utf8'));
+ expect(report.tenant_id).toBe('TENANT_A');expect(report.external_comparison.expected_net_recovery_cents).toBe(0);
+ expect(report.external_comparison.status).toBe('unavailable');expect(report.external_comparison.difference_cents).toBeNull();
+ expect(report.real_business_verified).toBe(false);
+ await panel.getByLabel('外部凭证净额（分，可选）').fill('7000');
+ await expect(panel.getByRole('button',{name:'下载报告',exact:true})).toHaveCount(0);
+ await page.route('**/api/v1/pilot/case-validation*',route=>route.fulfill({status:503,contentType:'application/json',body:'{"detail":"凭证核对暂不可用"}'}));
+ await panel.getByRole('button',{name:'核对案例证据',exact:true}).click();
+ await expect(panel.getByRole('alert')).toHaveText('凭证核对暂不可用');
+ await expect(panel.getByRole('button',{name:'下载报告',exact:true})).toHaveCount(0);
+ await page.setViewportSize({width:320,height:1000});
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await page.screenshot({path:'test-results/case-comparison-mobile.png'});
+});

@@ -57,6 +57,10 @@ def review_evidence(
 
 @router.get("/case-validation")
 def get_case_validation(
-    context: Context, db: Database, request: Request, case_id: str = Query(min_length=1, max_length=40)
+    context: Context,
+    db: Database,
+    request: Request,
+    case_id: str = Query(min_length=1, max_length=40),
+    expected_net_recovery_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
 ) -> dict:
-    return build_case_validation(db, context.tenant_id, case_id, request.app.state.startup)
+    return build_case_validation(db, context.tenant_id, case_id, request.app.state.startup, expected_net_recovery_cents)

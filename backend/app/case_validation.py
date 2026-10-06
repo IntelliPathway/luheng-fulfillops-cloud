@@ -19,7 +19,9 @@ from .models import (
 )
 
 
-def build_case_validation(db, tenant_id: str, case_id: str, startup) -> dict:
+def build_case_validation(
+    db, tenant_id: str, case_id: str, startup, expected_net_recovery_cents: int | None = None
+) -> dict:
     case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
     if case is None:
         raise HTTPException(404, "案件不存在")
@@ -110,7 +112,25 @@ def build_case_validation(db, tenant_id: str, case_id: str, startup) -> dict:
             "detail": "测试环境和模拟 Provider 结果不等于真实业务验证",
         },
     ]
+    outcome_ok = next(c["passed"] for c in checks if c["id"] == "outcome")
+    net = sum(e.amount_cents for e in entries)
+    comparison = {
+        "status": "not_provided"
+        if expected_net_recovery_cents is None
+        else "unavailable"
+        if not outcome_ok
+        else "matched"
+        if net == expected_net_recovery_cents
+        else "mismatch",
+        "expected_net_recovery_cents": expected_net_recovery_cents,
+        "difference_cents": net - expected_net_recovery_cents
+        if outcome_ok and expected_net_recovery_cents is not None
+        else None,
+        "evidence_kind": "operator_entered_amount_only",
+        "externally_attested": False,
+    }
     evidence = {
+        "schema_version": 2,
         "tenant_id": tenant_id,
         "case_id": case_id,
         "case_version": case.version,
@@ -128,7 +148,10 @@ def build_case_validation(db, tenant_id: str, case_id: str, startup) -> dict:
             }
             for e in entries
         ],
-        "confirmed_net_recovery_cents": sum(e.amount_cents for e in entries),
+        "confirmed_net_recovery_cents": net,
+        "payment_total_cents": sum(e.amount_cents for e in entries if e.event_type == "PAYMENT"),
+        "refund_total_cents": -sum(e.amount_cents for e in entries if e.event_type == "REFUND"),
+        "external_comparison": comparison,
     }
     digest = hashlib.sha256(
         json.dumps(evidence, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
