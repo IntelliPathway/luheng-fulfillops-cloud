@@ -186,6 +186,13 @@ def test_daily_comparison_detects_offsetting_differences_and_checks_all_pages(le
         {**params, "expected_payment_cents": 9007199254740992},
     ]:
         assert client.get(path, params=bad, headers=actor).status_code == 422
+    for field in ["expected_payment_cents", "expected_refund_cents"]:
+        for invalid in ["1.0", "0.0", "1e2", "+1", " 1 ", "01", "١", "１", ""]:
+            assert client.get(path, params={**params, field: invalid}, headers=actor).status_code == 422
+    assert (
+        client.get(path, params={**params, "expected_payment_cents": "9007199254740991"}, headers=actor).status_code
+        == 200
+    )
     empty = client.get(
         path,
         params={**params, "day": "2026-10-07", "expected_payment_cents": 0, "expected_refund_cents": 0},
