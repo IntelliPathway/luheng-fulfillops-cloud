@@ -65,8 +65,8 @@ test('lifecycle UI submits and independently reviews a versioned proposal',async
  await connected(page,'settings');const surface=page.getByLabel('租户生命周期治理');await surface.getByRole('button',{name:'独立复核生命周期',exact:true}).click();const modal=page.getByRole('dialog');await modal.getByLabel('生命周期复核意见').fill('独立核验合同和保留策略，通过合成测试');await modal.getByRole('checkbox').check();await modal.getByRole('button',{name:'批准生命周期变更',exact:true}).click();await expect(modal).toBeHidden();await expect(surface).toContainText('approved');await expect(page.getByLabel('工作空间显示别名（本次会话）')).toBeVisible();
 });
 
-test('authoritative financial feed failure blocks startup instead of reporting zero',async({page})=>{
- await page.route('**/api/v1/payments/overview',r=>r.fulfill({status:503,json:{detail:'FINANCIAL_UNAVAILABLE'}}));await page.goto('/#/control');await expect(page.getByRole('heading',{name:'业务 API 尚未就绪'})).toBeVisible();await expect(page.locator('.main-content')).toHaveCount(0);await expect(page.getByRole('button',{name:'发送指令',exact:true})).toHaveCount(0);
+test('authoritative protection feed failure blocks startup instead of assuming no restrictions',async({page})=>{
+ await page.route('**/api/v1/protections/overview',r=>r.fulfill({status:503,json:{detail:'PROTECTION_UNAVAILABLE'}}));await page.goto('/#/control');await expect(page.getByRole('heading',{name:'业务 API 尚未就绪'})).toBeVisible();await expect(page.locator('.main-content')).toHaveCount(0);await expect(page.getByRole('button',{name:'发送指令',exact:true})).toHaveCount(0);
 });
 
 test('online activity shows persisted tools and confirms an Agent proposal exactly once',async({page,request})=>{
