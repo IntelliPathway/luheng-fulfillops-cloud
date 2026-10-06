@@ -77,3 +77,7 @@ Compare daily payment and refund amounts independently, using nonnegative intege
 
 ## v4.9 evidence gap triage
 Daily evidence filters affect only the paginated detail rows and filtered count. Whole-day money, receipt completeness and comparison never narrow to the selected subset. SQL null links must remain incomplete. Report the first provenance gap without exposing other-tenant receipts. Reset pagination and clear stale results on filter changes; late responses cannot overwrite newer selections.
+
+
+## v4.10 customer materials
+Customer evidence is separate from governed asset ingestion. Encrypt originals with tenant/digest/mapping authenticated data, never persist plaintext, and fail closed on unavailable keys or corrupted originals. CSV amounts are strict nonnegative integer cents for all-time case payment/refund totals. Uploaded documents are operator claims, never verified signed receipts or external acceptance. Preserve BoardUI and keep offline uploads disabled.
