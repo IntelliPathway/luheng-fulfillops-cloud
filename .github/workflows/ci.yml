@@ -93,6 +93,10 @@ jobs:
           path: artifacts/repayguard-ai.cdx.json
       - name: Test and build frontend
         run: npm test
+      - name: Browser pilot acceptance journey
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:browser
       - name: Verify generated hosting artifacts
         run: |
           test -f dist/client/index.html
@@ -107,5 +111,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/dependency-review-action@v4
+        if: vars.DEPENDENCY_GRAPH_ENABLED == 'true'
         with:
           fail-on-severity: high
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Audit dependencies without Dependency Graph
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          python -m pip install pip-audit
+          python -m pip_audit -r backend/requirements.txt

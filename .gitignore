@@ -17,3 +17,6 @@ coverage/
 backups/
 export/RecoveryCloud_Interactive.html
 qa/standalone.html
+
+test-results/
+playwright-report/

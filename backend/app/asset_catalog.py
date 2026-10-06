@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from collections import defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from math import ceil
 
 from sqlalchemy import Select, exists, func, literal, or_, select
@@ -502,7 +502,7 @@ def list_packages(
         cases_by_package[case_record.package_id].append(case_record)
 
     items = []
-    today = date.today()
+    today = datetime.now(UTC).date()
     for package in packages:
         package_cases = cases_by_package[package.package_id]
         package_profiles = [profiles[item.case_id] for item in package_cases if item.case_id in profiles]

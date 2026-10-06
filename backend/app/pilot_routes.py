@@ -2,9 +2,15 @@ from fastapi import APIRouter, Request
 
 from .dependencies import Context, Database
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
+from .pilot_preflight import build_pilot_preflight
 from .pilot_scorecard import build_pilot_scorecard, build_release_gate
 
 router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
+
+
+@router.get("/preflight")
+def get_preflight(context: Context, db: Database, request: Request) -> dict:
+    return build_pilot_preflight(db, context.tenant_id, request.app.state.startup)
 
 
 @router.get("/scorecard")

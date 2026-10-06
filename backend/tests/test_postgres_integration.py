@@ -138,6 +138,8 @@ def test_v04_postgres_upgrade_notify_and_worker(monkeypatch: pytest.MonkeyPatch)
             completed = client.get(f"/api/v1/jobs/{queued.json()['id']}", headers=headers)
             assert completed.json()["status"] == "succeeded"
             queue = client.get("/api/v1/jobs/queue/health", headers=headers).json()
+            preflight = client.get("/api/v1/pilot/preflight", headers=headers).json()
+            assert next(c for c in preflight["checks"] if c["id"] == "migrations")["passed"] is True
             assert queue["broker_backend"] == "postgres-notify"
             assert queue["broker_status"] == "ready"
         broker.close()
