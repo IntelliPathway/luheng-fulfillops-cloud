@@ -1074,3 +1074,21 @@ class CustomerMaterial(Base):
     case_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class CustomerSyncEvent(Base):
+    __tablename__ = "customer_sync_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_system", "external_event_id", name="uq_customer_sync_event"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("SYNC"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(80), nullable=False)
+    external_event_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(32), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
