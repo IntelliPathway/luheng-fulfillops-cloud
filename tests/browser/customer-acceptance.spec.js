@@ -24,10 +24,10 @@ test('material association and case acceptance use real scoped API records',asyn
  const materials=await (await request.get(`${root}/customer-materials`,{headers})).json();const material=materials.find(m=>m.source_reference==='BANK/BROWSER-413');expect(material).toBeTruthy();
  await page.getByRole('tab',{name:'证据关联',exact:true}).click();panel=page.getByRole('region',{name:'材料证据审核'});await expect(panel.getByRole('button',{name:'刷新关联'})).toBeEnabled();
  await panel.getByRole('combobox',{name:'选择已留存材料',exact:true}).selectOption(material.id);await panel.getByRole('button',{name:'采用案件 C002',exact:true}).click();
- await panel.getByRole('checkbox',{name:'确认仅创建材料关联提案，不修改账簿或验签结论。'}).check();await panel.getByRole('button',{name:'提交关联提案'}).click();
- await expect(panel.getByText('C002 · 待独立复核',{exact:true})).toBeVisible();const associations=await (await request.get(`${root}/material-associations`,{headers})).json();const link=associations.find(l=>l.material_id===material.id);
+ await panel.getByRole('checkbox',{name:'确认仅创建材料关联提案，不修改账簿或验签结论。'}).check();const proposal=page.waitForResponse(r=>r.url().endsWith('/material-associations')&&r.request().method()==='POST');await panel.getByRole('button',{name:'提交关联提案'}).click();expect((await proposal).status()).toBe(201);
+ await expect(panel.locator('article').filter({hasText:'BANK/BROWSER-413'}).getByText('C002 · 待独立复核',{exact:true})).toBeVisible();const associations=await (await request.get(`${root}/material-associations`,{headers})).json();const link=associations.find(l=>l.material_id===material.id);
  const decision=await request.post(`${root}/material-associations/${link.id}/decision`,{headers:reviewer,data:{decision:'approve',expected_version:link.version,decision_reference:'REVIEW/BROWSER-413',acknowledged:true}});expect(decision.status()).toBe(200);
- await panel.getByRole('button',{name:'刷新关联'}).click();await expect(panel.getByText('C002 · 关联已复核',{exact:true})).toBeVisible();
+ await panel.getByRole('button',{name:'刷新关联'}).click();await expect(panel.locator('article').filter({hasText:'BANK/BROWSER-413'}).getByText('C002 · 关联已复核',{exact:true})).toBeVisible();
  await page.getByRole('tab',{name:'案例验收',exact:true}).click();panel=page.getByRole('region',{name:'客户案例验收'});await expect(panel.getByRole('button',{name:'刷新验收'})).toBeEnabled();
  await panel.getByRole('combobox',{name:'选择已复核案件关联',exact:true}).selectOption(link.id);await expect(panel.getByText('仍有验收条件待处理',{exact:true})).toBeVisible();
  await panel.getByLabel('外部验收记录编号',{exact:true}).fill('CUSTOMER/BROWSER-413');await panel.getByLabel('外部验收记录 SHA-256',{exact:true}).fill('a'.repeat(64));

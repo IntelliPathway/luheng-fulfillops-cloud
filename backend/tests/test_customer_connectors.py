@@ -212,3 +212,65 @@ def test_transport_pins_public_address_and_rejects_redirects(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         connectors.fetch_page("https://customer.example/events", "synthetic-token", "")
     assert "synthetic-token" not in exc.value.detail
+
+
+def test_schedule_uses_current_enabler_after_creator_revocation(client):
+    c = client
+    row = enabled(c)
+    connectors.schedule_due(c.app.state.Session)
+    with c.app.state.Session() as db:
+        member = db.scalar(
+            select(TenantMembership).where(
+                TenantMembership.tenant_id == "TENANT_A", TenantMembership.user_id == "Terry"
+            )
+        )
+        member.role = "viewer"
+        db.commit()
+    assert (
+        c.post(
+            f"/api/v1/customer-connectors/{row['id']}/enable",
+            headers=headers("test-user"),
+            json={"expected_version": row["version"], "enabled": True, "acknowledged": True},
+        ).status_code
+        == 200
+    )
+    connectors.schedule_due(c.app.state.Session)
+    with c.app.state.Session() as db:
+        from app.models import AsyncJob
+
+        job = db.get(AsyncJob, db.get(CustomerConnector, row["id"]).active_job_id)
+        assert job.created_by == "test-user"
+        ident = job.id
+    execute_job(c.app.state.Session, ident)
+    assert c.get("/api/v1/customer-connectors", headers=headers()).json()[0]["job"]["status"] == "succeeded"
+
+
+def test_blocked_due_rows_do_not_starve_later_healthy_connector(client):
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    c = client
+    healthy = enabled(c)
+    with c.app.state.Session() as db:
+        h = db.get(CustomerConnector, healthy["id"])
+        h.next_sync_at = utcnow() - timedelta(minutes=1)
+        for n in range(10):
+            db.add(
+                CustomerConnector(
+                    tenant_id="TENANT_A",
+                    name=f"blocked-{n}",
+                    endpoint=h.endpoint,
+                    mapping=h.mapping,
+                    secret_ref=h.secret_ref,
+                    created_by="Terry",
+                    enabled_by="Terry",
+                    enabled=True,
+                    next_sync_at=utcnow() - timedelta(hours=1),
+                )
+            )
+        db.commit()
+    connectors.schedule_due(c.app.state.Session)
+    connectors.schedule_due(c.app.state.Session)
+    with c.app.state.Session() as db:
+        assert db.get(CustomerConnector, healthy["id"]).active_job_id

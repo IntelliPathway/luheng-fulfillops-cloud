@@ -1153,6 +1153,7 @@ class CustomerConnector(Base):
     tested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     active_job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
+    enabled_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 

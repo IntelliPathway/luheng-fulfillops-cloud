@@ -192,6 +192,7 @@ def view(db, row):
             "tested_at",
             "next_sync_at",
             "created_by",
+            "enabled_by",
         )
     } | {
         "credential_configured": bool(row.secret_ref),
@@ -326,7 +327,12 @@ def enable_connector(ident: str, payload: ConnectorAction, context: Context, db:
         raise HTTPException(409, "请刷新并确认启用状态")
     if payload.enabled and not view(db, row)["test_current"]:
         raise HTTPException(409, "请先完成当前配置连接测试")
+    if payload.enabled and row.enabled_by != context.actor_id:
+        # A new current administrator takes responsibility for the same checkpoint.
+        # Old jobs fail their active-job binding rather than using a revoked grant.
+        row.active_job_id = None
     row.enabled = payload.enabled
+    row.enabled_by = context.actor_id if row.enabled else None
     row.next_sync_at = utcnow() if row.enabled else None
     audit(
         db,
@@ -432,6 +438,13 @@ def schedule_due(session_factory):
                     select(CustomerConnector).where(CustomerConnector.id == ident).with_for_update(skip_locked=True)
                 )
                 if row and row.enabled and row.next_sync_at and row.next_sync_at <= utcnow():
-                    submit(db, row, actor_context(db, row.tenant_id, row.created_by))
+                    submit(db, row, actor_context(db, row.tenant_id, row.enabled_by))
             except HTTPException:
                 db.rollback()
+                # Preserve failed-page barriers but give later healthy connectors a turn.
+                row = db.scalar(
+                    select(CustomerConnector).where(CustomerConnector.id == ident).with_for_update(skip_locked=True)
+                )
+                if row and row.enabled:
+                    row.next_sync_at = utcnow() + timedelta(minutes=5)
+                    db.commit()

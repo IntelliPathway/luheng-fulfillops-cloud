@@ -50,6 +50,7 @@ def test_versions_preserve_originals_invalidate_review_and_scope(client):
     assert c.get(f"/api/v1/material-versions/{m['id']}", headers=headers("test-viewer", "TENANT_B")).status_code == 404
     assert c.get("/api/v1/material-associations", headers=headers()).json()[0]["effective_status"] == "stale"
     assert propose(c, m["id"]).status_code == 409
+    assert any(s["id"] == "material:missing" and not s["passed"] for s in current(c)["sources"])
     assert (
         c.get(f"/api/v1/customer-materials/{m['id']}/content", headers=headers()).content
         == b"case,pay,refund\nC002,0,0\n"
@@ -103,6 +104,8 @@ def test_workspace_citations_tasks_stale_and_no_approval(client):
 
 def test_model_advice_requires_acknowledgement_and_valid_citations(client, monkeypatch):
     c = client
+    m = material(c)
+    propose(c, m["id"])
     w = current(c)
     body = {"expected_digest": w["evidence_digest"], "mode": "model"}
     assert c.post("/api/v1/evidence-workspace/C002/assist", headers=headers(), json=body).status_code == 422
@@ -120,7 +123,11 @@ def test_model_advice_requires_acknowledgement_and_valid_citations(client, monke
         return SimpleNamespace(
             content={
                 "items": [
-                    {"source_id": "check:source", "explanation": "核对来源缺口", "next_step": "请业务方核对授权文件"}
+                    {
+                        "source_id": __import__("json").loads(args[-1])[-1]["id"],
+                        "explanation": "核对来源缺口",
+                        "next_step": "请业务方核对授权文件",
+                    }
                 ]
             },
             input_tokens=10,
@@ -135,6 +142,8 @@ def test_model_advice_requires_acknowledgement_and_valid_citations(client, monke
     )
     assert result.status_code == 200, result.text
     assert result.json()["mode"] == "model" and "C002" not in captured[0]
+    assert m["id"] not in captured[0] and "BANK/" not in captured[0]
+    assert result.json()["items"][0]["source_id"] == "material:" + m["id"]
     with c.app.state.Session() as db:
         assert db.scalar(select(UsageEvent).where(UsageEvent.source_type == "evidence_assist")).quantity == 30
     monkeypatch.setattr(
