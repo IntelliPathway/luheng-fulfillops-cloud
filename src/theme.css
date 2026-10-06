@@ -200,3 +200,4 @@
 .pilot-evidence .kv dd{overflow-wrap:anywhere}
 .pilot-evidence-form input:not([type=checkbox]),.pilot-evidence-form select{width:100%;box-sizing:border-box}
 @media(max-width:760px){.release-gate>div:last-child{grid-template-columns:repeat(2,minmax(0,1fr))}.main-content:has(.pilot-evidence) .metrics .metric strong{white-space:normal;overflow-wrap:anywhere}.main-content:has(.pilot-evidence)>.notice{flex-wrap:wrap}.main-content:has(.pilot-evidence) .section-title{flex-wrap:wrap}}
+@media(max-width:440px){.topbar{gap:6px;padding-inline:12px}.topbar .breadcrumb{display:none}.top-actions{gap:5px}.topbar .demo-tag{font-size:10px;padding-inline:6px}}
