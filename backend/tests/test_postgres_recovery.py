@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 from tempfile import TemporaryDirectory, TemporaryFile
 from uuid import uuid4
 
@@ -77,6 +78,7 @@ def test_full_schema_backup_restores_encrypted_material_and_app_rollback(monkeyp
             subprocess.run(
                 ["git", "archive", "bc18800ec66ed249b4ca665101b09783761163fb", "backend/app"],
                 stdout=source_archive,
+                cwd=Path(__file__).resolve().parents[2],
                 check=True,
             )
             source_archive.seek(0)
