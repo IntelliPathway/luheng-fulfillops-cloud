@@ -1,3 +1,6 @@
+from datetime import date
+from typing import Annotated
+
 from fastapi import APIRouter, Query, Request, Response
 
 from .case_validation import build_case_validation
@@ -6,9 +9,10 @@ from .dependencies import Context, Database
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
 from .pilot_preflight import build_pilot_preflight
 from .pilot_scorecard import build_pilot_scorecard, build_release_gate
-from .recovery_trends import build_recovery_trend
+from .recovery_trends import build_recovery_day, build_recovery_trend
 
 router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
+MAX_LEDGER_DAY = date(9999, 12, 30)
 
 
 @router.get("/connection-readiness")
@@ -73,3 +77,16 @@ def get_recovery_trend(
 ) -> dict:
     response.headers["Cache-Control"] = "no-store"
     return build_recovery_trend(db, context.tenant_id, days)
+
+
+@router.get("/recovery-day")
+def get_recovery_day(
+    context: Context,
+    db: Database,
+    response: Response,
+    day: Annotated[date, Query(le=MAX_LEDGER_DAY)],
+    page: int = Query(default=1, ge=1, le=100000),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return build_recovery_day(db, context.tenant_id, day, page, page_size)

@@ -2,11 +2,76 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 
-from .models import RecoveryLedgerEntry
+from .models import PaymentReceipt, RecoveryLedgerEntry
+
+
+def build_recovery_day(db, tenant_id: str, day: date, page: int, page_size: int) -> dict:
+    """Paginated ledger provenance, never an external business attestation."""
+    begin = datetime.combine(day, datetime.min.time())
+    end = begin + timedelta(days=1)
+    scope = (
+        RecoveryLedgerEntry.tenant_id == tenant_id,
+        RecoveryLedgerEntry.booked_at >= begin,
+        RecoveryLedgerEntry.booked_at < end,
+    )
+    total, net, commission = db.execute(
+        select(
+            func.count(RecoveryLedgerEntry.id),
+            func.coalesce(func.sum(RecoveryLedgerEntry.amount_cents), 0),
+            func.coalesce(func.sum(RecoveryLedgerEntry.commission_cents), 0),
+        ).where(*scope)
+    ).one()
+    rows = db.execute(
+        select(RecoveryLedgerEntry, PaymentReceipt)
+        .outerjoin(
+            PaymentReceipt,
+            and_(PaymentReceipt.id == RecoveryLedgerEntry.receipt_id, PaymentReceipt.tenant_id == tenant_id),
+        )
+        .where(*scope)
+        .order_by(RecoveryLedgerEntry.booked_at, RecoveryLedgerEntry.entry_id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    items = []
+    for entry, receipt in rows:
+        linked = bool(
+            receipt
+            and receipt.signature_verified
+            and receipt.status == "matched"
+            and receipt.case_id == entry.case_id
+            and receipt.recovery_entry_id == entry.entry_id
+        )
+        items.append(
+            {
+                "entry_id": entry.entry_id,
+                "case_id": entry.case_id,
+                "event_type": entry.event_type,
+                "amount_cents": entry.amount_cents,
+                "commission_cents": entry.commission_cents,
+                "occurred_at": entry.booked_at,
+                "receipt_id": receipt.id if receipt else None,
+                "evidence_status": "linked" if linked else "incomplete",
+            }
+        )
+    return {
+        "tenant_id": tenant_id,
+        "date": day.isoformat(),
+        "timezone": "UTC",
+        "source": "immutable_recovery_ledger",
+        "date_basis": "provider_event_time",
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "net_recovery_cents": int(net),
+        "accrued_commission_cents": int(commission),
+        "items": items,
+        "real_business_verified": False,
+        "enables_external_execution": False,
+    }
 
 
 def build_recovery_trend(db, tenant_id: str, days: int, now: datetime | None = None) -> dict:
