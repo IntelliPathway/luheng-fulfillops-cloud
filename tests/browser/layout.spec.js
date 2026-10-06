@@ -7,7 +7,7 @@ for(const width of [1440,1024,768,390,320]){
   for(const route of routes){
    await page.goto(`/#/${route}`);await expect(page.locator('.main-content')).toBeVisible();await expect(page.locator('.server-connected')).toBeVisible();
    await expect(page.getByRole('heading',{level:1})).toBeVisible();
-   const overflow=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,items:[...document.querySelectorAll('.main-content *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1&&!e.closest('.table-scroll')).map(e=>({class:e.className,right:e.getBoundingClientRect().right})).slice(0,15)}));if(overflow.scroll>overflow.width+1)console.log('Layout overflow',route,width,overflow);expect(overflow.scroll,`${route} at ${width}px`).toBeLessThanOrEqual(overflow.width+1);
+   const overflow=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,items:[...document.querySelectorAll('.main-content *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1&&!e.closest('.table-scroll')).map(e=>({class:e.className,right:e.getBoundingClientRect().right})).slice(0,15)}));if(overflow.scroll>overflow.width+1)console.log('Layout overflow',route,width,overflow);expect.soft(overflow.scroll,`${route} at ${width}px`).toBeLessThanOrEqual(overflow.width+1);
    expect(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0))).toBe(true);
    await page.screenshot({path:`test-results/layout-${width}-${route}.png`});
   }
