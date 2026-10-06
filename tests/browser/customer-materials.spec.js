@@ -11,7 +11,7 @@ test('customer intake maps CSV and preserves evidence boundaries on desktop and 
  await page.goto('/#/pilot');const panel=page.getByRole('region',{name:'客户材料接入'});
  await expect(panel.getByRole('button',{name:'刷新材料'})).toBeEnabled();await expect(panel.getByLabel('客户材料文件')).toBeEnabled();
  await panel.getByLabel('客户材料文件').setInputFiles({name:'customer.csv',mimeType:'text/csv',buffer:Buffer.from('客户案件,累计付款,累计退款\nC002,12000,5000\n')});
- for(const [label,value] of [['案件编号列','客户案件'],['付款金额列（分）','累计付款'],['退款金额列（分）','累计退款']])await panel.getByLabel(label,{exact:true}).selectOption(value);
+ for(const [label,value] of [['案件编号列','客户案件'],['付款金额列（分）','累计付款'],['退款金额列（分）','累计退款']])await panel.getByRole('combobox',{name:label,exact:true}).selectOption(value);
  await panel.getByLabel('来源记录编号').fill('BANK/TEST-001');
  await panel.getByLabel('确认材料已获授权并完成脱敏；金额为每个案件的历史累计汇总。').check();
  await panel.getByRole('button',{name:'留存材料并核对'}).click();
