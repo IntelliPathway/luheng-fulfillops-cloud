@@ -193,7 +193,7 @@ def decide_association(
     if not payload.acknowledged or row.status != "pending_review" or row.version != payload.expected_version:
         raise HTTPException(409, "请确认复核，或刷新已变化的提案")
     current = association_snapshot(db, context.tenant_id, row.material_id, row.case_id, request.app.state.startup)
-    if payload.decision == "approve" and current["evidence_digest"] != row.evidence_digest:
+    if current["evidence_digest"] != row.evidence_digest:
         raise HTTPException(409, "案件或材料证据已变化，请重新提案")
     changed = db.execute(
         update(MaterialAssociation)

@@ -235,12 +235,10 @@ def decide_acceptance(
     if not payload.acknowledged or row.status != "pending_review" or row.version != payload.expected_version:
         raise HTTPException(409, "验收记录已变化或未确认独立核验")
     current = snapshot(db, context.tenant_id, row.association_id, request.app.state.startup)
-    if payload.decision == "accept" and (
-        row.expires_at <= utcnow()
-        or row.evidence_digest != acceptance_binding(current["evidence_digest"], row)
-        or not current["ready_for_acceptance"]
-    ):
-        raise HTTPException(409, "证据已变化、过期或验收条件未满足，请重新核对")
+    if row.expires_at <= utcnow() or row.evidence_digest != acceptance_binding(current["evidence_digest"], row):
+        raise HTTPException(409, "证据已变化或过期，请重新核对")
+    if payload.decision == "accept" and not current["ready_for_acceptance"]:
+        raise HTTPException(409, "验收条件未满足，请重新核对")
     result = db.execute(
         update(CaseAcceptance)
         .where(

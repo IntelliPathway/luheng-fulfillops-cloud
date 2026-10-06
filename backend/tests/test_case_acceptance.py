@@ -100,6 +100,7 @@ def test_acceptance_invalidates_on_evidence_and_configuration_change(ledger_case
     row, _ = create(c, link)
     monkeypatch.setenv("PILOT_DEPLOYMENT_REVISION", "changed-revision")
     assert review(c, row).status_code == 409
+    assert review(c, row, decision="reject").status_code == 409
     assert (
         c.get(f"/api/v1/case-acceptances/{row['id']}/report", headers=headers()).json()["effective_status"] == "stale"
     )
@@ -111,6 +112,7 @@ def test_acceptance_invalidates_on_evidence_and_configuration_change(ledger_case
         receipt.signature_verified = False
         db.commit()
     assert review(c, row2).status_code == 409
+    assert review(c, row2, decision="reject").status_code == 409
 
 
 def test_external_statement_tampering_invalidates_acceptance(ledger_case):
@@ -121,6 +123,21 @@ def test_external_statement_tampering_invalidates_acceptance(ledger_case):
         db.get(CaseAcceptance, row["id"]).external_digest = "b" * 64
         db.commit()
     assert review(c, row).status_code == 409
+    assert review(c, row, decision="reject").status_code == 409
     assert (
         c.get(f"/api/v1/case-acceptances/{row['id']}/report", headers=headers()).json()["effective_status"] == "stale"
     )
+
+
+def test_expired_pending_acceptance_cannot_be_rejected(ledger_case):
+    c, actor, secret = ledger_case
+    link = prepared(c, secret, production=True)
+    row, _ = create(c, link)
+    with c.app.state.Session() as db:
+        db.get(CaseAcceptance, row["id"]).expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert review(c, row).status_code == 409
+    assert review(c, row, decision="reject").status_code == 409
+    current = c.get(f"/api/v1/case-acceptances/{row['id']}/report", headers=headers()).json()
+    assert current["effective_status"] == "expired" and current["status"] == "pending_review"
+    assert current["version"] == row["version"] and current["decision_reference"] is None

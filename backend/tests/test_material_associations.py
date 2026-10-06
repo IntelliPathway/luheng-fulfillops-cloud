@@ -60,6 +60,9 @@ def test_association_evidence_changes_require_reproposal(ledger_case):
         db.get(PaymentReceipt, receipt["id"]).signature_verified = False
         db.commit()
     assert decide(c, row).status_code == 409
+    assert decide(c, row, decision="reject").status_code == 409
+    unchanged = c.get("/api/v1/material-associations", headers=headers()).json()[0]
+    assert unchanged["version"] == row["version"] and unchanged["decision_reference"] is None
     assert c.get("/api/v1/material-associations", headers=headers()).json()[0]["effective_status"] == "stale"
     fresh = propose(c, m["id"], "C901").json()
     assert fresh["version"] > row["version"]
