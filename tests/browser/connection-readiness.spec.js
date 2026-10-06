@@ -165,4 +165,6 @@ test('evidence filters reset pagination and preserve whole-day unavailable compa
  await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({status:503,json:{detail:'筛选读取失败'}}));
  await dialog.getByLabel('回执证据筛选').selectOption('incomplete');await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('button',{name:'下载核对摘要'})).toHaveCount(0);
  await expect(dialog.getByRole('region',{name:'每日账簿记录'})).toHaveCount(0);
+ await page.route('**/api/v1/pilot/recovery-day*',route=>route.fulfill({json:{tenant_id:'TENANT_A',date:new URL(route.request().url()).searchParams.get('day'),page:1,page_size:20,total:21,filtered_total:21,evidence_filter:'all',items:[]}}));
+ await dialog.getByRole('button',{name:'重试明细'}).click();await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('region',{name:'每日账簿记录'})).toHaveCount(0);
 });

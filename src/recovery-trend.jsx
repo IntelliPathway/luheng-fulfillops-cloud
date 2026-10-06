@@ -12,7 +12,7 @@ function RecoveryDay({tenant,day,onClose}){
  const seq=useRef(0);
  useEffect(()=>{
   const current=++seq.current;setState({report:null,error:'',busy:true});
-  operationsApi.recoveryDay(tenant,day,page,claim,evidenceFilter).then(report=>{if(current===seq.current){const last=Math.max(1,Math.ceil(report.filtered_total/report.page_size));if(page>last){setPage(last);return}setState({report,error:'',busy:false})}})
+  operationsApi.recoveryDay(tenant,day,page,claim,evidenceFilter).then(report=>{if(current===seq.current){if(report?.tenant_id!==tenant||report?.date!==day||report?.page!==page||report?.evidence_filter!==evidenceFilter||!Number.isSafeInteger(report?.filtered_total)||report.filtered_total<0||!Number.isSafeInteger(report?.page_size)||report.page_size<1||!Array.isArray(report?.items))throw new Error('明细接口版本或范围不匹配，请更新业务 API 后重试。');const last=Math.max(1,Math.ceil(report.filtered_total/report.page_size));if(page>last){setPage(last);return}setState({report,error:'',busy:false})}})
    .catch(error=>{if(current===seq.current)setState({report:null,error:error.message,busy:false})});
   return()=>{seq.current++};
  },[tenant,day,page,retry,claim,evidenceFilter]);
