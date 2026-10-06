@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .agent_evidence_routes import router as agent_evidence_router
 from .agent_gateway import gateway_overview, gateway_profile
 from .agent_tools import execute_controlled_tool
 from .asset_catalog_routes import router as asset_catalog_router
@@ -344,6 +345,7 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(knowledge_router)
     app.include_router(operation_router)
     app.include_router(harness_evaluation_router)
+    app.include_router(agent_evidence_router)
     app.include_router(strategy_experiment_router)
     app.include_router(platform_router)
     app.include_router(billing_router)

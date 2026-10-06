@@ -36,7 +36,11 @@ def test_policy_proposal_requires_independent_admin_and_publishes_atomically(cli
     assert created.status_code == 201, created.text
     proposal = created.json()
     assert proposal["status"] == "pending_review"
-    assert proposal["evaluation"]["scenario_passed"] == 25
+    assert proposal["evaluation"]["evaluation_type"] == "parameter-validation"
+    assert proposal["evaluation"]["replay_executed"] is False
+    assert proposal["evaluation"]["scenario_count"] == 0
+    assert proposal["evaluation"]["scenario_passed"] == 0
+    assert len(proposal["evaluation"]["checks"]) == 4
 
     self_review = client.post(
         f"/api/v1/policy-proposals/{proposal['id']}/decision",
