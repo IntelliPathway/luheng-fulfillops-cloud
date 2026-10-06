@@ -97,6 +97,13 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:browser
+      - name: Upload browser layout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-layout-evidence
+          path: test-results/
+          retention-days: 7
       - name: Verify generated hosting artifacts
         run: |
           test -f dist/client/index.html

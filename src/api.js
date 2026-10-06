@@ -171,6 +171,7 @@ export const securityApi = {
 export const operationsApi = {
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   releaseGate: tenant => request('/pilot/release-gate', tenant),
+  caseValidation: (tenant,caseId) => request(`/pilot/case-validation${queryString({case_id:caseId})}`, tenant),
   pilotPreflight: tenant => request('/pilot/preflight', tenant),
   pilotEvidence: tenant => request('/pilot/evidence', tenant),
   proposePilotEvidence: (tenant,payload) => request('/pilot/evidence', tenant, {method:'POST',body:JSON.stringify(payload)}),

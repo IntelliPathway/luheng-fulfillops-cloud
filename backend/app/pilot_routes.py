@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
+from .case_validation import build_case_validation
 from .dependencies import Context, Database
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
 from .pilot_preflight import build_pilot_preflight
@@ -38,3 +39,10 @@ def review_evidence(
     evidence_id: str, payload: EvidenceDecision, context: Context, db: Database, request: Request
 ) -> dict:
     return decide_evidence(db, context, evidence_id, payload, request.app.state.startup)
+
+
+@router.get("/case-validation")
+def get_case_validation(
+    context: Context, db: Database, request: Request, case_id: str = Query(min_length=1, max_length=40)
+) -> dict:
+    return build_case_validation(db, context.tenant_id, case_id, request.app.state.startup)
