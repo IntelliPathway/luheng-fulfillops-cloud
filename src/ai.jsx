@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {
   ArrowRight,BookOpen,Brain,ChartBar,CheckCircle,Database,Files,
   Lightning,MagnifyingGlass,PaperPlaneRight,Robot,ShieldCheck,Sparkle,X
@@ -13,8 +13,7 @@ const sum=(rows,key)=>Math.round(rows.reduce((total,row)=>total+(Number(row[key]
 function answerFor(query,a){
   const text=query.trim();
   const lower=text.toLowerCase();
-  const caseMatch=text.match(/C\d{3}/i);
-  const targetCase=caseMatch?a.visibleCases.find(c=>c.case_id===caseMatch[0].toUpperCase()):null;
+  const targetCase=a.visibleCases.find(c=>text.toUpperCase().split(/[^A-Z0-9_-]+/).includes(c.case_id.toUpperCase()));
 
   if(targetCase){
     return {
@@ -29,14 +28,16 @@ function answerFor(query,a){
   }
 
   if(/创建|启动|下达|安排/.test(text)){
-    const channelReady=a.integrationReadiness.ready;
+    const pkg=a.visiblePackages.find(p=>text.includes(p.package_id))||a.visiblePackages[0];
+    const eligible=a.visibleCases.filter(c=>c.package_id===pkg?.package_id&&!c.blocked);
+    const channelReady=false;
     return {
       title:'已生成任务草案',
       body:`我已把自然语言意图转换为结构化活动草案。执行前仍需确认资产包、案件范围、策略版本、渠道门禁与预算；当前${channelReady?'四类服务与全链路自测已启用，可按授权范围创建渠道活动':'渠道门禁尚未通过，只能创建纯模拟活动'}。`,
-      facts:[['建议目标','已签协议履约'],['建议范围','PKG_A · 2 个可执行案件'],['执行模式',channelReady?'已启用渠道':'纯模拟']],
+      facts:[['建议目标','已签协议履约'],['建议范围',pkg?`${pkg.package_id} · ${eligible.length} 个未保护案件（仍需预检）`:'当前工作空间无资产包'],['执行模式',channelReady?'已启用渠道':'纯模拟']],
       sources:['案件资格规则','策略 v1.0','渠道启用状态'],
       proposal:true,
-      action:{label:'审阅任务草案',run:()=>a.setDialog({type:'create',package:'PKG_A'})}
+      action:pkg?{label:'审阅演示任务草案',run:()=>a.setDialog({type:'create',package:pkg.package_id})}:null
     };
   }
 
@@ -55,11 +56,11 @@ function answerFor(query,a){
 
   if(/异常|暂停|不能联系|风险|保护/.test(text)){
     const blocked=a.visibleCases.filter(c=>c.blocked);
-    const p0=blocked.filter(c=>['C010','C012','C013','C018','C020'].includes(c.case_id)).length;
+    const p0=a.protectionOverview?.p0_count||0;
     return {
       title:'保护与异常查询结果',
       body:`当前有 ${blocked.length} 个案件处于保护暂停，其中 ${p0} 个属于高优先级。异议、停止联系、金额冲突、授权缺失和身份冲突均已阻断新的触达动作。`,
-      facts:[['保护暂停',`${blocked.length} 个`],['P0 异常',`${p0} 个`],['越权动作','0 次']],
+      facts:[['保护暂停',`${blocked.length} 个`],['P0 异常',`${p0} 个`],['数据口径','本租户演示保护记录']],
       sources:['保护状态机','异常工单','运行审计'],
       action:{label:'进入异常中心',run:()=>a.navigate('exceptions')}
     };
@@ -78,8 +79,8 @@ function answerFor(query,a){
   return {
     title:'可以继续拆解这个问题',
     body:'我可以跨案件、活动、策略、回款、佣金、渠道和运行轨迹回答问题。查询结果会给出统计口径与来源；如果你的问题包含执行意图，我会先生成可审阅的行动草案。',
-    facts:[['数据范围',a.organization[a.tenant]],['知识源','4 类已连接'],['写操作','必须确认']],
-    sources:['案件仓库','策略知识库','回款账本','Agent 运行记录']
+    facts:[['数据范围',a.organization[a.tenant]],['知识源','本地演示样本，未连接业务服务'],['写操作','必须确认']],
+    sources:['演示案件仓库','演示策略知识库','演示回款账本','演示 Agent 运行记录']
   };
 }
 
@@ -93,8 +94,6 @@ function remoteAnswerFor(result,a){
     action={label:'确认执行提案',run:async()=>{
       try{
         await a.confirmAgentProposal(result.proposal.id);
-        const {activity_id:activityId,target_status:targetStatus}=result.proposal.arguments||{};
-        if(activityId&&targetStatus)a.setActivityStatus([activityId],targetStatus);
         a.notify('服务端已重新校验并执行行动提案');
       }catch(error){a.notify(`提案执行失败：${error.message||'服务不可用'}`)}
     }};
@@ -105,7 +104,7 @@ function remoteAnswerFor(result,a){
   else if(hint==='agents')action={label:'查看 Agent',run:()=>a.navigate('agents')};
   else if(hint==='cases')action={label:'查看案件',run:()=>a.navigate('cases')};
   else if(hint==='create'||hint.startsWith('create:'))action={label:'审阅活动草案',run:()=>a.setDialog({type:'create',package:hint.split(':')[1]||undefined})};
-  return {...payload,facts,sources,proposal:Boolean(result.proposal),action,runId:result.run_id,provider:result.provider,runtime:result.runtime};
+  return {...payload,sources,facts,proposal:Boolean(result.proposal),action,runId:result.run_id,provider:result.provider,runtime:result.runtime,toolTrace:result.tool_trace};
 }
 
 function SourceChips({sources}){
@@ -113,39 +112,58 @@ function SourceChips({sources}){
 }
 
 function AssistantAnswer({answer}){
+  const pending=useRef(false),[busy,setBusy]=useState(false);
+  const execute=async()=>{if(pending.current)return;pending.current=true;setBusy(true);try{await answer.action.run()}finally{pending.current=false;setBusy(false)}};
   return <div className="assistant-answer">
     <div className="assistant-answer-title"><Sparkle size={16} weight="fill"/><b>{answer.title}</b>{answer.proposal&&<span>待确认</span>}</div>
     <p>{answer.body}</p>
     {answer.facts&&<div className="assistant-facts">{answer.facts.map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>}
-    <SourceChips sources={answer.sources}/>
+    {answer.mode==='demo'&&<small className="muted">演示规则回答 · 非真实模型推理或业务验收</small>}<SourceChips sources={answer.sources||[]}/>
     {answer.runtime&&<div className="assistant-runtime"><Robot size={13}/><span>{answer.runtime.adapter} · {answer.runtime.resume_mode==='checkpoint-replay'?'检查点重放':answer.runtime.resume_mode==='in-process'?'进程内续接':answer.runtime.resumed?'已恢复会话':'新会话'} · Turn {answer.runtime.turn_count} · Cursor {answer.runtime.event_cursor}{Number.isInteger(answer.runtime.verified_tool_count)?` · 已核验工具 ${answer.runtime.verified_tool_count}`:''}</span></div>}
-    {answer.action&&<button className="text-link assistant-action" onClick={answer.action.run}>{answer.action.label}<ArrowRight size={14}/></button>}
+    {answer.toolTrace?.length>0&&<div className="assistant-tool-trace">{answer.toolTrace.map((trace,index)=><p key={index}><code>{trace.tool}</code> · {trace.status} · {trace.detail}</p>)}</div>}
+    {answer.action&&<button className="text-link assistant-action" disabled={busy} onClick={execute}>{busy?'处理中…':answer.action.label}<ArrowRight size={14}/></button>}
   </div>;
+}
+
+function useAssistant(){
+  const a=useApp();
+  const [query,setQuery]=useState(''),[answer,setAnswer]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState('');
+  const seq=useRef(0),busy=useRef(false);
+  useEffect(()=>{seq.current++;busy.current=false;setQuery('');setAnswer(null);setError('');setLoading(false);return()=>{seq.current++}},[a.tenant,a.backendStatus]);
+  const submit=async value=>{
+    const next=(value??query).trim();
+    if(!next||busy.current||!['connected','offline'].includes(a.backendStatus))return;
+    const id=++seq.current;busy.current=true;setQuery('');setAnswer(null);setError('');setLoading(true);
+    try{
+      const result=a.backendStatus==='connected'?remoteAnswerFor(await a.askAgent(next,{scopeType:'global',title:`${PRODUCT_NAME} 全局查询`}),a):{...answerFor(next,a),mode:'demo'};
+      if(id===seq.current)setAnswer(result);
+    }catch(reason){if(id===seq.current)setError(reason.message||'Agent 服务暂时不可用，请重新查询。')}
+    finally{if(id===seq.current){busy.current=false;setLoading(false)}}
+  };
+  const suggestions=['今天哪些案件不能联系？','累计回款和佣金是多少？',a.visibleCases[0]?`查询 ${a.visibleCases[0].case_id} 当前状态`:'查看当前工作空间',a.visiblePackages[0]?`为 ${a.visiblePackages[0].package_id} 创建履约活动`:'查看策略'];
+  return {query,setQuery,answer,loading,error,submit,suggestions};
+}
+
+export function CommandAssistant(){
+  const a=useApp(),q=useAssistant();
+  return <section className="command-assistant" aria-label="指挥台 AI 查询">
+    <div className="section-title"><div><span className="eyebrow">ASK · EVIDENCE · REVIEW</span><h2>从指令到依据与行动</h2></div><span className="muted small">{a.backendStatus==='connected'?'服务端会话':'演示规则查询 · 无外部模型调用'}</span></div>
+    <p className="muted">查询当前租户案件、回款与保护状态，或生成活动草案。真实执行由服务端权限和门禁裁决。</p>
+    <div className="copilot-suggestions">{q.suggestions.map(item=><button key={item} disabled={q.loading} onClick={()=>q.submit(item)}>{item}<ArrowRight size={13}/></button>)}</div>
+    <form className="command-query" onSubmit={event=>{event.preventDefault();q.submit()}}><label className="field"><span>指挥台指令</span><textarea rows="2" maxLength={2000} value={q.query} disabled={q.loading} onChange={event=>q.setQuery(event.target.value)} placeholder="例如：哪些案件需要先处理保护异常？"/></label><Button type="submit" variant="primary" disabled={q.loading||!q.query.trim()}>{q.loading?'查询中…':'发送指令'}</Button></form>
+    {q.loading&&<p role="status">正在核验当前租户证据，请稍候。</p>}
+    {q.error&&<p className="form-error" role="alert">本次查询失败：{q.error}。未使用演示数据替代。</p>}
+    {q.answer&&<AssistantAnswer answer={q.answer}/>}
+  </section>;
 }
 
 export function AICopilot(){
   const a=useApp();
-  const [query,setQuery]=useState('');
-  const [answer,setAnswer]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [error,setError]=useState('');
-  const suggestions=['查询 C002 当前状态','今天哪些案件不能联系？','本月回款和佣金是多少？','为 PKG_A 创建履约活动'];
-  const submit=async value=>{
-    const next=(value??query).trim();
-    if(!next)return;
-    setQuery('');setAnswer(null);setError('');setLoading(true);
-    try{
-      if(a.backendStatus==='connected'){
-        const result=await a.askAgent(next,{scopeType:'global',title:`${PRODUCT_NAME} 全局查询`});
-        setAnswer(remoteAnswerFor(result,a));
-      }else setAnswer(answerFor(next,a));
-    }catch(reason){setError(reason.message||'Agent 服务暂时不可用，请从运行记录恢复。')}
-    finally{setLoading(false)}
-  };
+  const {query,setQuery,answer,loading,error,submit,suggestions}=useAssistant();
   return <>
-    <button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label={`打开${PRODUCT_NAME}助手`}>
+    {a.page!=='control'&&<button className="ai-copilot-launcher" onClick={()=>a.setCopilotOpen(true)} aria-label={`打开${PRODUCT_NAME}助手`}>
       <Sparkle size={18} weight="fill"/><span>问{PRODUCT_NAME}</span><kbd>⌘ J</kbd>
-    </button>
+    </button>}
     {a.copilotOpen&&<aside className="ai-copilot" role="dialog" aria-modal="false" aria-label={`${PRODUCT_NAME}助手`}>
       <header>
         <span className="copilot-brand"><span><Brain size={22}/></span><span><b>{PRODUCT_NAME}</b><small>Agent + 知识库 + ChatBI</small></span></span>
@@ -161,13 +179,13 @@ export function AICopilot(){
         <div className="copilot-capabilities">
           <span><Files size={15}/>案件</span><span><BookOpen size={15}/>策略</span><span><ChartBar size={15}/>指标</span><span><Database size={15}/>账务</span>
         </div>
-        {!answer&&!loading&&!error&&<div className="copilot-suggestions">{suggestions.map(item=><button key={item} onClick={()=>submit(item)}>{item}<ArrowRight size={13}/></button>)}</div>}
+        {!answer&&!loading&&!error&&<div className="copilot-suggestions">{suggestions.map(item=><button key={item} disabled={loading} onClick={()=>submit(item)}>{item}<ArrowRight size={13}/></button>)}</div>}
         {loading&&<div className="copilot-runtime-state"><Robot size={20}/><span><b>Agent 正在查询与核验</b><small>持久作业 {a.activeJob?.id||'准备中'} · 仅使用当前租户工具</small></span></div>}
         {error&&<div className="copilot-runtime-state error"><ShieldCheck size={20}/><span><b>本次运行未完成</b><small>{error}</small></span></div>}
         {answer&&<AssistantAnswer answer={answer}/>}
       </div>
       <footer>
-        <div className="copilot-input"><MagnifyingGlass size={17}/><textarea rows="2" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submit()}}} placeholder="询问数据，或下达一个任务目标…"/><button onClick={()=>submit()} disabled={!query.trim()} aria-label="发送"><PaperPlaneRight size={18} weight="fill"/></button></div>
+        <div className="copilot-input"><MagnifyingGlass size={17}/><textarea aria-label="AI 查询指令" rows="2" maxLength={2000} disabled={loading} value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submit()}}} placeholder="询问数据，或下达一个任务目标…"/><button onClick={()=>submit()} disabled={loading||!query.trim()} aria-label="发送"><PaperPlaneRight size={18} weight="fill"/></button></div>
         <small>{a.backendStatus==='connected'?'会话、工具轨迹与来源已写入服务端；高影响动作需结构化确认。':a.hostedDemo?'当前为在线交互演示，不连接业务 API 或执行外部动作。':'当前为离线演示回答，不执行外部动作。'}</small>
       </footer>
     </aside>}
@@ -179,26 +197,33 @@ export function AgentCommand({activity}){
   const [value,setValue]=useState('');
   const [proposal,setProposal]=useState(null);
   const [running,setRunning]=useState(false);
+  const inFlight=useRef(false),confirming=useRef(false);
+  const [confirmBusy,setConfirmBusy]=useState(false);
   const suggestions=useMemo(()=>['解释当前等待条件','重新评估下一步','生成本活动经营摘要'],[]);
   const submit=async text=>{
     const command=(text??value).trim();
-    if(!command)return;
-    setValue('');setRunning(true);
+    if(!command||inFlight.current)return;
+    inFlight.current=true;setProposal(null);setValue('');setRunning(true);
     try{
       if(a.backendStatus==='connected'){
         const result=await a.askAgent(command,{scopeType:'activity',scopeId:activity.id,title:`${activity.name} Agent`});
-        setProposal({command,highImpact:Boolean(result.proposal),id:result.proposal?.id,actionType:result.proposal?.action_type,body:result.answer?.body,runId:result.run_id,runtime:result.runtime});
+        setProposal({command,highImpact:Boolean(result.proposal),id:result.proposal?.id,actionType:result.proposal?.action_type,body:result.answer?.body,runId:result.run_id,runtime:result.runtime,answer:remoteAnswerFor(result,a)});
       }else{
         const highImpact=/暂停|恢复|调整|联系|外呼|修改|提高/.test(command);
         setProposal({command,highImpact,body:highImpact?'已校验当前范围；确认后仍由策略引擎决定是否可执行。':'当前步骤正在等待经核验的外部事件，Agent 不会把口头承诺当作到账。'});
       }
     }catch(error){a.notify(`Agent 指令失败：${error.message||'服务不可用'}`)}
-    finally{setRunning(false)}
+    finally{inFlight.current=false;setRunning(false)}
   };
   const confirmProposal=async()=>{
+    if(confirming.current||!proposal)return;
+    confirming.current=true;setConfirmBusy(true);
+    try{
     const command=proposal.command;
-    if(proposal.id&&a.backendStatus==='connected'){
-      try{await a.confirmAgentProposal(proposal.id)}catch(error){a.notify(`提案确认失败：${error.message||'服务不可用'}`);return}
+    if(a.backendStatus==='connected'){
+      if(!proposal.id)return;
+      try{await a.confirmAgentProposal(proposal.id);setProposal(null);a.notify('服务端已重新核验并执行提案');a.navigate('activities')}catch(error){a.notify(`提案确认失败：${error.message||'服务不可用'}`)}
+      return;
     }
     if(/暂停/.test(command)){
       a.setActivityStatus([activity.id],'paused');
@@ -213,13 +238,14 @@ export function AgentCommand({activity}){
       a.notify('行动草案已确认，等待策略引擎与工具门禁执行');
     }
     setProposal(null);
+    }finally{confirming.current=false;setConfirmBusy(false)}
   };
   return <section className="agent-command">
     <div className="agent-command-head"><span><Lightning size={18}/><b>对话驱动 Agent</b></span><small>{a.agentGateway.provider} · {a.backendStatus==='connected'?'服务端持久会话':a.hostedDemo?'在线交互演示':'离线演示'} · 受策略与工具权限约束</small></div>
     <p>用自然语言补充目标或要求解释。涉及触达、预算、策略和状态变更时，先生成行动草案。</p>
-    <div className="agent-command-suggestions">{suggestions.map(item=><button key={item} onClick={()=>submit(item)}>{item}</button>)}</div>
+    <div className="agent-command-suggestions">{suggestions.map(item=><button key={item} disabled={running} onClick={()=>submit(item)}>{item}</button>)}</div>
     {running&&<div className="command-proposal running"><div><span>持久作业运行中</span><b>{a.activeJob?.id||'正在创建作业'}</b><small>查询、工具轨迹和证据将在完成后写入会话。</small></div><Robot size={21}/></div>}
-    {proposal&&!running&&<div className="command-proposal"><div><span>{proposal.highImpact?'行动草案 · 待确认':'查询结果'}{proposal.runId?` · ${proposal.runId}`:''}</span><b>{proposal.command}</b><small>{proposal.body}</small>{proposal.runtime&&<small className="runtime-resume-state">{proposal.runtime.adapter} · {proposal.runtime.resume_mode==='checkpoint-replay'?'检查点重放':proposal.runtime.resume_mode==='in-process'?'进程内续接':proposal.runtime.resumed?'检查点已恢复':'新建检查点'} · Turn {proposal.runtime.turn_count} · Cursor {proposal.runtime.event_cursor}</small>}</div>{proposal.highImpact?<Button onClick={confirmProposal}>确认草案</Button>:<CheckCircle size={21}/>}</div>}
+    {proposal&&!running&&<div className="command-proposal"><div><span>{proposal.highImpact?'行动草案 · 待确认':'查询结果'}{proposal.runId?` · ${proposal.runId}`:''}</span><b>{proposal.command}</b>{proposal.answer?<AssistantAnswer answer={{...proposal.answer,action:null}}/>:<small>{proposal.body}</small>}{proposal.runtime&&<small className="runtime-resume-state">{proposal.runtime.adapter} · {proposal.runtime.resume_mode==='checkpoint-replay'?'检查点重放':proposal.runtime.resume_mode==='in-process'?'进程内续接':proposal.runtime.resumed?'检查点已恢复':'新建检查点'} · Turn {proposal.runtime.turn_count} · Cursor {proposal.runtime.event_cursor}</small>}</div>{proposal.highImpact?<Button disabled={confirmBusy} onClick={confirmProposal}>确认草案</Button>:<CheckCircle size={21}/>}</div>}
     <div className="agent-command-input"><input value={value} disabled={running} onChange={event=>setValue(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')submit()}} placeholder={`向 ${activity.name} Agent 提问或下达目标…`}/><button onClick={()=>submit()} disabled={running||!value.trim()} aria-label="发送 Agent 指令"><PaperPlaneRight size={17}/></button></div>
   </section>;
 }

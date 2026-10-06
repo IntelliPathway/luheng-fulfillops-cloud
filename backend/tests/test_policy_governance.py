@@ -36,7 +36,11 @@ def test_policy_proposal_requires_independent_admin_and_publishes_atomically(cli
     assert created.status_code == 201, created.text
     proposal = created.json()
     assert proposal["status"] == "pending_review"
-    assert proposal["evaluation"]["scenario_passed"] == 25
+    assert proposal["evaluation"]["evaluation_type"] == "parameter-validation"
+    assert proposal["evaluation"]["replay_executed"] is False
+    assert proposal["evaluation"]["scenario_count"] == 0
+    assert proposal["evaluation"]["scenario_passed"] == 0
+    assert len(proposal["evaluation"]["checks"]) == 4
 
     self_review = client.post(
         f"/api/v1/policy-proposals/{proposal['id']}/decision",
@@ -98,3 +102,15 @@ def test_pending_policy_proposal_blocks_duplicate_review_queue_items(client: Tes
     rows = client.get("/api/v1/policy-proposals?package_id=PKG_B", headers=headers("test-viewer")).json()
     assert len(rows) == 1
     assert rows[0]["evidence_digest"] == first.json()["evidence_digest"]
+
+
+def test_legacy_fixed_scenario_numbers_are_not_reported_as_executed_replay(client: TestClient) -> None:
+    from app.models import PolicyProposal
+
+    created = client.post("/api/v1/policy-proposals/packages/PKG_A", headers=headers(), json=payload()).json()
+    with client.app.state.Session() as db:
+        row = db.get(PolicyProposal, created["id"])
+        row.evaluation = {"scenario_count": 25, "scenario_passed": 25, "result": "passed"}
+        db.commit()
+    result = client.get("/api/v1/policy-proposals?package_id=PKG_A", headers=headers()).json()[0]
+    assert result["evaluation"] == {"evaluation_type": "legacy-unverified", "replay_executed": False}

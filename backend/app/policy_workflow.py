@@ -29,7 +29,9 @@ def _out(row: PolicyProposal) -> dict:
         "version": row.version,
         "expected_policy_version": row.expected_policy_version,
         "proposed_policy": row.proposed_policy,
-        "evaluation": row.evaluation,
+        "evaluation": row.evaluation
+        if row.evaluation.get("evaluation_type")
+        else {"evaluation_type": "legacy-unverified", "replay_executed": False},
         "evidence_digest": row.evidence_digest,
         "proposed_by": row.proposed_by,
         "proposal_reason": row.proposal_reason,
@@ -102,10 +104,18 @@ def create_policy_proposal(
     }
     evaluation = {
         "case_count": case_count,
-        "scenario_count": 25,
-        "scenario_passed": 25,
+        "evaluation_type": "parameter-validation",
+        "replay_executed": False,
+        "scenario_count": 0,
+        "scenario_passed": 0,
+        "checks": [
+            {"id": "budget", "passed": True},
+            {"id": "settlement", "passed": True},
+            {"id": "installments", "passed": True},
+            {"id": "down_payment", "passed": True},
+        ],
         "blocking_failures": 0,
-        "result": "passed",
+        "result": "parameters_valid",
     }
     evidence = {
         "tenant_id": tenant_id,

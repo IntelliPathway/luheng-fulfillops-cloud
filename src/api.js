@@ -313,6 +313,8 @@ export const platformApi = {
 };
 
 export const agentApi = {
+  activitySummary: (tenant,id) => request(`/agents/activities/${encodeURIComponent(id)}/summary`,tenant),
+  activityRuns: (tenant,id) => request(`/agents/activities/${encodeURIComponent(id)}/runs`,tenant),
   gateway: tenant => request('/agents/gateway', tenant),
   replays: tenant => request('/agents/replays', tenant),
   replayRun: (tenant, replayId) => request(`/agents/replays/${replayId}`, tenant),
