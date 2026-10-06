@@ -169,6 +169,15 @@ export const securityApi = {
 };
 
 export const operationsApi = {
+  materialVersions: (tenant,id) => request(`/material-versions/${encodeURIComponent(id)}`,tenant),
+  appendMaterialVersion: (tenant,id,payload) => request(`/material-versions/${encodeURIComponent(id)}`,tenant,{method:'POST',body:JSON.stringify(payload)}),
+  evidenceWorkspace: (tenant,id) => request(`/evidence-workspace/${encodeURIComponent(id)}`,tenant),
+  evidenceAssist: (tenant,id,payload) => request(`/evidence-workspace/${encodeURIComponent(id)}/assist`,tenant,{method:'POST',body:JSON.stringify(payload)}),
+  createEvidenceTasks: (tenant,id,payload) => request(`/evidence-workspace/${encodeURIComponent(id)}/tasks`,tenant,{method:'POST',body:JSON.stringify(payload)}),
+  resolveEvidenceTask: (tenant,id,taskId,payload) => request(`/evidence-workspace/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}/resolve`,tenant,{method:'POST',body:JSON.stringify(payload)}),
+  customerConnectors: tenant => request('/customer-connectors',tenant),
+  saveCustomerConnector: (tenant,id,payload) => request(`/customer-connectors${id?'/'+encodeURIComponent(id):''}`,tenant,{method:id?'PUT':'POST',body:JSON.stringify(payload)}),
+  customerConnectorAction: (tenant,id,action,payload) => request(`/customer-connectors/${encodeURIComponent(id)}/${action}`,tenant,{method:'POST',...(payload?{body:JSON.stringify(payload)}:{})}),
   pilotScorecard: tenant => request('/pilot/scorecard', tenant),
   releaseGate: tenant => request('/pilot/release-gate', tenant),
   recoveryTrend: (tenant,days) => request(`/pilot/recovery-trend${queryString({days})}`, tenant),

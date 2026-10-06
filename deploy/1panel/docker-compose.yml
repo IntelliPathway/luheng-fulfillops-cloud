@@ -20,6 +20,7 @@ x-app-environment: &app-environment
   JOB_BROKER_CHANNEL: luheng_jobs
   JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-60}
   WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-30}
+  CUSTOMER_CONNECTOR_EGRESS_ALLOWLIST: ${CUSTOMER_CONNECTOR_EGRESS_ALLOWLIST:-}
   SECRET_STORE_BACKEND: local-envelope
   SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:?请配置 SECRET_MASTER_KEY}
   SECRET_MASTER_KEY_VERSION: ${SECRET_MASTER_KEY_VERSION:-ecs-v1}
@@ -78,7 +79,7 @@ services:
       args:
         INSTALL_HARNESS: ${INSTALL_HARNESS:-false}
         INSTALL_AWS: ${INSTALL_AWS:-false}
-    image: luheng-fulfillops-api:4.13.0
+    image: luheng-fulfillops-api:4.15.0
     restart: unless-stopped
     init: true
     environment:
@@ -107,7 +108,7 @@ services:
     logging: *bounded-logging
 
   worker:
-    image: luheng-fulfillops-api:4.13.0
+    image: luheng-fulfillops-api:4.15.0
     restart: unless-stopped
     init: true
     command: ["python", "-m", "app.worker"]
@@ -144,7 +145,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         VITE_API_BASE_URL: /api/v1
-    image: luheng-fulfillops-web:4.13.0
+    image: luheng-fulfillops-web:4.15.0
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_HTTP_PORT:-18080}:80"

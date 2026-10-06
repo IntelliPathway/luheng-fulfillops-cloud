@@ -1136,3 +1136,65 @@ class CaseAcceptance(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CustomerConnector(Base):
+    __tablename__ = "customer_connectors"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CONN"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(500), nullable=False)
+    mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
+    secret_ref: Mapped[str] = mapped_column(String(500), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    cursor: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    tested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    active_job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
+    enabled_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class MaterialSeries(Base):
+    __tablename__ = "material_series"
+    __table_args__ = (UniqueConstraint("tenant_id", "root_id", name="uq_material_series_root"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("SERIES"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    root_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    latest_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MaterialRevision(Base):
+    __tablename__ = "material_revisions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "material_id", name="uq_material_revision_member"),
+        UniqueConstraint("tenant_id", "root_id", "version", name="uq_material_revision_version"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("REV"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    root_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    parent_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class EvidenceTask(Base):
+    __tablename__ = "evidence_tasks"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "case_id", "evidence_digest", "source_id", name="uq_evidence_task_source"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("VERIFY"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    resolution_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

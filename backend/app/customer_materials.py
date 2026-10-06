@@ -138,6 +138,10 @@ def list_materials(context: Context, db: Database, response: Response) -> list[d
 
 @router.post("", status_code=201)
 def create_material(payload: MaterialCreate, context: Context, db: Database) -> dict:
+    return store_material(payload, context, db)
+
+
+def store_material(payload: MaterialCreate, context, db, *, commit=True) -> dict:
     require_role(context, "operator", "admin")
     if not payload.acknowledged:
         raise HTTPException(422, "请确认材料已获授权并完成脱敏")
@@ -207,7 +211,8 @@ def create_material(payload: MaterialCreate, context: Context, db: Database) -> 
         row.id,
         {"digest": digest, "file_kind": row.file_kind},
     )
-    db.commit()
+    if commit:
+        db.commit()
     return view(row) | {"idempotent_replay": False}
 
 

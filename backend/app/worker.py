@@ -58,6 +58,9 @@ class DatabaseWorker:
         self.broker = broker or build_job_broker(str(session_factory.kw["bind"].url))
 
     def run_once(self) -> bool:
+        from .customer_connectors import schedule_due
+
+        schedule_due(self.session_factory)
         recover_stale_jobs(self.session_factory, self.worker_id)
         update_worker(self.session_factory, self.worker_id, status="idle", queues=self.queues)
         job_id = claim_job(

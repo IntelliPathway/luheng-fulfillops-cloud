@@ -40,7 +40,11 @@ def association_snapshot(db, tenant_id: str, material_id: str, case_id: str, sta
     claim = next((r for r in report["results"] if r["case_id"] == case_id), None)
     if report["material"]["file_kind"] == "csv" and claim is None:
         raise HTTPException(422, "CSV 没有该案件的声明，不能关联")
+    from .material_versions import version_state
+
+    revision = version_state(db, tenant_id, material_id)
     basis = {
+        "material_version": revision,
         "tenant_id": tenant_id,
         "material_id": material_id,
         "source_digest": report["material"]["source_digest"],
@@ -53,7 +57,11 @@ def association_snapshot(db, tenant_id: str, material_id: str, case_id: str, sta
     digest = hashlib.sha256(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()
     return {
         "evidence_digest": digest,
-        "claim_status": claim["status"] if claim else "attachment_only",
+        "claim_status": "superseded_material"
+        if not revision["is_latest"]
+        else claim["status"]
+        if claim
+        else "attachment_only",
         "checks": case["checks"],
     }
 
@@ -116,6 +124,10 @@ def propose_association(payload: LinkCreate, context: Context, db: Database, req
     require_role(context, "operator", "admin")
     if not payload.acknowledged:
         raise HTTPException(422, "请确认仅创建关联提案，不修改账务或验签结论")
+    from .material_versions import version_state
+
+    if not version_state(db, context.tenant_id, payload.material_id)["is_latest"]:
+        raise HTTPException(409, "材料已被新版本替代，请选择最新材料")
     snapshot = association_snapshot(
         db, context.tenant_id, payload.material_id, payload.case_id, request.app.state.startup
     )

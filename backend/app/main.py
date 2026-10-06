@@ -323,10 +323,17 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     from .case_acceptance import router as case_acceptance_router
     from .customer_materials import router as customer_material_router
     from .customer_sync import router as customer_sync_router
+    from .evidence_workspace import router as evidence_workspace_router
     from .material_associations import router as material_association_router
+    from .material_versions import router as material_version_router
 
+    app.include_router(material_version_router)
+    app.include_router(evidence_workspace_router)
     app.include_router(case_acceptance_router)
     app.include_router(material_association_router)
+    from .customer_connectors import router as customer_connector_router
+
+    app.include_router(customer_connector_router)
     app.include_router(customer_sync_router)
     app.include_router(customer_material_router)
     app.include_router(pilot_router)
