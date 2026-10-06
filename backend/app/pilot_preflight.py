@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, inspect, select, text
 
 from .job_queue import queue_health
@@ -9,13 +11,27 @@ from .pilot_scorecard import build_release_gate
 
 
 def build_pilot_preflight(db, tenant_id: str, startup) -> dict:
-    gate = build_release_gate(db, tenant_id, startup)
-    queue = queue_health(db, tenant_id)
     expected = {path.name for path in _migration_files()}
     applied = set()
     if db.get_bind().dialect.name == "postgresql" and inspect(db.get_bind()).has_table("schema_migrations"):
         applied = set(db.scalars(text("SELECT version FROM schema_migrations")))
     missing = sorted(expected - applied)
+    if missing:
+        checks = [{"id": "migrations", "passed": False, "detail": {"missing": missing}}]
+        checks.extend(
+            {"id": key, "passed": False, "detail": {"status": "unavailable", "reason": "migrations_pending"}}
+            for key in ["worker-heartbeat", "independent-admins", "tenant-active", "acceptance"]
+        )
+        return {
+            "tenant_id": tenant_id,
+            "generated_at": datetime.now(UTC),
+            "status": "blocked",
+            "checks": checks,
+            "configuration_digest": None,
+            "enables_external_execution": False,
+        }
+    gate = build_release_gate(db, tenant_id, startup)
+    queue = queue_health(db, tenant_id)
     admins = (
         db.scalar(
             select(func.count(TenantMembership.id)).where(

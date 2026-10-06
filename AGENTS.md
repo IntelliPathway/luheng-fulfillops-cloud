@@ -59,3 +59,6 @@ The v4.2 pilot baseline supports public Sites runtime API/OIDC parameters via `/
 
 ## v4.3 review and real case validation
 Keep the BoardUI dashboard composition, readable supporting labels, undistorted original logo, sticky table action column, keyboard tabs, and responsive dialogs. Connected mode must never show fixed demo trends, quality scores, or sync times as real results. Case validation reads tenant-scoped imported cases and signed receipt/ledger provenance only; a source digest proves traceability, not authenticity. Always require external attestation before calling a case real-business verified.
+
+## v4.4 connection diagnostics
+Production connection readiness is a read-only technical gate, separate from business acceptance. Require a production profile, the current OIDC session, explicitly allowed HTTPS request origin, PostgreSQL migrations, healthy external Worker, independent admins and active tenant. Never treat a request Origin header alone as proof of browser CORS or external execution permission. Failed diagnostics clear stale results and exports; local/development or demo runtime cannot claim a production-ready Site.
