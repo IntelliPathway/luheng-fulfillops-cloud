@@ -19,5 +19,7 @@ test('pilot evidence is submitted, independently reviewed, and visible online',a
  await expect(page.getByText('已批准',{exact:true})).toBeVisible();
  expect(errors).toEqual([]);
  await page.setViewportSize({width:390,height:844});
- expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ const overflow=await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>({tag:e.tagName,class:e.className,right:e.getBoundingClientRect().right})).slice(0,20));
+ if(overflow.length)console.log('Mobile overflow diagnostics',JSON.stringify(overflow));
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
 });
