@@ -19,7 +19,8 @@ def build_integration_acceptance(db, context, startup, origin, allowed_origins, 
     connection = build_connection_readiness(db, context, startup, origin, allowed_origins, browser_origin)
     preflight = build_pilot_preflight(db, context.tenant_id, startup)
     release = build_release_gate(db, context.tenant_id, startup)
-    accepted = invalid = 0
+    accepted_cases = set()
+    invalid = 0
     # Check all accepted records, never a capped browser cache or historical status alone.
     for row in db.scalars(
         select(CaseAcceptance).where(CaseAcceptance.tenant_id == context.tenant_id, CaseAcceptance.status == "accepted")
@@ -30,9 +31,10 @@ def build_integration_acceptance(db, context, startup, origin, allowed_origins, 
             invalid += 1
             continue
         if current["effective_status"] == "accepted" and current["current_evidence"]["ready_for_acceptance"]:
-            accepted += 1
+            accepted_cases.add(current["current_evidence"]["case_id"])
         else:
             invalid += 1
+    accepted = len(accepted_cases)
     checks = [
         {"id": "connection", "label": "当前企业会话与站点接入", "passed": connection["status"] == "ready_for_pilot"},
         {"id": "runtime", "label": "迁移、Worker 与租户状态", "passed": preflight["status"] == "ready"},

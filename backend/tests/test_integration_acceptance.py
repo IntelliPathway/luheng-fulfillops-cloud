@@ -16,6 +16,8 @@ def test_integrated_report_is_scoped_fresh_and_never_grants_execution(ledger_cas
     link = prepared(client, secret, production=True)
     row, _ = create(client, link)
     assert review(client, row).status_code == 200
+    repeated, _ = create(client, link, request_id="REQUEST-002")
+    assert review(client, repeated).status_code == 200
     response = client.get(path, headers=headers())
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
@@ -33,7 +35,7 @@ def test_integrated_report_is_scoped_fresh_and_never_grants_execution(ledger_cas
         receipt.signature_verified = False
         db.commit()
     stale = client.get(path, headers=headers()).json()
-    assert stale["customer_cases"] == {"current_accepted": 0, "invalidated_accepted": 1}
+    assert stale["customer_cases"] == {"current_accepted": 0, "invalidated_accepted": 2}
     assert not next(c["passed"] for c in stale["checks"] if c["id"] == "customer")
     assert stale["report_digest"] != digest
     assert client.post(path, headers=headers(), json={"approve": True}).status_code == 405
