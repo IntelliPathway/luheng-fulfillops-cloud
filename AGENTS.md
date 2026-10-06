@@ -81,3 +81,15 @@ Daily evidence filters affect only the paginated detail rows and filtered count.
 
 ## v4.10 customer materials
 Customer evidence is separate from governed asset ingestion. Encrypt originals with tenant/digest/mapping authenticated data, never persist plaintext, and fail closed on unavailable keys or corrupted originals. CSV amounts are strict nonnegative integer cents for all-time case payment/refund totals. Uploaded documents are operator claims, never verified signed receipts or external acceptance. Preserve BoardUI and keep offline uploads disabled.
+
+
+## v4.11 inbound customer sync
+Standard API/Webhook material events use existing tenant-scoped enterprise authentication, not payment-signature authentication. Persist encrypted event bodies and enqueue only opaque event references. Recheck the submitter’s current permissions in leased workers. Event idempotency never permits changed content; retries reuse the encrypted source and never write financial ledgers.
+
+
+## v4.12 evidence association review
+Suggestions use exact existing case identifiers, never AI guesses. CSV associations require the case to appear in authenticated source claims. Reviewers must differ from both material submitter and proposer. Bind decisions to current material/case evidence digests and use versioned conditional updates. Preserve decision references in audit history; approval never changes ledger or receipt facts.
+
+
+## v4.13 case acceptance
+Record external acceptance references/digests with independent administrator review. Bind each decision to fresh material/case/association/configuration evidence, external statement metadata and expiry. Acceptance requires separate payment/refund matches plus source, mandate, policy, protection, receipt and production gates. Configuration/evidence changes invalidate exports as current acceptance. Human attestation remains explicitly distinct from independently proven real-business authenticity and never grants external execution.

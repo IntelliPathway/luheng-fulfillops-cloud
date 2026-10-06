@@ -326,7 +326,14 @@ def _model_replay(db: Session, job: AsyncJob) -> dict[str, Any]:
     return result
 
 
+def _customer_material_sync(db, job):
+    from .customer_sync import process_material_sync
+
+    return process_material_sync(db, job)
+
+
 JOB_HANDLERS = {
+    "customer.material_sync": _customer_material_sync,
     "integration.connection_test": _connection_test,
     "integration.self_test": _self_test,
     "agent.turn": _agent_turn,

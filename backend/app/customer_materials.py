@@ -255,13 +255,17 @@ def download_material(material_id: str, context: Context, db: Database) -> Respo
 @router.get("/{material_id}/report")
 def report_material(material_id: str, context: Context, db: Database, request: Request, response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
-    row = find(db, context.tenant_id, material_id)
-    raw = decrypt_material(row, context.tenant_id)
+    return build_material_report(db, context.tenant_id, material_id, request.app.state.startup)
+
+
+def build_material_report(db, tenant_id: str, material_id: str, startup) -> dict:
+    row = find(db, tenant_id, material_id)
+    raw = decrypt_material(row, tenant_id)
     claims = parse_rows(raw, row.mapping) if row.file_kind == "csv" else []
     results = []
     for claim in claims:
         try:
-            r = build_case_validation(db, context.tenant_id, claim["case_id"], request.app.state.startup)
+            r = build_case_validation(db, tenant_id, claim["case_id"], startup)
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
@@ -283,7 +287,7 @@ def report_material(material_id: str, context: Context, db: Database, request: R
             }
         )
     return {
-        "tenant_id": context.tenant_id,
+        "tenant_id": tenant_id,
         "material": view(row),
         "scope": "all_time_case_totals",
         "results": results,

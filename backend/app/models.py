@@ -1074,3 +1074,65 @@ class CustomerMaterial(Base):
     case_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class CustomerSyncEvent(Base):
+    __tablename__ = "customer_sync_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_system", "external_event_id", name="uq_customer_sync_event"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("SYNC"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(80), nullable=False)
+    external_event_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(32), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class MaterialAssociation(Base):
+    __tablename__ = "material_associations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "material_id", "case_id", name="uq_material_association"),
+        CheckConstraint("status IN ('pending_review','approved','rejected')", name="ck_material_association_status"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("LINK"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("customer_materials.id"), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaseAcceptance(Base):
+    __tablename__ = "case_acceptances"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_case_acceptance_request"),
+        CheckConstraint("status IN ('pending_review','accepted','rejected')", name="ck_case_acceptance_status"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ACCEPT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    association_id: Mapped[str] = mapped_column(ForeignKey("material_associations.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    external_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
