@@ -65,3 +65,6 @@ Production connection readiness is a read-only technical gate, separate from bus
 
 ## v4.5 external amount comparison
 Case comparison accepts only an optional nonnegative integer-cent net amount for all periods. Treat it as an operator claim, never as external attestation. Missing or invalid receipt evidence must make comparison unavailable with a null difference. Changing case, amount, tenant or connection state clears prior exports.
+
+## v4.6 recovery trends
+Online recovery trends use tenant-scoped immutable recovery ledger entries, grouped by provider event time in UTC. Period totals are separate from all-time summaries. Preserve negative refunds and actual zero days. On request failure or scope change, clear stale results and never substitute demo charts.

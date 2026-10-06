@@ -6,6 +6,7 @@ from .dependencies import Context, Database
 from .pilot_acceptance import EvidenceCreate, EvidenceDecision, decide_evidence, list_evidence, propose_evidence
 from .pilot_preflight import build_pilot_preflight
 from .pilot_scorecard import build_pilot_scorecard, build_release_gate
+from .recovery_trends import build_recovery_trend
 
 router = APIRouter(prefix="/api/v1/pilot", tags=["pilot"])
 
@@ -64,3 +65,11 @@ def get_case_validation(
     expected_net_recovery_cents: int | None = Query(default=None, ge=0, le=9007199254740991),
 ) -> dict:
     return build_case_validation(db, context.tenant_id, case_id, request.app.state.startup, expected_net_recovery_cents)
+
+
+@router.get("/recovery-trend")
+def get_recovery_trend(
+    context: Context, db: Database, response: Response, days: int = Query(default=30, ge=1, le=90)
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return build_recovery_trend(db, context.tenant_id, days)
