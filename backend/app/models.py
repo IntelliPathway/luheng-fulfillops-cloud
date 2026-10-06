@@ -1136,3 +1136,22 @@ class CaseAcceptance(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CustomerConnector(Base):
+    __tablename__ = "customer_connectors"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("CONN"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(500), nullable=False)
+    mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
+    secret_ref: Mapped[str] = mapped_column(String(500), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    cursor: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    tested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    active_job_id: Mapped[str | None] = mapped_column(ForeignKey("async_jobs.id"), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

@@ -74,6 +74,13 @@ def list_events(context: Context, db: Database, response: Response) -> list[dict
 def receive_event(
     payload: SyncCreate, context: Context, db: Database, request: Request, background_tasks: BackgroundTasks
 ) -> dict:
+    result = persist_event(payload, context, db)
+    if should_execute_inline() and not result["idempotent_replay"]:
+        background_tasks.add_task(execute_job, request.app.state.Session, result["job_id"])
+    return result
+
+
+def persist_event(payload: SyncCreate, context, db) -> dict:
     require_role(context, "operator", "admin")
     if not payload.material.acknowledged:
         raise HTTPException(422, "同步材料必须已经获得授权并脱敏")
@@ -125,8 +132,6 @@ def receive_event(
         if not existing or existing.payload_digest != digest:
             raise HTTPException(409, "同步事件冲突") from None
         return event_view(db, existing) | {"idempotent_replay": True}
-    if should_execute_inline():
-        background_tasks.add_task(execute_job, request.app.state.Session, job.id)
     return event_view(db, row) | {"idempotent_replay": False}
 
 

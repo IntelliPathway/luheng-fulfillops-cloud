@@ -332,7 +332,14 @@ def _customer_material_sync(db, job):
     return process_material_sync(db, job)
 
 
+def _customer_connector_pull(db, job):
+    from .customer_connectors import process_pull
+
+    return process_pull(db, job)
+
+
 JOB_HANDLERS = {
+    "customer.connector_pull": _customer_connector_pull,
     "customer.material_sync": _customer_material_sync,
     "integration.connection_test": _connection_test,
     "integration.self_test": _self_test,

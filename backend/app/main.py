@@ -327,6 +327,9 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
 
     app.include_router(case_acceptance_router)
     app.include_router(material_association_router)
+    from .customer_connectors import router as customer_connector_router
+
+    app.include_router(customer_connector_router)
     app.include_router(customer_sync_router)
     app.include_router(customer_material_router)
     app.include_router(pilot_router)
