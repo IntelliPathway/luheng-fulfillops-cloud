@@ -1112,3 +1112,27 @@ class MaterialAssociation(Base):
     decision_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaseAcceptance(Base):
+    __tablename__ = "case_acceptances"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_case_acceptance_request"),
+        CheckConstraint("status IN ('pending_review','accepted','rejected')", name="ck_case_acceptance_status"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ACCEPT"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    association_id: Mapped[str] = mapped_column(ForeignKey("material_associations.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    external_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending_review", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

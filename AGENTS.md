@@ -89,3 +89,7 @@ Standard API/Webhook material events use existing tenant-scoped enterprise authe
 
 ## v4.12 evidence association review
 Suggestions use exact existing case identifiers, never AI guesses. CSV associations require the case to appear in authenticated source claims. Reviewers must differ from both material submitter and proposer. Bind decisions to current material/case evidence digests and use versioned conditional updates. Preserve decision references in audit history; approval never changes ledger or receipt facts.
+
+
+## v4.13 case acceptance
+Record external acceptance references/digests with independent administrator review. Bind each decision to fresh material/case/association/configuration evidence, external statement metadata and expiry. Acceptance requires separate payment/refund matches plus source, mandate, policy, protection, receipt and production gates. Configuration/evidence changes invalidate exports as current acceptance. Human attestation remains explicitly distinct from independently proven real-business authenticity and never grants external execution.

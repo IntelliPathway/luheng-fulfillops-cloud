@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS case_acceptances (
+ id varchar(40) PRIMARY KEY,
+ tenant_id varchar(40) NOT NULL REFERENCES tenants(id),
+ association_id varchar(40) NOT NULL REFERENCES material_associations(id),
+ idempotency_key varchar(80) NOT NULL,
+ request_digest varchar(64) NOT NULL,
+ evidence_digest varchar(64) NOT NULL,
+ external_reference varchar(160) NOT NULL,
+ external_digest varchar(64) NOT NULL,
+ status varchar(24) NOT NULL DEFAULT 'pending_review',
+ version integer NOT NULL DEFAULT 1,
+ proposed_by varchar(80) NOT NULL,
+ reviewed_by varchar(80),
+ decision_reference varchar(160),
+ created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ reviewed_at timestamp,
+ expires_at timestamp NOT NULL,
+ CONSTRAINT uq_case_acceptance_request UNIQUE(tenant_id, idempotency_key),
+ CONSTRAINT ck_case_acceptance_status CHECK(status IN ('pending_review','accepted','rejected'))
+);
