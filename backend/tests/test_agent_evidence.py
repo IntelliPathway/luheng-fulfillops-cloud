@@ -67,3 +67,57 @@ def test_unknown_or_other_tenant_activity_never_has_runs(client):
     assert (
         client.get(f"/api/v1/agents/activities/{activity}/runs", headers=headers(tenant="TENANT_B")).status_code == 404
     )
+
+
+def test_activity_summary_is_complete_fresh_and_includes_refunds(client):
+    from app.models import RecoveryLedgerEntry, utcnow
+
+    activity = client.get("/api/v1/activities", headers=headers()).json()[0]
+    case_id = activity["case_ids"][0]
+    path = f"/api/v1/agents/activities/{activity['activity_id']}/summary"
+    before = client.get(path, headers=headers()).json()
+    with client.app.state.Session() as db:
+        for index in range(501):
+            db.add(
+                RecoveryLedgerEntry(
+                    tenant_id="TENANT_A",
+                    entry_id=f"COMPLETE-{index}",
+                    case_id=case_id,
+                    package_id=activity["package_id"],
+                    event_type="payment",
+                    amount_cents=100,
+                    eligible_amount_cents=100,
+                    commission_rule_id="COM-TEST",
+                    commission_rule_version=1,
+                    rate_bps=1500,
+                    commission_cents=15,
+                    reason="eligible",
+                    source="synthetic regression",
+                    booked_at=utcnow(),
+                )
+            )
+        db.add(
+            RecoveryLedgerEntry(
+                tenant_id="TENANT_A",
+                entry_id="COMPLETE-REFUND",
+                case_id=case_id,
+                package_id=activity["package_id"],
+                event_type="refund",
+                amount_cents=-300,
+                eligible_amount_cents=-300,
+                commission_rule_id="COM-TEST",
+                commission_rule_version=1,
+                rate_bps=1500,
+                commission_cents=-45,
+                reason="refund",
+                source="synthetic regression",
+                booked_at=utcnow(),
+            )
+        )
+        db.commit()
+    after = client.get(path, headers=headers()).json()
+    assert after["confirmed_net_recovery_cents"] - before["confirmed_net_recovery_cents"] == 49800
+    assert after["accrued_commission_cents"] - before["accrued_commission_cents"] == 7470
+    assert after["ledger_entry_count"] - before["ledger_entry_count"] == 502
+    assert after["activity_attribution"] is False
+    assert client.get(path, headers=headers(tenant="TENANT_B")).status_code == 404
