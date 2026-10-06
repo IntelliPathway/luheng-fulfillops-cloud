@@ -133,3 +133,62 @@ def test_daily_detail_utc_boundary_and_broken_receipt_provenance(ledger_case):
         assert client.get(path, headers=actor).json()["items"][0]["evidence_status"] == "incomplete"
         empty = client.get("/api/v1/pilot/recovery-day?day=2026-10-07", headers=actor).json()
         assert empty["items"] == [] and empty["net_recovery_cents"] == 0
+
+
+def test_daily_comparison_detects_offsetting_differences_and_checks_all_pages(ledger_case):
+    client, actor, secret = ledger_case
+    post_report_payment(client, secret, "REPORT-PAYMENT")
+    zero_refund = client.get(
+        "/api/v1/pilot/recovery-day",
+        headers=actor,
+        params={"day": "2026-10-06", "expected_payment_cents": 10000, "expected_refund_cents": 0},
+    ).json()
+    assert zero_refund["external_comparison"]["status"] == "matched"
+    assert zero_refund["refund_total_cents"] == 0
+    post_report_payment(client, secret, "REPORT-REFUND", refund=True)
+    path = "/api/v1/pilot/recovery-day"
+    params = {"day": "2026-10-06", "page_size": 1, "expected_payment_cents": 10000, "expected_refund_cents": 3000}
+    for page in [1, 2]:
+        report = client.get(path, params={**params, "page": page}, headers=actor).json()
+        assert report["payment_total_cents"] == 10000 and report["refund_total_cents"] == 3000
+        assert report["linked_receipt_count"] == 2
+        comparison = report["external_comparison"]
+        assert comparison["status"] == "matched"
+        assert comparison["payment_difference_cents"] == comparison["refund_difference_cents"] == 0
+        assert not comparison["externally_attested"] and not report["real_business_verified"]
+    # Net is still 7000, but both individual totals differ: never call this matched.
+    mismatch = client.get(
+        path, params={**params, "expected_payment_cents": 11000, "expected_refund_cents": 4000}, headers=actor
+    ).json()
+    assert mismatch["external_comparison"]["status"] == "mismatch"
+    assert mismatch["external_comparison"]["payment_difference_cents"] == -1000
+    assert mismatch["external_comparison"]["refund_difference_cents"] == -1000
+    with client.app.state.Session() as db:
+        # Break only the second page: first-page evidence must not authorize comparison.
+        entry = db.scalar(
+            select(RecoveryLedgerEntry).where(
+                RecoveryLedgerEntry.event_type == "REFUND", RecoveryLedgerEntry.case_id == "C901"
+            )
+        )
+        db.get(PaymentReceipt, entry.receipt_id).signature_verified = False
+        db.commit()
+        unavailable = client.get(path, params=params, headers=actor).json()
+        assert unavailable["external_comparison"]["status"] == "unavailable"
+        assert unavailable["external_comparison"]["payment_difference_cents"] is None
+        assert unavailable["external_comparison"]["refund_difference_cents"] is None
+    other = client.get(path, params=params, headers={**actor, "X-Tenant-ID": "TENANT_B"}).json()
+    assert other["external_comparison"]["status"] == "unavailable"
+    assert other["payment_total_cents"] == other["refund_total_cents"] == 0
+    for bad in [
+        {"day": params["day"], "expected_payment_cents": 0},
+        {**params, "expected_payment_cents": -1},
+        {**params, "expected_refund_cents": "1.5"},
+        {**params, "expected_payment_cents": 9007199254740992},
+    ]:
+        assert client.get(path, params=bad, headers=actor).status_code == 422
+    empty = client.get(
+        path,
+        params={**params, "day": "2026-10-07", "expected_payment_cents": 0, "expected_refund_cents": 0},
+        headers=actor,
+    ).json()
+    assert empty["external_comparison"]["status"] == "unavailable"
