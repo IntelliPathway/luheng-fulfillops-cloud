@@ -11,7 +11,7 @@ for(const width of [1440,1024,768,390,320]){
    expect(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0))).toBe(true);
    await page.screenshot({path:`test-results/layout-${width}-${route}.png`});
   }
-  await page.goto('/#/cases');await expect(page.locator('.server-connected')).toBeVisible();await page.getByRole('button',{name:'查看案件 C002',exact:true}).click();const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();const box=await dialog.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width+1);await expect(page.locator('.ai-copilot-launcher')).toBeHidden();await page.screenshot({path:`test-results/dialog-${width}.png`});await page.getByRole('button',{name:'关闭弹窗',exact:true}).press('Escape');await expect(dialog).toBeHidden();
+  await page.goto('/#/cases');await expect(page.locator('.server-connected')).toBeVisible();await page.getByRole('button',{name:'查看案件 C002',exact:true}).click();const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();await expect.poll(async()=>{const box=await dialog.boundingBox();return box.x>=0&&box.x+box.width<=width+1;},{message:"drawer settles inside viewport after opening animation"}).toBe(true);await expect(page.locator('.ai-copilot-launcher')).toBeHidden();await page.screenshot({path:`test-results/dialog-${width}.png`});await page.getByRole('button',{name:'关闭弹窗',exact:true}).press('Escape');await expect(dialog).toBeHidden();
   expect(errors).toEqual([]);
  });
 }
