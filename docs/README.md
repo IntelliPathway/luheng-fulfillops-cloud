@@ -4,7 +4,7 @@
 
 | 文档 | 责任范围 | 更新触发条件 |
 |---|---|---|
-| [标准个人贷款机催 MVP 计划](standard-loan-machine-collection-mvp.md) | 首期范围、三轮交付、数据增量、验收及外部依赖；包含首轮已实现软件与待接入渠道 | MVP 范围、进度或验收条件变化 |
+| [标准个人贷款机催 MVP 计划](standard-loan-machine-collection-mvp.md) | 首期范围、三轮交付、数据增量、验收及外部依赖；包含版本化沙箱政策、授权快照、已实现闭环与待接入渠道 | MVP 范围、进度或验收条件变化 |
 | [企业标准接入](enterprise-onboarding.md) | 首家与后续企业、身份服务、配置包 | 接入流程或契约变化 |
 | [品牌与命名](brand-guide.md) | 中英文名、Logo、语气和兼容标识 | 品牌定位或视觉资产变化 |
 | [产品功能规格](product-functional-spec.md) | 角色、功能、流程、业务规则、验收 | 产品能力或业务状态机变化 |

@@ -178,10 +178,21 @@ FULFILLOPS_ENABLE_DSH_RUNTIME=false
 
 `scripts/enterprise-config.py` 使用站点、API、身份三个精确 HTTPS 来源生成公开 runtime、OIDC realm、后端公开变量与 Web CSP 配置；输出不含凭据且拒绝覆盖已有配置。自托管 Web 通过 `deploy/1panel/enterprise.override.yml` 挂载。Keycloak 参数见 `deploy/identity/.env.example`；身份数据库密码和管理密码必须独立注入。实际成员 `sub` 从 IdP 取得，模板占位值不能开通。完整步骤见 [企业接入](enterprise-onboarding.md)。
 
-## 标准贷款机催首轮配置边界
+## 标准贷款机催政策配置
 
-本轮不增加真实 Provider 密钥配置。`/api/v1/loan-collection` 只支持 `sandbox`，`provider` 返回 503。初始联调采用固定 DPD 1–30、账务快照 24 小时、同案每日最多 3 个沙箱会话、承诺日期未来最多 30 天；日期与任务日按 Asia/Shanghai 计算。这些是首轮开发限制，不是监管标准。真实时段与机构版本化政策配置尚待实现。
+`GET/PUT /api/v1/loan-collection/policy` 读写当前租户政策。未配置默认阻断；PUT 需管理员、明确确认和 expected_version（首次为 0）。每次保存使版本加 1，旧会话不能继续推进；期限与快照使用 UTC，联系窗口和任务日使用 Asia/Shanghai。当前不支持其他时区或跨午夜窗口。
 
-PTP 到期核验由现有外部 Worker 执行；仅运行 API 或 inline 模式不会自行调度未来作业。
+| 字段 | 接受范围 | 说明 |
+|---|---|---|
+| window_start_minute / window_end_minute | 0 ≤ 开始 < 结束 ≤ 1440 | 从当天零点计数；开始含边界，结束不含边界；界面输入 HH:mm，可用 24:00 作为结束 |
+| daily_session_limit | 1–3 | 同案件、租户、北京时间自然日的沙箱任务；改政策不清零 |
+| snapshot_max_hours | 1–24 | 权威金额快照联调期限 |
+| promise_max_days | 1–30 | 承诺日期最多距当前北京时间日期的天数 |
+| authorization_minutes | 1–30 | 会话授权上限；同时截断到政策 valid_until |
+| paused | true / false | 租户沙箱停机状态；页面初始建议暂停，需管理员明确启用 |
+| authority_reference | 不透明引用 | 管理员陈述，不证明机构文件真实性 |
+| valid_until | 包含时区，晚于现在且最多未来 30 天 | 政策到期即阻断 |
 
-沙箱会话授权固定 30 分钟，当前无延长期限配置；authorization_expires_at 使用 UTC。过期后需管理员以新 request_key 重新创建合格会话；原幂等键不续期。机构版本化政策与真实执行授权快照仍待开发。
+DPD 固定 1–30；上述范围是首期软件限制，不是监管标准。窗口和日上限仅控制此沙箱模块，不替代现有联系编排或真实渠道的机构合规政策。provider 仍返回 503；无新真实密钥配置。政策首次启用不代表允许真实联系。
+
+PTP 到期核验使用已有外部 Worker；仅运行 API 或 inline 模式不会自行调度未来任务。查询到账不是联系动作，故可在机催政策暂停后核验已记录承诺；提交人权限仍须有效。

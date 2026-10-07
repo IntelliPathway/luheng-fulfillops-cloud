@@ -1,11 +1,47 @@
 """Isolated standard-loan MVP storage; no new financial ledger."""
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKeyConstraint, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
 from .models import new_id, utcnow
+
+
+class LoanContactPolicy(Base):
+    __tablename__ = "loan_contact_policies"
+    __table_args__ = (
+        CheckConstraint("window_start_minute >= 0 AND window_start_minute < window_end_minute AND window_end_minute <= 1440"),
+        CheckConstraint("daily_session_limit BETWEEN 1 AND 3"),
+        CheckConstraint("snapshot_max_hours BETWEEN 1 AND 24"),
+        CheckConstraint("promise_max_days BETWEEN 1 AND 30"),
+        CheckConstraint("authorization_minutes BETWEEN 1 AND 30"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(40), ForeignKey("tenants.id"), primary_key=True)
+    timezone: Mapped[str] = mapped_column(String(40), default="Asia/Shanghai")
+    window_start_minute: Mapped[int] = mapped_column(Integer)
+    window_end_minute: Mapped[int] = mapped_column(Integer)
+    daily_session_limit: Mapped[int] = mapped_column(Integer)
+    snapshot_max_hours: Mapped[int] = mapped_column(Integer)
+    promise_max_days: Mapped[int] = mapped_column(Integer)
+    authorization_minutes: Mapped[int] = mapped_column(Integer)
+    paused: Mapped[bool] = mapped_column(Boolean, default=True)
+    authority_reference: Mapped[str] = mapped_column(String(160))
+    valid_until: Mapped[datetime] = mapped_column(DateTime)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by: Mapped[str] = mapped_column(String(80))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class LoanProfile(Base):
@@ -45,6 +81,8 @@ class LoanSession(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     authorized_by: Mapped[str] = mapped_column(String(80))
     authorization_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    policy_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     promise: Mapped[dict] = mapped_column(JSON, default=dict)
 

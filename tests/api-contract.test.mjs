@@ -459,3 +459,23 @@ test('loan page idempotency keys work without secure-context randomUUID',async()
  assert.equal(loanRequestKey({getRandomValues:bytes=>bytes.fill(7)}),'loan-'+ '07'.repeat(16));
  assert.match(loanRequestKey({}),/^loan-[A-Za-z0-9.-]+$/);
 });
+
+test('loan policy uses a tenant-scoped versioned write and explicit acknowledgement',async()=>{
+ const {loanCollectionApi}=await import('../src/api.js');const originalFetch=globalThis.fetch,calls=[];
+ globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
+ const body={expected_version:3,acknowledged:true,paused:true};
+ try{await loanCollectionApi.policy('BANK_A');await loanCollectionApi.savePolicy('BANK_A',body)}finally{globalThis.fetch=originalFetch}
+ assert.equal(calls[0].url,'/api/v1/loan-collection/policy');
+ assert.equal(calls[1].options.headers['X-Tenant-ID'],'BANK_A');
+ assert.equal(calls[1].options.method,'PUT');assert.deepEqual(JSON.parse(calls[1].options.body),body);
+});
+
+test('loan policy times support end-of-day and reject overnight or ambiguous expiry',async()=>{
+ const {loanPolicyMinute,loanPolicyTime,loanPolicyPayload}=await import('../src/loan-collection-state.js');
+ assert.equal(loanPolicyMinute('24:00'),1440);assert.equal(loanPolicyTime(540),'09:00');
+ for(const value of ['24:01','25:00','09:60','9:00','-1:00'])assert.throws(()=>loanPolicyMinute(value));
+ const form={start:'09:00',end:'20:00',valid_until:'2026-10-14T12:00:00Z',daily_session_limit:'2',snapshot_max_hours:'12',promise_max_days:'7',authorization_minutes:'10',paused:true,authority_reference:'POLICY-001'};
+ const result=loanPolicyPayload(form,4);assert.equal(result.window_start_minute,540);assert.equal(result.window_end_minute,1200);assert.equal(result.daily_session_limit,2);assert.equal(result.expected_version,4);assert.equal(result.paused,true);
+ assert.throws(()=>loanPolicyPayload({...form,start:'21:00'},4));
+ assert.throws(()=>loanPolicyPayload({...form,valid_until:'2026-10-14T12:00:00'},4));
+});

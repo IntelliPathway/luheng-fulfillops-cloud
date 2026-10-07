@@ -11,7 +11,7 @@ def test_existing_loan_sessions_upgrade_without_granting_authorization():
         connection.exec_driver_sql("INSERT INTO loan_sessions VALUES ('legacy')")
     run_sqlite_compatibility_migrations(engine)
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT id, authorization_expires_at FROM loan_sessions")).one() == ("legacy", None)
+        assert connection.execute(text("SELECT id, authorization_expires_at, policy_version, policy_snapshot FROM loan_sessions")).one() == ("legacy", None, None, "{}")
     assert run_sqlite_compatibility_migrations(engine) == []
 
 

@@ -26,7 +26,18 @@ def client():
             financial.mandate_end = datetime.now(UTC).date() + timedelta(days=30)
             financial.claim_balance_cents = 100_000
             db.commit()
+        assert configure_policy(c).status_code == 200
         yield c
+
+
+def configure_policy(c, **changes):
+    return c.put(BASE + "/policy", headers=H, json={
+        "timezone": "Asia/Shanghai", "window_start_minute": 0, "window_end_minute": 1440,
+        "daily_session_limit": 3, "snapshot_max_hours": 24, "promise_max_days": 30,
+        "authorization_minutes": 30, "paused": False, "authority_reference": "SANDBOX-POLICY-TEST",
+        "valid_until": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        "expected_version": 0, "acknowledged": True,
+    } | changes)
 
 
 def enroll(c, **changes):
@@ -155,6 +166,7 @@ def test_due_promise_job_is_durable_and_rechecks_actor(client):
         job_id = job.id
         db.commit()
     assert start(client, request_key="cannot-bypass-promise").status_code == 409
+    assert configure_policy(client, expected_version=1, paused=True).status_code == 200
     execute_job(client.app.state.Session, job_id)
     with client.app.state.Session() as db:
         job = db.get(AsyncJob, job_id)

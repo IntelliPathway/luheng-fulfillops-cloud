@@ -173,6 +173,8 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
         },
         "loan_sessions": {
             "authorization_expires_at": "timestamp",
+            "policy_version": "integer",
+            "policy_snapshot": "json NOT NULL DEFAULT '{}'",
         },
     }
     applied: list[str] = []

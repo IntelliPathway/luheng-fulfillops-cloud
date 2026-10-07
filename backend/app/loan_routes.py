@@ -3,12 +3,13 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from .audit import audit
 from .dependencies import Context, Database
+from .domain import utcnow
 from .jobs import enqueue_job
 from .loan_collection import (
     lock_case,
@@ -20,7 +21,8 @@ from .loan_collection import (
     session_view,
     start_session,
 )
-from .loan_models import LoanProfile, LoanSession
+from .loan_models import LoanContactPolicy, LoanProfile, LoanSession
+from .loan_policy import lock_policy_scope, policy_for, policy_view
 from .security import require_role
 
 router = APIRouter(prefix="/api/v1/loan-collection", tags=["standard-loan-collection"])
@@ -53,6 +55,33 @@ class StartPayload(StrictPayload):
     case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$")
     request_key: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,80}$")
     mode: Literal["sandbox", "provider"] = "sandbox"
+
+
+class PolicyPayload(StrictPayload):
+    timezone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
+    window_start_minute: int = Field(strict=True, ge=0, le=1439)
+    window_end_minute: int = Field(strict=True, ge=1, le=1440)
+    daily_session_limit: int = Field(strict=True, ge=1, le=3)
+    snapshot_max_hours: int = Field(strict=True, ge=1, le=24)
+    promise_max_days: int = Field(strict=True, ge=1, le=30)
+    authorization_minutes: int = Field(strict=True, ge=1, le=30)
+    paused: bool = Field(strict=True)
+    authority_reference: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.:-]{2,159}$")
+    valid_until: datetime
+    expected_version: int = Field(strict=True, ge=0)
+
+    @field_validator("valid_until")
+    @classmethod
+    def aware_expiry(cls, value):
+        if value.tzinfo is None:
+            raise ValueError("政策到期时间必须包含时区")
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    @model_validator(mode="after")
+    def same_day_window(self):
+        if self.window_start_minute >= self.window_end_minute:
+            raise ValueError("联系时段必须为同日开始早于结束，不支持跨午夜")
+        return self
 
 
 class EventPayload(StrictPayload):
@@ -89,9 +118,42 @@ def overview(context: Context, db: Database):
             "sessions": [session_view(db, row) for row in rows]}
 
 
+@router.get("/policy")
+def read_policy(context: Context, db: Database):
+    return {"tenant_id": context.tenant_id, "policy": policy_view(policy_for(db, context.tenant_id))}
+
+
+@router.put("/policy")
+def save_policy(payload: PolicyPayload, context: Context, db: Database):
+    require_role(context, "admin")
+    acknowledge(payload)
+    now = utcnow()
+    if not now < payload.valid_until <= now + timedelta(days=30):
+        raise HTTPException(status_code=422, detail="政策有效期须晚于现在且不超过 30 天")
+    lock_policy_scope(db, context.tenant_id)
+    row = policy_for(db, context.tenant_id)
+    if payload.expected_version != (row.version if row else 0):
+        raise HTTPException(status_code=409, detail="政策版本已变化，请刷新")
+    values = payload.model_dump(exclude={"acknowledged", "expected_version"})
+    if row:
+        for name, value in values.items():
+            setattr(row, name, value)
+        row.version += 1
+        row.updated_by = context.actor_id
+        row.updated_at = now
+    else:
+        row = LoanContactPolicy(tenant_id=context.tenant_id, updated_by=context.actor_id, **values)
+        db.add(row)
+    db.flush()
+    audit(db, context, "loan.policy.saved", "loan_policy", context.tenant_id,
+          {"version": row.version, "paused": row.paused, "mode": "sandbox"})
+    db.commit()
+    return {"tenant_id": context.tenant_id, "policy": policy_view(row)}
+
+
 @router.get("/cases/{case_id}/preflight")
 def check(case_id: str, context: Context, db: Database):
-    return preflight(db, context.tenant_id, case_id)
+    return preflight(db, context.tenant_id, case_id, for_start=True)
 
 
 @router.get("/cases/{case_id}/profile")

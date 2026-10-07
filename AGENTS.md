@@ -118,3 +118,5 @@ User chose continued development in this existing project. Build one standard un
 ## Iteration delivery authorization
 
 User explicitly requires every iteration to update relevant documentation and push to the existing GitHub repository without repeated confirmation. Continue within the established MVP scope; report verification and deployment limits accurately. Sandbox dialogue grants expire after 30 minutes and recheck the authorizing administrator before new events; do not renew expired grants through idempotent retries.
+
+Tenant standard-loan sandbox policy must be explicitly configured by an administrator. Enforce Asia/Shanghai same-day windows, conservative bounded limits, policy expiry and pause on admission and each new dialogue event. Freeze session policy snapshots, invalidate on revision, and keep tenant-before-case lock ordering for policy mutations and dialogue execution. Pending PTP/claimed payments remain holds; policy revisions do not reset daily counts. Policy is administrator assertion and never real-provider authorization.

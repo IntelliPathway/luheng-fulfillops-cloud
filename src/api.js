@@ -552,6 +552,8 @@ export async function downloadCustomerMaterial(tenant,id){
 }
 
 export const loanCollectionApi = {
+  policy: tenant => request('/loan-collection/policy',tenant),
+  savePolicy: (tenant,body) => request('/loan-collection/policy',tenant,{method:'PUT',body:JSON.stringify(body)}),
   overview: tenant => request('/loan-collection/overview',tenant),
   profile: (tenant,id) => request(`/loan-collection/cases/${encodeURIComponent(id)}/profile`,tenant),
   preflight: (tenant,id) => request(`/loan-collection/cases/${encodeURIComponent(id)}/preflight`,tenant),
