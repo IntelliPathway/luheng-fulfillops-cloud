@@ -106,7 +106,8 @@ with TestClient(create_app()) as client:
 """
             subprocess.run([sys.executable, "-c", code], cwd=checkout, env=rollback_env, check=True)
         with restored.state.engine.connect() as connection:
-            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == 33
+            from app.migrations import _migration_files
+            assert connection.scalar(text("SELECT count(*) FROM schema_migrations")) == len(_migration_files())
     finally:
         for app in applications:
             app.state.engine.dispose()

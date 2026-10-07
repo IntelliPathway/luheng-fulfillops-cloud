@@ -171,6 +171,9 @@ def run_sqlite_compatibility_migrations(engine: Engine) -> list[str]:
             "cancelled_at": "timestamp",
             "cancel_reason": "text",
         },
+        "loan_sessions": {
+            "authorization_expires_at": "timestamp",
+        },
     }
     applied: list[str] = []
     with engine.begin() as connection:

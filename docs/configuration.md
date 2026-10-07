@@ -183,3 +183,5 @@ FULFILLOPS_ENABLE_DSH_RUNTIME=false
 本轮不增加真实 Provider 密钥配置。`/api/v1/loan-collection` 只支持 `sandbox`，`provider` 返回 503。初始联调采用固定 DPD 1–30、账务快照 24 小时、同案每日最多 3 个沙箱会话、承诺日期未来最多 30 天；日期与任务日按 Asia/Shanghai 计算。这些是首轮开发限制，不是监管标准。真实时段与机构版本化政策配置尚待实现。
 
 PTP 到期核验由现有外部 Worker 执行；仅运行 API 或 inline 模式不会自行调度未来作业。
+
+沙箱会话授权固定 30 分钟，当前无延长期限配置；authorization_expires_at 使用 UTC。过期后需管理员以新 request_key 重新创建合格会话；原幂等键不续期。机构版本化政策与真实执行授权快照仍待开发。

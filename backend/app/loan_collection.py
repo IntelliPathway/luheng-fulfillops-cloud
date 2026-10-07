@@ -16,6 +16,28 @@ TERMINAL = {"paused", "closed", "ptp_recorded", "ended", "paid_claimed"}
 EXCEPTIONS = {"wrong_person", "dispute", "complaint", "hardship", "human_requested", "identity_failed"}
 
 
+def actor_is_active(db, tenant_id, actor_id, roles):
+    """Fresh database authority, including tenant suspension and role revocation."""
+    from .models import Tenant, TenantLifecycle, TenantMembership, User
+    tenant = db.get(Tenant, tenant_id)
+    user = db.get(User, actor_id)
+    lifecycle = db.get(TenantLifecycle, tenant_id)
+    member = db.scalar(select(TenantMembership).where(
+        TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == actor_id,
+    ))
+    return bool(tenant and user and user.status == "active" and member
+                and member.status == "active" and member.role in roles
+                and (not lifecycle or lifecycle.stage not in {"suspended", "closed"}))
+
+
+def authorization_blocker(db, row, now):
+    if not row.authorization_expires_at or now >= row.authorization_expires_at:
+        return "会话授权已到期或缺失，需重新批准新会话"
+    if not actor_is_active(db, row.tenant_id, row.authorized_by, {"admin"}):
+        return "会话授权管理员的当前权限已失效"
+    return None
+
+
 def reject(message, status=409):
     raise HTTPException(status_code=status, detail=message)
 
@@ -88,6 +110,7 @@ def session_view(db, row):
     return {"id": row.id, "case_id": row.case_id, "mode": row.mode, "state": row.state,
             "version": row.version, "profile_version": row.profile_version,
             "created_at": row.created_at, "promise": row.promise,
+            "authorization_expires_at": row.authorization_expires_at,
             "events": [{"intent": e.intent, "created_at": e.created_at, "result": e.result} for e in events]}
 
 
@@ -102,6 +125,8 @@ def start_session(db, tenant, actor, payload):
         return existing
     if payload.mode != "sandbox":
         reject("真实电话适配器尚未接入，不允许回退为沙箱", 503)
+    if not actor_is_active(db, tenant, actor, {"admin"}):
+        reject("会话授权管理员的当前权限已失效", 403)
     gate = preflight(db, tenant, payload.case_id)
     if not gate["sandbox_eligible"]:
         reject("；".join(gate["blockers"]))
@@ -110,6 +135,12 @@ def start_session(db, tenant, actor, payload):
     recent = list(db.scalars(select(LoanSession).where(
         LoanSession.tenant_id == tenant, LoanSession.case_id == payload.case_id,
     )))
+    # Expired dialogue grants do not strand an otherwise eligible case forever.
+    # Pending promises and claimed payments retain their separate business hold.
+    for previous in recent:
+        if previous.state not in TERMINAL and authorization_blocker(db, previous, now):
+            previous.state = "paused"
+            previous.version += 1
     if any(r.state not in {"paused", "closed", "ended"} and (
         r.state != "ptp_recorded" or r.promise.get("status") in {"pending", "partial"}
     ) for r in recent):
@@ -120,7 +151,8 @@ def start_session(db, tenant, actor, payload):
     if sum(r.created_at >= day_start for r in recent) >= 3:
         reject("沙箱案件当日任务上限为 3 次")
     row = LoanSession(tenant_id=tenant, case_id=payload.case_id, request_key=payload.request_key,
-                      mode="sandbox", profile_version=gate["profile_version"], authorized_by=actor)
+                      mode="sandbox", profile_version=gate["profile_version"], authorized_by=actor,
+                      authorization_expires_at=now + timedelta(minutes=30))
     db.add(row)
     db.flush()
     return row
@@ -146,9 +178,10 @@ def record_event(db, tenant, session_id, payload):
         reject("会话不可继续提交事件")
     gate = preflight(db, tenant, row.case_id)
     stale = gate["profile_version"] != row.profile_version
-    if not gate["sandbox_eligible"] or stale:
+    authority_reason = authorization_blocker(db, row, utcnow())
+    if authority_reason or not gate["sandbox_eligible"] or stale:
         row.state = "paused"
-        result = {"action": "pause", "reason": "；".join(gate["blockers"]) or "资料版本变化"}
+        result = {"action": "pause", "reason": authority_reason or "；".join(gate["blockers"]) or "资料版本变化"}
     elif payload.intent in EXCEPTIONS:
         row.state = "paused"
         result = {"action": "handoff", "reason": payload.intent,
@@ -207,16 +240,7 @@ def reconcile(db, tenant, session_id):
 
 
 def promise_check_job(db, job):
-    from .models import Tenant, TenantLifecycle, TenantMembership, User
-    tenant = db.get(Tenant, job.tenant_id)
-    user = db.get(User, job.created_by)
-    lifecycle = db.get(TenantLifecycle, job.tenant_id)
-    if lifecycle and lifecycle.stage in {"suspended", "closed"}:
-        reject("租户暂停或已关闭", 403)
-    member = db.scalar(select(TenantMembership).where(
-        TenantMembership.tenant_id == job.tenant_id, TenantMembership.user_id == job.created_by,
-    ))
-    if not tenant or not user or user.status != "active" or not member or member.status != "active" or member.role not in {"admin", "operator"}:
+    if not actor_is_active(db, job.tenant_id, job.created_by, {"admin", "operator"}):
         reject("到期核验提交人的当前权限已失效", 403)
     row = reconcile(db, job.tenant_id, str(job.payload.get("session_id") or ""))
     return {"session_id": row.id, "mode": row.mode, "promise_status": row.promise["status"],

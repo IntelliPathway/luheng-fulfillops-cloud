@@ -114,3 +114,7 @@ Keep v5.0 as the unified release. Real OIDC workspaces must come from active dat
 ## Standard personal-loan MVP
 
 User chose continued development in this existing project. Build one standard unsecured personal-loan collection slice; reuse identity, cases, queue and ledger. Current loan module is a deterministic sandbox, never real media or model execution. PTP is separate from a signed plan and a payment. Preserve opaque contact references, scoped admission, atomic cadence, idempotent events and stale-state checks. Real channel requests fail closed until Provider dispatch/media and institutional identity verification are actually implemented and accepted. Do not grow Harness selection, multi-channel or UI redesign during this MVP. Update stable docs and the single MVP plan instead of creating per-round release files.
+
+## Iteration delivery authorization
+
+User explicitly requires every iteration to update relevant documentation and push to the existing GitHub repository without repeated confirmation. Continue within the established MVP scope; report verification and deployment limits accurately. Sandbox dialogue grants expire after 30 minutes and recheck the authorizing administrator before new events; do not renew expired grants through idempotent retries.

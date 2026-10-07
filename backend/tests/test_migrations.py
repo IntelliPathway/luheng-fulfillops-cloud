@@ -1,6 +1,20 @@
 from app.migrations import _split_postgres_statements
 
 
+def test_existing_loan_sessions_upgrade_without_granting_authorization():
+    from sqlalchemy import create_engine, text
+
+    from app.migrations import run_sqlite_compatibility_migrations
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE loan_sessions (id varchar(40) PRIMARY KEY)")
+        connection.exec_driver_sql("INSERT INTO loan_sessions VALUES ('legacy')")
+    run_sqlite_compatibility_migrations(engine)
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT id, authorization_expires_at FROM loan_sessions")).one() == ("legacy", None)
+    assert run_sqlite_compatibility_migrations(engine) == []
+
+
 def test_split_postgres_statements_preserves_dollar_quoted_blocks() -> None:
     source = """
     CREATE TABLE example (id integer);

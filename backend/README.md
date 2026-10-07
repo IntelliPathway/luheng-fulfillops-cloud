@@ -145,7 +145,7 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh`、`./scripts/smoke-v15-asset-import.sh` 和 `./scripts/smoke-v16-asset-catalog.sh`。v0.16 冒烟覆盖服务端分页、保护视图、钱指标聚合、跨租户 404，以及新导入案件立即进入权威目录。
 
-本轮共收集 257 项后端测试：本地 255 项通过、2 项 PostgreSQL 专项因环境未配置跳过；PostgreSQL 迁移仍需在具备数据库的环境执行验收。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+本轮共收集 265 项后端测试：本地 263 项通过、2 项 PostgreSQL 专项因环境未配置跳过；PostgreSQL 迁移仍需在具备数据库的环境执行验收。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
 
 ## 企业接入（v5.0）
 
@@ -153,6 +153,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 ## 标准贷款机催开发增量
 
-`/api/v1/loan-collection` 提供资料快照、只读准入、管理员授权沙箱会话、结构化模拟事件和 PTP 核验。新增 PostgreSQL `034_standard_loan_mvp.sql`；SQLite 开发模式由 ORM 创建新增表。Worker 增加 `loan.promise_check`，在承诺日期次日北京时间零点可被领取；执行时重查提交人权限。运行方式沿用现有 Worker，不另启队列。
+`/api/v1/loan-collection` 提供资料快照、只读准入、管理员授权沙箱会话、结构化模拟事件和 PTP 核验。新增 PostgreSQL `034_standard_loan_mvp.sql` 和 `035_loan_session_authorization.sql`；SQLite 创建新表并兼容升级已有会话。会话授权固定 30 分钟，事件执行前重新检查授权管理员与租户；旧会话缺少授权期限时失败关闭。Worker 增加 `loan.promise_check`，在承诺日期次日北京时间零点可被领取；执行时重查提交人权限。运行方式沿用现有 Worker，不另启队列。
 
 沙箱不拨号、不调用模型、不改真实案件保护或账务。资料是管理员提供的快照，不自动认定真实性。真实模式返回 503，不静默降级；实现及限制见 [MVP 计划](../docs/standard-loan-machine-collection-mvp.md)。

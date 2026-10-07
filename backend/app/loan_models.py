@@ -44,6 +44,7 @@ class LoanSession(Base):
     profile_version: Mapped[int] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(Integer, default=1)
     authorized_by: Mapped[str] = mapped_column(String(80))
+    authorization_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     promise: Mapped[dict] = mapped_column(JSON, default=dict)
 
