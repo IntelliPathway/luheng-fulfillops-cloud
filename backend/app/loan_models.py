@@ -101,3 +101,22 @@ class LoanEvent(Base):
     intent: Mapped[str] = mapped_column(String(40))
     result: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class LoanSipDispatch(Base):
+    """Internal fixed-extension echo tests; never a customer contact receipt."""
+    __tablename__ = "loan_sip_dispatches"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "session_id"),
+        ForeignKeyConstraint(["tenant_id", "session_id"], ["loan_sessions.tenant_id", "loan_sessions.id"]),
+        CheckConstraint("state IN ('prepared','dispatching','unknown','submitted','blocked','stop_requested')"),
+    )
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("LSD"))
+    tenant_id: Mapped[str] = mapped_column(String(80), index=True)
+    session_id: Mapped[str] = mapped_column(String(40))
+    session_version: Mapped[int] = mapped_column(Integer)
+    instance_id: Mapped[str] = mapped_column(String(32))
+    authorized_by: Mapped[str] = mapped_column(String(80))
+    state: Mapped[str] = mapped_column(String(24), default="prepared")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    observation: Mapped[dict] = mapped_column(JSON, default=dict)

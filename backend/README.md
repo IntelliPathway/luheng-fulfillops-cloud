@@ -160,3 +160,5 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 ## SIP 实验室（开发主机）
 
 `python -m app.sip_lab status|call|inspect|hangup` 使用私有随机环境配置连接本机 ARI，仅允许 development/test；call 需 request-key 和 acknowledged，只呼叫测试分机 1001。独立意图日志避免同键重拨，不改业务表，无新增迁移。详细部署、退出码及当前未执行的音频验收见 [Linphone SIP 联调](../docs/integrations/linphone-sip-lab.md)。现有渠道 live 测试与批准缺少投递证据时失败关闭，sandbox 契约继续可用。
+
+迁移 037 增加固定 SIP 测试派发表；新增 loan.sip_echo Worker。默认关闭，仅显式绑定测试租户、开发环境及固定本机 ARI 后可用。sip-echo/reconcile/stop API 的持久结果不证明真实客户机催。

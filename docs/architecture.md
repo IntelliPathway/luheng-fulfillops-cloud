@@ -130,3 +130,5 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 `backend/app/sip_lab.py` 是部署主机侧独立工具，不连接案件、LoanSession、业务账本或 Agent。本机 ARI → Asterisk → Linphone 1001，接听后运行 1000 回声拨号计划。独立 SQLite 意图日志先预留再 POST，固定 channel ID；同键仅 GET，超时、409、崩溃及 404 均不自动重拨。该日志不是正式 Provider 事件证据；后续仍须接租户授权、真实配额、业务事件及媒体桥。现有渠道测试只验沙箱契约，live 摘要不再冒充投递成功，历史 live tested/enabled 视图阻断。
 
 标准贷款新增持久 loan.dispatch_check 作业，复用队列租约与恢复；执行时重查当前授权及资料/政策/会话状态。仅输出门禁检查结果，不接网络、不预占真实联系配额，也不作为后续拨号授权。详见 MVP 计划。
+
+固定分机内部派发以 LoanSipDispatch 持久保存意图、会话版本与实验室实例，tenant→case 锁顺序原子预留。Worker 在首次网络调用前提交 dispatching；恢复只查询同 ID。政策/资料/会话终态驱动停止任务，角色和租约在实际发送前复核。HTTP 只到固定本机 ARI、固定回声分机；不发送债务和客户目标、不启用实时 AI。迁移 037。

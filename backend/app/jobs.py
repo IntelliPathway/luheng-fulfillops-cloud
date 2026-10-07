@@ -18,6 +18,7 @@ from .job_broker import publish_job_notification
 from .job_queue import LeaseHeartbeat, claim_job, clear_job_lease
 from .loan_collection import promise_check_job
 from .loan_dispatch import dispatch_check_job
+from .loan_sip_dispatch import dispatch_job
 from .model_gateway import test_model_runtime
 from .models import (
     AgentMessage,
@@ -341,6 +342,7 @@ def _customer_connector_pull(db, job):
 
 
 JOB_HANDLERS = {
+    "loan.sip_echo": dispatch_job,
     "loan.dispatch_check": dispatch_check_job,
     "loan.promise_check": promise_check_job,
     "customer.connector_pull": _customer_connector_pull,

@@ -202,3 +202,5 @@ PTP 到期核验使用已有外部 Worker；仅运行 API 或 inline 模式不�
 使用 `scripts/sip-lab-config.py` 生成忽略提交的私有 `deploy/sip-lab/generated`；不将凭据放入代码或构建镜像。CLI 需要 APP_ENV=development/test、ENABLE_SIP_LAB=true、随机 SIP_LAB_INSTANCE_ID 与 SIP_LAB_ARI_PASSWORD（仅进程环境）。未显式启用默认阻断，production 禁止执行。ARI 固定 http://127.0.0.1:8088/ari，不接受外部 URL；SIP 默认本机，也可明确指定隔离 LAN 私有 IPv4。详见 [联调步骤](integrations/linphone-sip-lab.md)。
 
 COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED 打开并不表示已接通真实渠道：当前 live 测试仍因缺适配器返回 503，不能生成投递验收摘要。SIP 回声不解除此门禁。
+
+内部测试 Worker 新增 SIP_LAB_TENANT_ID，必须与任务租户完全一致；不允许通过 API 设置。APP_ENV=production 始终阻断。需先应用迁移 037，ARI 固定 127.0.0.1:8088，仅支持同主机网络上下文；不修改现有生产电话 Provider 就绪状态。

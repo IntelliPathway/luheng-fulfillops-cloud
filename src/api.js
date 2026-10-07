@@ -552,6 +552,9 @@ export async function downloadCustomerMaterial(tenant,id){
 }
 
 export const loanCollectionApi = {
+  dispatchCheck: (tenant,id,version) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/dispatch-check`,tenant,{method:'POST',body:JSON.stringify({expected_version:version,acknowledged:true})}),
+  sipEcho: (tenant,id,version) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/sip-echo`,tenant,{method:'POST',body:JSON.stringify({expected_version:version,acknowledged:true,test_extension_only:true})}),
+  sipAction: (tenant,id,action,requestKey) => request(`/loan-collection/sip-dispatches/${encodeURIComponent(id)}/${action}`,tenant,{method:'POST',body:JSON.stringify({request_key:requestKey,acknowledged:true})}),
   policy: tenant => request('/loan-collection/policy',tenant),
   savePolicy: (tenant,body) => request('/loan-collection/policy',tenant,{method:'PUT',body:JSON.stringify(body)}),
   overview: tenant => request('/loan-collection/overview',tenant),

@@ -81,3 +81,9 @@ hangup 仅允许查询日志中本实例已有请求对应的 channel ID；204 �
 ## 本轮验证
 
 完整后端 331 项通过、2 项 PostgreSQL 专项跳过；SIP/渠道专项 32 项通过，文档/部署/安全契约 5 项通过。Ruff、diff、shell 语法与 Compose YAML 解析通过。Docker 镜像、SIP 注册、响铃及真实 RTP 未验收。地址生成仅接受 IPv4 回环及 RFC1918 网络；拒绝链路本地、文档保留和公网地址。
+
+## API / Worker 内部回声关联
+
+主机 CLI 继续独立运行；新增业务队列关联路径见 [MVP](../standard-loan-machine-collection-mvp.md)。显式设置 SIP_LAB_TENANT_ID 后，管理员可在沙箱会话关联固定测试分机；该关联不证明合成案件或来源真实性，也不发送任何案件/债务字段。API 不解析客户 contact_reference，更不能调用普通手机号。
+
+迁移 037 新建独立持久派发记录。测试配额按北京时间统计，独立于主机 CLI 的 UTC 日限制。两条测试路径不要混为一个配额或验收报告；生产跨渠道配额仍待实现。
