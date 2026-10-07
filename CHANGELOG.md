@@ -458,3 +458,9 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 ## 历史版本
 
 - [完整逐版本发布历史](docs/releases/README.md)：v0.3.0 至当前版本的发布与验收证据。
+
+## Unreleased — 标准贷款机催 MVP
+
+- 新增标准贷款资料/准入、沙箱会话、PTP、到期 Worker 核验和在线入口。
+- 修复真实案件 ID 精确读取、同案联系频次原子计数及保护/终态电话回执覆盖。
+- 更新相关稳定文档与 [MVP 计划](docs/standard-loan-machine-collection-mvp.md)，明确真实渠道尚未接通。

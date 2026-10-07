@@ -105,8 +105,8 @@ def build_agent_result(
     db: Session, tenant_id: str, query: str, scope_type: str, scope_id: str | None
 ) -> dict[str, Any]:
     text = query.strip()
-    case_match = re.search(r"C\d{3}", text, re.IGNORECASE)
-    activity_match = re.search(r"ACT-\d{3}", text, re.IGNORECASE)
+    case_match = re.search(r"(?<![A-Za-z0-9_.-])C\d{3,12}(?![A-Za-z0-9_.-])", text, re.IGNORECASE)
+    activity_match = re.search(r"(?<![A-Za-z0-9_.-])ACT-\d+(?![A-Za-z0-9_.-])", text, re.IGNORECASE)
     scoped_activity = scope_id if scope_type == "activity" else None
     activity_id = activity_match.group(0).upper() if activity_match else scoped_activity
 
@@ -159,8 +159,8 @@ def build_agent_result(
             "proposal": proposal,
         }
 
-    if case_match:
-        case_id = case_match.group(0).upper()
+    if (scope_type == "case" and scope_id) or case_match:
+        case_id = scope_id if scope_type == "case" and scope_id else case_match.group(0).upper()
         case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
         if not case:
             body = f"当前工作空间中未找到 {case_id}。跨租户数据不会进入查询结果。"

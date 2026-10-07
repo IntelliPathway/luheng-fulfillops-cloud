@@ -110,3 +110,7 @@ User requires one v5.0 delivery without further small versions. Preserve BoardUI
 
 ## Enterprise onboarding continuation
 Keep v5.0 as the unified release. Real OIDC workspaces must come from active database memberships intersected with optional tenant claims. Enterprise bootstrap is atomic, requires two distinct admins, cannot revive disabled identities or authorize business actions. Self-hosted identity templates and generated public deployment bundles are separate from actually running infrastructure. Maintain docs/enterprise-onboarding.md and report real test/deployment limits.
+
+## Standard personal-loan MVP
+
+User chose continued development in this existing project. Build one standard unsecured personal-loan collection slice; reuse identity, cases, queue and ledger. Current loan module is a deterministic sandbox, never real media or model execution. PTP is separate from a signed plan and a payment. Preserve opaque contact references, scoped admission, atomic cadence, idempotent events and stale-state checks. Real channel requests fail closed until Provider dispatch/media and institutional identity verification are actually implemented and accepted. Do not grow Harness selection, multi-channel or UI redesign during this MVP. Update stable docs and the single MVP plan instead of creating per-round release files.

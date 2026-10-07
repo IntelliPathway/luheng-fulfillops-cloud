@@ -193,3 +193,32 @@ def test_sms_and_email_sandbox_share_frequency_and_never_require_provider_creden
         )
         assert email.status_code == 409
         assert "daily_frequency_exceeded" in email.text
+
+
+def test_same_case_concurrent_attempts_cannot_exceed_daily_limit(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from app.contact_orchestration import ContactOrchestrationError, create_contact_attempt
+
+    monkeypatch.setenv("CONTACT_MAX_ATTEMPTS_PER_CASE_DAY", "1")
+    app = create_app(f"sqlite:///{tmp_path / 'concurrent.db'}")
+    with TestClient(app) as client:
+        enable_phone(client)
+        barrier = Barrier(2)
+
+        def submit(index):
+            with app.state.Session() as db:
+                barrier.wait()
+                try:
+                    create_contact_attempt(db, "TENANT_A", "Terry", case_id="C004", activity_id=None,
+                                           contact_reference=f"REF-{index}", scheduled_at=datetime(2026, 9, 20, 6))
+                    db.commit()
+                    return "created"
+                except ContactOrchestrationError as exc:
+                    db.rollback()
+                    return exc.code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(submit, range(2)))
+        assert sorted(results) == ["created", "daily_frequency_exceeded"]

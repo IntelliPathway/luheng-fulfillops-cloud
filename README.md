@@ -190,3 +190,9 @@ flowchart TB
 客户数据接入：[统一连接器协议](docs/integrations/customer-feed.md)。
 
 材料与核验：[证据工作台使用及边界](docs/integrations/evidence-workspace.md)。
+
+## 标准个人贷款机催 MVP（开发增量）
+
+新增“标准贷款机催”入口，可在连接业务 API 后进行案件准入、受控状态机对话、PTP 及账本核验联调。当前仅为显式沙箱，不发起真实外呼、不调用模型、不改变合同或账务；真实电话/媒体与机构本人核验适配器尚未接入。
+
+范围、进度和依赖见 [MVP 计划](docs/standard-loan-machine-collection-mvp.md)。

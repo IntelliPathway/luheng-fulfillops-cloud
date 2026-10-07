@@ -439,3 +439,23 @@ test('discovers authenticated workspaces without a guessed tenant and scopes onb
  try{await authApi.workspaces();await operationsApi.enterpriseOnboarding('CUSTOMER_002')}finally{globalThis.fetch=originalFetch;if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow}
  assert.equal(calls[0].url,'/api/v1/auth/workspaces');assert.equal(calls[0].options.headers['X-Tenant-ID'],undefined);assert.equal(calls[1].options.headers['X-Tenant-ID'],'CUSTOMER_002');assert.match(calls[1].url,/enterprise\/onboarding\?browser_origin=https%3A%2F%2Fapp.example.com/);
 });
+
+test('standard loan API scopes exact identifiers and sends explicit sandbox confirmation',async()=>{
+ const {loanCollectionApi}=await import('../src/api.js');const originalFetch=globalThis.fetch,calls=[];
+ globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
+ try{
+  await loanCollectionApi.preflight('BANK_A','bank-2026_001');
+  await loanCollectionApi.start('BANK_A',{case_id:'bank-2026_001',request_key:'stable-1',mode:'sandbox',acknowledged:true});
+  await loanCollectionApi.reconcile('BANK_A','LC_1');
+ }finally{globalThis.fetch=originalFetch}
+ assert.equal(calls[0].url,'/api/v1/loan-collection/cases/bank-2026_001/preflight');
+ assert.equal(calls[0].options.headers['X-Tenant-ID'],'BANK_A');
+ assert.equal(JSON.parse(calls[1].options.body).mode,'sandbox');
+ assert.equal(JSON.parse(calls[2].options.body).acknowledged,true);
+});
+
+test('loan page idempotency keys work without secure-context randomUUID',async()=>{
+ const {loanRequestKey}=await import('../src/loan-collection-state.js');
+ assert.equal(loanRequestKey({getRandomValues:bytes=>bytes.fill(7)}),'loan-'+ '07'.repeat(16));
+ assert.match(loanRequestKey({}),/^loan-[A-Za-z0-9.-]+$/);
+});

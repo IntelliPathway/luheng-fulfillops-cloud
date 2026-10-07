@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from .models import ContactAttempt, ServiceConfig, TelephonyEvent
@@ -92,9 +92,18 @@ def accept_telephony_webhook(
             ContactAttempt.id == payload.call_reference,
         )
     )
-    if attempt and attempt.status != "handoff":
-        attempt.status = payload.event_type
-        attempt.last_event_at = payload.occurred_at.replace(tzinfo=None)
+    ranks = {"queued": 0, "initiated": 1, "ringing": 2, "answered": 3, "completed": 4, "failed": 4}
+    if attempt:
+        if payload.case_id != attempt.case_id or payload.activity_id != attempt.activity_id:
+            raise TelephonyError("attempt_scope_mismatch", "电话回执与任务案件或活动不匹配")
+        allowed = [state for state, rank in ranks.items()
+                   if state not in {"completed", "failed"} and rank <= ranks[payload.event_type]]
+        # Conditional write preserves concurrent cancellation and terminal callbacks.
+        db.execute(update(ContactAttempt).where(
+            ContactAttempt.id == attempt.id, ContactAttempt.tenant_id == tenant_id,
+            ContactAttempt.status.in_(allowed),
+            or_(ContactAttempt.last_event_at.is_(None), ContactAttempt.last_event_at <= event.occurred_at),
+        ).values(status=payload.event_type, last_event_at=event.occurred_at))
     db.commit()
     db.refresh(event)
     return AcceptedTelephonyEvent(event, False)

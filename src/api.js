@@ -550,3 +550,13 @@ export async function downloadCustomerMaterial(tenant,id){
  if(!response.ok)throw new ApiError('原件下载失败，请检查权限和加密服务',response.status);
  return response.blob();
 }
+
+export const loanCollectionApi = {
+  overview: tenant => request('/loan-collection/overview',tenant),
+  profile: (tenant,id) => request(`/loan-collection/cases/${encodeURIComponent(id)}/profile`,tenant),
+  preflight: (tenant,id) => request(`/loan-collection/cases/${encodeURIComponent(id)}/preflight`,tenant),
+  saveProfile: (tenant,id,body) => request(`/loan-collection/cases/${encodeURIComponent(id)}/profile`,tenant,{method:'PUT',body:JSON.stringify(body)}),
+  start: (tenant,body) => request('/loan-collection/sessions',tenant,{method:'POST',body:JSON.stringify(body)}),
+  event: (tenant,id,body) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/events`,tenant,{method:'POST',body:JSON.stringify(body)}),
+  reconcile: (tenant,id) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/reconcile`,tenant,{method:'POST',body:JSON.stringify({acknowledged:true})}),
+};

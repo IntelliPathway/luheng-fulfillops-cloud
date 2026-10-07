@@ -177,3 +177,9 @@ FULFILLOPS_ENABLE_DSH_RUNTIME=false
 ## 企业配置包（v5.0）
 
 `scripts/enterprise-config.py` 使用站点、API、身份三个精确 HTTPS 来源生成公开 runtime、OIDC realm、后端公开变量与 Web CSP 配置；输出不含凭据且拒绝覆盖已有配置。自托管 Web 通过 `deploy/1panel/enterprise.override.yml` 挂载。Keycloak 参数见 `deploy/identity/.env.example`；身份数据库密码和管理密码必须独立注入。实际成员 `sub` 从 IdP 取得，模板占位值不能开通。完整步骤见 [企业接入](enterprise-onboarding.md)。
+
+## 标准贷款机催首轮配置边界
+
+本轮不增加真实 Provider 密钥配置。`/api/v1/loan-collection` 只支持 `sandbox`，`provider` 返回 503。初始联调采用固定 DPD 1–30、账务快照 24 小时、同案每日最多 3 个沙箱会话、承诺日期未来最多 30 天；日期与任务日按 Asia/Shanghai 计算。这些是首轮开发限制，不是监管标准。真实时段与机构版本化政策配置尚待实现。
+
+PTP 到期核验由现有外部 Worker 执行；仅运行 API 或 inline 模式不会自行调度未来作业。

@@ -22,7 +22,7 @@ ALLOWED_TOOL_NAMES = {
 
 
 def _required_id(arguments: dict[str, Any], key: str, pattern: str) -> str:
-    value = str(arguments.get(key) or "").strip().upper()
+    value = str(arguments.get(key) or "").strip()
     if not re.fullmatch(pattern, value):
         raise ValueError(f"{key} 格式无效")
     return value
@@ -78,10 +78,10 @@ def execute_controlled_tool(
     if tool_name not in ALLOWED_TOOL_NAMES:
         raise ValueError("工具未注册或不在 fulfillops-safe 白名单中")
     args = arguments or {}
-    normalized_scope_id = str(scope_id or "").strip().upper()
+    normalized_scope_id = str(scope_id or "").strip()
 
     if tool_name == "case.read":
-        case_id = _required_id(args, "case_id", r"C\d{3,12}")
+        case_id = _required_id(args, "case_id", r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
         if scope_type == "case" and case_id != normalized_scope_id:
             raise ValueError("案件会话只能读取当前 scope 内的案件")
         if scope_type == "activity":
@@ -93,7 +93,7 @@ def execute_controlled_tool(
             )
             if not scoped_activity or case_id not in scoped_activity.case_ids:
                 raise ValueError("活动会话只能读取当前活动包含的案件")
-        return build_agent_result(db, tenant_id, f"查询 {case_id} 当前状态", scope_type, scope_id)
+        return build_agent_result(db, tenant_id, "查询当前状态", "case", case_id)
 
     if tool_name == "metrics.query":
         return build_agent_result(db, tenant_id, "查询回款、计佣回款、应计佣金和实收佣金", scope_type, scope_id)
