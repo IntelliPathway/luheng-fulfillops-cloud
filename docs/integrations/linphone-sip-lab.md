@@ -34,7 +34,7 @@ python scripts/sip-lab-config.py --host-address 192.168.1.20
 
 示例地址须替换为主机真实地址。生成器不接受公网、0.0.0.0、IPv6 或组播地址；默认 SIP/RTP 只绑定本机。LAN 模式仅绑定指定私有地址，ARI 始终映射 127.0.0.1:8088。端口为 UDP 5060 和 UDP 10000–10019；Docker Desktop、防火墙、设备隔离及 NAT 仍需按实际环境验证。配置了 force_rport、rewrite_contact、rtp_symmetric、外部媒体地址和 direct_media=no，不保证任意网络都可用。
 
-Docker 启动入口仅以 root 读取/复制私有挂载配置并调整所有权，随后 Asterisk 使用 asterisk 用户运行；启动仅保留 CHOWN/DAC_OVERRIDE/SETUID/SETGID 能力。随机密码不进入镜像构建层。
+Docker 启动入口仅以 root 读取/复制私有挂载配置并调整所有权，随后 Asterisk 使用 asterisk 用户运行；启动仅保留 CHOWN/DAC_OVERRIDE/SETUID/SETGID 能力。generated 目录由 .dockerignore 排除，随机密码不发送到构建上下文或进入镜像构建层。
 
 ## 测试呼叫与查账式恢复
 
@@ -76,7 +76,7 @@ hangup 仅允许查询日志中本实例已有请求对应的 channel ID；204 �
 
 ## 软件验证记录
 
-完整后端 325 项：323 通过、2 项 PostgreSQL 专项跳过；其中 SIP 实验室 19 项，渠道 false-positive 修复 2 项，既有电话派发契约 17 项。前端/契约 59 项通过，构建通过；变更文件 Ruff、shell 语法与 Git diff 检查通过。没有 Docker/Asterisk/Linphone，未以模拟 HTTP 结果声称真实媒体或设备联调通过。
+完整后端 333 项：331 通过、2 项 PostgreSQL 专项跳过；其中 SIP 实验室 27 项，渠道 false-positive 修复 2 项，既有电话派发契约 17 项。前端/契约 59 项通过，构建通过；变更文件 Ruff、shell 语法与 Git diff 检查通过。没有 Docker/Asterisk/Linphone，未以模拟 HTTP 结果声称真实媒体或设备联调通过。
 
 ## 本轮验证
 

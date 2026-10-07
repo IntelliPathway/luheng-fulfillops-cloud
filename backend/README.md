@@ -145,7 +145,7 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 生产保障冒烟可从仓库根目录运行 `./scripts/smoke-v08-model-gateway.sh`、`./scripts/smoke-v09-financial-ledger.sh`、`./scripts/smoke-v10-reconciliation.sh`、`./scripts/smoke-v11-protection.sh`、`./scripts/smoke-v12-repayment-plans.sh`、`./scripts/smoke-v15-asset-import.sh` 和 `./scripts/smoke-v16-asset-catalog.sh`。v0.16 冒烟覆盖服务端分页、保护视图、钱指标聚合、跨租户 404，以及新导入案件立即进入权威目录。
 
-本轮共收集 325 项后端测试：本地 323 项通过、2 项 PostgreSQL 专项因环境未配置跳过；PostgreSQL 迁移仍需在具备数据库的环境执行验收。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
+本轮共收集 333 项后端测试：本地 331 项通过、2 项 PostgreSQL 专项因环境未配置跳过；PostgreSQL 迁移仍需在具备数据库的环境执行验收。覆盖启动失败关闭、显式种子、首租户初始化、CSV 导入与隐私字段阻断、权威目录分页/筛选/统计、活动委托期与基础资格门禁、MCP、Runtime JWT、并发 Worker、崩溃恢复、租约 fencing、协作取消、密钥 Provider、OIDC/JWKS、模型出网/费用门禁、真实回放零原文持久化、支付验签/幂等/匹配、对账提案双人分权、保护事件、签约方案与分期分摊、跨租户隔离、退款与佣金账簿、SQLite 兼容升级，以及从 v0.4 表结构升级并通过通知 Broker 完成任务。
 
 ## 企业接入（v5.0）
 
@@ -159,4 +159,4 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 ## SIP 实验室（开发主机）
 
-`python -m app.sip_lab status|call|inspect` 使用私有随机环境配置连接本机 ARI，仅允许 development/test；call 需 request-key 和 acknowledged，只呼叫测试分机 1001。独立意图日志避免同键重拨，不改业务表，无新增迁移。详细部署、退出码及当前未执行的音频验收见 [Linphone SIP 联调](../docs/integrations/linphone-sip-lab.md)。现有渠道 live 测试与批准缺少投递证据时失败关闭，sandbox 契约继续可用。
+`python -m app.sip_lab status|call|inspect|hangup` 使用私有随机环境配置连接本机 ARI，仅允许 development/test；call 需 request-key 和 acknowledged，只呼叫测试分机 1001。独立意图日志避免同键重拨，不改业务表，无新增迁移。详细部署、退出码及当前未执行的音频验收见 [Linphone SIP 联调](../docs/integrations/linphone-sip-lab.md)。现有渠道 live 测试与批准缺少投递证据时失败关闭，sandbox 契约继续可用。
