@@ -104,3 +104,7 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 6. 通用浏览器 OIDC Authorization Code + PKCE 已完成，仍需按最终企业 IdP 进行 E2E 联调。
 
 上述项目不能通过 README 宣称为已完成能力；每项完成时需要测试、迁移或 ADR 证据。
+
+## 企业接入与身份拓扑（v5.0）
+
+浏览器先通过 OIDC 授权码 + PKCE 登录，再以有效成员关系发现企业。API 对每次请求校验 issuer、audience、签名与数据库成员；令牌租户声明只能进一步收窄范围。身份服务可用现有 IdP 或独立 Keycloak + PostgreSQL，Sites 不承载该身份数据库。企业 CLI 原子写企业、成员、套餐和审计，生命周期激活仍走独立审批。接入向导读取当前集成报告与独立导入批次，不把材料数量当验收。实现入口和标准见 [企业接入](enterprise-onboarding.md)。

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ApiError, activityApi, agentApi, assetImportApi, catalogApi, channelProviderApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, platformApi, protectionApi, repaymentApi, securityApi, servicePayload, strategyExperimentApi, telephonyApi} from '../src/api.js';
+import {ApiError, authApi, activityApi, agentApi, assetImportApi, catalogApi, channelProviderApi, classifyApiFailure, contactApi, harnessApi, knowledgeApi, membershipApi, normalizeCatalogCase, normalizeCatalogPackage, normalizeFinancialOverview, normalizeIntegrationOverview, operationsApi, paymentApi, platformApi, protectionApi, repaymentApi, securityApi, servicePayload, strategyExperimentApi, telephonyApi} from '../src/api.js';
 
 test('loads harness catalog and evidence-based leaderboard',async()=>{
   const calls=[];const originalFetch=globalThis.fetch;
@@ -429,4 +429,13 @@ test('normalizes catalog records without inventing debt-age or contact facts', (
   assert.equal(caseItem.ageMonths, null);
   assert.equal(caseItem.agingBucket, '账龄未接入');
   assert.equal(caseItem.contactability, '联系依据待补');
+});
+
+
+test('discovers authenticated workspaces without a guessed tenant and scopes onboarding',async()=>{
+ const calls=[];const originalFetch=globalThis.fetch;const originalWindow=globalThis.window;
+ globalThis.window={location:{origin:'https://app.example.com'}};
+ globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
+ try{await authApi.workspaces();await operationsApi.enterpriseOnboarding('CUSTOMER_002')}finally{globalThis.fetch=originalFetch;if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow}
+ assert.equal(calls[0].url,'/api/v1/auth/workspaces');assert.equal(calls[0].options.headers['X-Tenant-ID'],undefined);assert.equal(calls[1].options.headers['X-Tenant-ID'],'CUSTOMER_002');assert.match(calls[1].url,/enterprise\/onboarding\?browser_origin=https%3A%2F%2Fapp.example.com/);
 });

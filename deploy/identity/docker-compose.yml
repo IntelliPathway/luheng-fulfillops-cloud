@@ -1,0 +1,40 @@
+services:
+  identity-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: identity
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:?set independent identity database password}
+    volumes:
+      - identity_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U identity -d identity]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+  identity:
+    image: quay.io/keycloak/keycloak:26.7.5
+    restart: unless-stopped
+    command: [start, --import-realm]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://identity-db:5432/identity
+      KC_DB_USERNAME: identity
+      KC_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?set independent identity database password}
+      KC_HOSTNAME: ${IDENTITY_ORIGIN:?set exact public HTTPS identity origin}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${IDENTITY_ADMIN_USERNAME:?set bootstrap administrator username}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${IDENTITY_ADMIN_PASSWORD:?set bootstrap administrator password}
+    ports:
+      - "127.0.0.1:${IDENTITY_HTTP_PORT:-18088}:8080"
+    volumes:
+      - ${ENTERPRISE_CONFIG_DIR:?absolute generated bundle directory}/repayguard-realm.json:/opt/keycloak/data/import/repayguard-realm.json:ro
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+volumes:
+  identity_pg:

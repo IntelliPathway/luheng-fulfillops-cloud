@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "app_version": "5.0.0",
+  "contract_id": "repayguard-enterprise-v1",
+  "authentication": {
+    "protocol": "OIDC",
+    "flow": "authorization-code-pkce-S256",
+    "tenant_header": "X-Tenant-ID",
+    "roles": [
+      "viewer",
+      "operator",
+      "admin"
+    ],
+    "permissions_source": "database-membership"
+  },
+  "assets": {
+    "schema_version": "asset-case-v2",
+    "required_fields": [
+      "case_id",
+      "claim_balance_cents",
+      "commission_rate_bps",
+      "commission_rule_id",
+      "contact_basis_ref",
+      "mandate_end",
+      "mandate_start",
+      "package_id",
+      "package_title"
+    ],
+    "optional_fields": [
+      "case_status",
+      "fee_cents",
+      "first_overdue_date",
+      "interest_cents",
+      "last_contact_at",
+      "principal_cents"
+    ],
+    "max_rows": 1000,
+    "amount_unit": "integer-cents",
+    "personal_contact_data": "not-accepted"
+  },
+  "materials": {
+    "mapping_fields": [
+      "case_id",
+      "payment_cents",
+      "refund_cents"
+    ],
+    "max_bytes": 1000000,
+    "amount_basis": "all-time-payment-and-refund-separately",
+    "storage": "tenant-bound-encrypted-originals",
+    "uploaded_claim_is_verified_receipt": false
+  },
+  "workflow": [
+    "asset-import",
+    "mandate-check",
+    "material-association-review",
+    "payment-and-refund-reconciliation",
+    "independent-acceptance",
+    "fresh-report"
+  ],
+  "idempotency": {
+    "asset_import": "tenant-and-idempotency-key",
+    "customer_events": "tenant-source-system-external-event-id",
+    "changed_payload": "409-conflict",
+    "retry": "reuse-original-key-and-payload"
+  },
+  "api_contract": "/api/openapi.json",
+  "data_classification": [
+    "synthetic-internal-validation",
+    "authorized-customer-evidence"
+  ],
+  "real_business_verified": false,
+  "enables_external_execution": false
+}

@@ -20,7 +20,7 @@ const headers = async tenant => {
   const token = await ensureFreshAccessToken();
   return {
     'Content-Type': 'application/json',
-    'X-Tenant-ID': tenant,
+    ...(tenant ? {'X-Tenant-ID': tenant} : {}),
     ...(token ? {Authorization: `Bearer ${token}`} : devHeaderAuthEnabled() ? {'X-Actor-ID': 'Terry'} : {}),
   };
 };
@@ -155,6 +155,7 @@ export const integrationApi = {
 };
 
 export const authApi = {
+  workspaces: () => request('/auth/workspaces'),
   session: tenant => request('/auth/session', tenant),
 };
 
@@ -169,6 +170,7 @@ export const securityApi = {
 };
 
 export const operationsApi = {
+  enterpriseOnboarding: tenant => request(`/enterprise/onboarding?browser_origin=${encodeURIComponent(window.location.origin)}`,tenant),
   integrationAcceptance: tenant => request(`/pilot/integration-acceptance?browser_origin=${encodeURIComponent(window.location.origin)}`,tenant),
   materialVersions: (tenant,id) => request(`/material-versions/${encodeURIComponent(id)}`,tenant),
   appendMaterialVersion: (tenant,id,payload) => request(`/material-versions/${encodeURIComponent(id)}`,tenant,{method:'POST',body:JSON.stringify(payload)}),

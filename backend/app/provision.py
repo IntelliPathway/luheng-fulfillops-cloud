@@ -24,7 +24,7 @@ class IdentityProvisioningRequest:
     role: str = "admin"
 
 
-def provision_identity(db: Session, request: IdentityProvisioningRequest) -> TenantMembership:
+def provision_identity(db: Session, request: IdentityProvisioningRequest, *, commit: bool = True) -> TenantMembership:
     """Create the first tenant membership idempotently without demo business data."""
 
     if request.role not in VALID_ROLES:
@@ -79,6 +79,7 @@ def provision_identity(db: Session, request: IdentityProvisioningRequest) -> Ten
                 detail={"role": request.role},
             )
         )
-    db.commit()
-    db.refresh(membership)
+    if commit:
+        db.commit()
+        db.refresh(membership)
     return membership

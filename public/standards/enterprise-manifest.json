@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "tenant_id": "INTERNAL_001",
+  "tenant_name": "内部企业（需替换为正式企业信息）",
+  "plan_code": "team",
+  "members": [
+    {"subject": "REPLACE_WITH_ACTUAL_ADMIN_SUB", "email": "admin@example.com", "display_name": "管理员", "role": "admin"},
+    {"subject": "REPLACE_WITH_ACTUAL_REVIEWER_SUB", "email": "reviewer@example.com", "display_name": "独立审核人", "role": "admin"}
+  ]
+}

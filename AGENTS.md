@@ -107,3 +107,6 @@ The user requires a complete audit of feature availability, not only visible lay
 
 ## v5.0 integration release
 User requires one v5.0 delivery without further small versions. Preserve BoardUI and all v4.x capabilities. Unified acceptance reads fresh current tenant evidence, excludes stale/expired case approvals and cannot authorize external actions. Software CI and synthetic recovery are distinct from production customer acceptance. Test the exact Sites build and old deployed backend compatibility on isolated restored PostgreSQL databases.
+
+## Enterprise onboarding continuation
+Keep v5.0 as the unified release. Real OIDC workspaces must come from active database memberships intersected with optional tenant claims. Enterprise bootstrap is atomic, requires two distinct admins, cannot revive disabled identities or authorize business actions. Self-hosted identity templates and generated public deployment bundles are separate from actually running infrastructure. Maintain docs/enterprise-onboarding.md and report real test/deployment limits.

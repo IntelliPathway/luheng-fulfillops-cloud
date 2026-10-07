@@ -173,3 +173,7 @@ ENABLE_LIVE_MODEL_CALLS=false
 ENABLE_PAYMENT_SANDBOX=false
 FULFILLOPS_ENABLE_DSH_RUNTIME=false
 ```
+
+## 企业配置包（v5.0）
+
+`scripts/enterprise-config.py` 使用站点、API、身份三个精确 HTTPS 来源生成公开 runtime、OIDC realm、后端公开变量与 Web CSP 配置；输出不含凭据且拒绝覆盖已有配置。自托管 Web 通过 `deploy/1panel/enterprise.override.yml` 挂载。Keycloak 参数见 `deploy/identity/.env.example`；身份数据库密码和管理密码必须独立注入。实际成员 `sub` 从 IdP 取得，模板占位值不能开通。完整步骤见 [企业接入](enterprise-onboarding.md)。

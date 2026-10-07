@@ -337,6 +337,9 @@ def create_app(database_url: str | None = None, *, seed_demo_data: bool | None =
     app.include_router(customer_connector_router)
     app.include_router(customer_sync_router)
     app.include_router(customer_material_router)
+    from .enterprise_routes import router as enterprise_router
+
+    app.include_router(enterprise_router)
     app.include_router(pilot_router)
     app.include_router(membership_router)
     app.include_router(contact_router)

@@ -1,5 +1,7 @@
 # ECS + 1Panel 部署
 
+企业身份可接现有 IdP 或使用 [自托管模板](../identity/README.md)，统一流程见 [企业标准接入](../../docs/enterprise-onboarding.md)。当前模板不代表服务器已部署。
+
 该目录提供生产安全模板：Nginx Web、FastAPI、独立 Worker 和 PostgreSQL 四个容器。只有 Web 绑定宿主机 `127.0.0.1:18080`，公网 HTTPS 由 1Panel 反向代理终止。
 
 ## 部署前结论
@@ -64,22 +66,16 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 
 三个用途的密钥必须互不相同。优先使用 1Panel 密钥变量或云 KMS 注入，不要写入 Git。
 
-## 初始化首租户
+## 初始化首租户与后续企业
 
-生产不导入 `TENANT_A/TENANT_B` 或演示用户。API ready 后执行：
+从 `public/standards/enterprise-manifest.json` 复制企业清单，填写两名不同管理员实际 OIDC sub。按 [企业标准接入](../../docs/enterprise-onboarding.md) 先验证再原子开通；不使用演示账户，不自动激活生命周期。
 
 ```bash
-docker compose --env-file deploy/1panel/.env \
-  -f deploy/1panel/docker-compose.yml exec api \
-  python -m app.provision_cli \
-  --tenant-id CUSTOMER_001 \
-  --tenant-name '客户一' \
-  --user-id 'OIDC_SUBJECT' \
-  --email 'owner@example.com' \
-  --display-name '首位管理员'
+docker compose --env-file deploy/1panel/.env -f deploy/1panel/docker-compose.yml cp /secure/enterprise.json api:/tmp/enterprise.json
+docker compose --env-file deploy/1panel/.env -f deploy/1panel/docker-compose.yml exec api python -m app.enterprise_cli --manifest /tmp/enterprise.json
 ```
 
-`--user-id` 必须等于企业 IdP 令牌中的 `sub`。命令只创建租户、用户、管理员成员关系和审计事件，不创建业务样本。
+Web 的公开 OIDC 配置及 CSP 用生成包与 `enterprise.override.yml` 挂载。组合启动时在基础 `-f` 参数后增加 `-f deploy/1panel/enterprise.override.yml`，设置 `ENTERPRISE_CONFIG_DIR`。实际数据库与业务密钥沿用基础配置；企业清单不含密码但含成员信息，禁止提交公开仓库。
 
 ## 验证
 

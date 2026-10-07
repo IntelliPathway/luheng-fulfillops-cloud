@@ -1,0 +1,2 @@
+package_id,package_title,case_id,claim_balance_cents,mandate_start,mandate_end,commission_rule_id,commission_rate_bps,contact_basis_ref
+SYNTHETIC_PKG,合成验证资产包,SYNTHETIC_CASE,10000,2026-01-01,2027-12-31,SYNTHETIC_RULE,1000,synthetic-authority-only
