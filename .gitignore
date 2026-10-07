@@ -20,3 +20,4 @@ qa/standalone.html
 
 test-results/
 playwright-report/
+deploy/sip-lab/generated/

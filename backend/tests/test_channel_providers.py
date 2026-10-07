@@ -66,3 +66,34 @@ def test_plaintext_or_insecure_live_configuration_is_rejected() -> None:
         payload["credential_reference"] = "plaintext-secret"
         denied = client.put("/api/v1/channel-providers/phone", headers=headers(), json=payload)
         assert denied.status_code == 422
+
+
+def test_enabled_deployment_switch_cannot_fabricate_live_delivery(monkeypatch):
+    monkeypatch.setenv("COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED", "true")
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        created = client.put("/api/v1/channel-providers/phone", headers=headers(), json=config("live")).json()
+        response = client.post("/api/v1/channel-providers/phone/test", headers=headers(),
+                               json={"expected_version": created["version"], "acknowledged": True})
+        assert response.status_code == 503
+        row = client.get("/api/v1/channel-providers", headers=headers()).json()[0]
+        assert row["status"] == "configured" and row["evidence_digest"] is None
+        assert not row["external_delivery_verified"]
+
+
+def test_legacy_live_summary_is_blocked_and_cannot_be_approved():
+    from sqlalchemy import select
+
+    from app.models import ChannelProviderPilot
+    with TestClient(create_app("sqlite:///:memory:")) as client:
+        created = client.put("/api/v1/channel-providers/phone", headers=headers(), json=config("live")).json()
+        with client.app.state.Session() as db:
+            row = db.scalar(select(ChannelProviderPilot).where(ChannelProviderPilot.id == created["id"]))
+            row.status = "tested"
+            row.tested_by = "test-user"
+            row.evidence_digest = "a" * 64
+            db.commit()
+        view = client.get("/api/v1/channel-providers", headers=headers()).json()[0]
+        assert view["status"] == "blocked" and view["stored_status"] == "tested"
+        response = client.post("/api/v1/channel-providers/phone/approve", headers=headers("Terry"),
+                               json={"expected_version": created["version"], "acknowledged": True})
+        assert response.status_code == 503

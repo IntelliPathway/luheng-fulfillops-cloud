@@ -4,6 +4,7 @@
 
 | 文档 | 责任范围 | 更新触发条件 |
 |---|---|---|
+| [Linphone SIP 联调](integrations/linphone-sip-lab.md) | Asterisk 回声实验室、私有配置、固定分机、意图日志与未知结果恢复；真实链路未实测 | SIP 网关或媒体验收变化 |
 | [标准个人贷款机催 MVP 计划](standard-loan-machine-collection-mvp.md) | 首期范围、三轮交付、数据增量、验收及外部依赖；包含版本化沙箱政策、授权快照、电话派发契约与 Linphone 联调方案 | MVP 范围、进度或验收条件变化 |
 | [企业标准接入](enterprise-onboarding.md) | 首家与后续企业、身份服务、配置包 | 接入流程或契约变化 |
 | [品牌与命名](brand-guide.md) | 中英文名、Logo、语气和兼容标识 | 品牌定位或视觉资产变化 |

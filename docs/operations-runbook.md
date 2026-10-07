@@ -194,3 +194,9 @@ docker compose --env-file deploy/1panel/.env \
 
 ### Linphone 内部测试
 联调拓扑与检查步骤见 [标准个贷 MVP](standard-loan-machine-collection-mvp.md#sip--linphone-内部联调与派发契约2026-10-07)。仅有 Linphone 客户端不足以启动后端外呼；本轮契约无网络执行能力。派发超时不能通过重启或新建请求键重拨，必须先查询原派发结果。SIP/媒体/核验依赖未齐备时保留真实模式 503。
+
+## Linphone 测试网关
+
+按照 [SIP 联调](integrations/linphone-sip-lab.md) 生成私有配置、启动 Asterisk、注册分机 1001，先拨 1000 听回声，再使用 CLI 固定请求键验证系统侧呼叫。保留独立日志：reserved/unknown 先查同 channel ID 和设备记录，404 不能证明没拨过，禁止删除日志或换键盲目重拨。响铃/Up、双向音频和 AI 对话分别记录验收，不能相互替代。当前环境没有 Docker/Asterisk/Linphone，镜像构建、注册、真实 SIP/RTP 及 AI 音频未执行；仅代码与模拟 HTTP 回归。无新增业务数据库迁移或线上 API 部署。
+
+SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通道；保留原请求记录，挂断或查询 404 不能释放重拨权限。真实音频仍需人工终端验收。

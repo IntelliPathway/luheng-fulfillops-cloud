@@ -124,3 +124,7 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 
 ### 标准贷款电话适配契约
 `loan_telephony.py` 定义内部测试派发、按键查询及单调回执裁决；尚未接入 Worker/API/持久化，真实模式继续阻断。超时结果视为 unknown，查询无结果不能自动重新派发。Linphone 作为 SIP 接听端，服务端仍需 SIP/PBX、媒体桥与受控语音模型。详细状态、外部依赖和验收见标准个贷 MVP 计划。
+
+## SIP 电话联调增量
+
+`backend/app/sip_lab.py` 是部署主机侧独立工具，不连接案件、LoanSession、业务账本或 Agent。本机 ARI → Asterisk → Linphone 1001，接听后运行 1000 回声拨号计划。独立 SQLite 意图日志先预留再 POST，固定 channel ID；同键仅 GET，超时、409、崩溃及 404 均不自动重拨。该日志不是正式 Provider 事件证据；后续仍须接租户授权、真实配额、业务事件及媒体桥。现有渠道测试只验沙箱契约，live 摘要不再冒充投递成功，历史 live tested/enabled 视图阻断。

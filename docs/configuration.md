@@ -196,3 +196,9 @@ FULFILLOPS_ENABLE_DSH_RUNTIME=false
 DPD 固定 1–30；上述范围是首期软件限制，不是监管标准。窗口和日上限仅控制此沙箱模块，不替代现有联系编排或真实渠道的机构合规政策。provider 仍返回 503；无新真实密钥配置。政策首次启用不代表允许真实联系。
 
 PTP 到期核验使用已有外部 Worker；仅运行 API 或 inline 模式不会自行调度未来任务。查询到账不是联系动作，故可在机催政策暂停后核验已记录承诺；提交人权限仍须有效。
+
+## Linphone SIP 实验室
+
+使用 `scripts/sip-lab-config.py` 生成忽略提交的私有 `deploy/sip-lab/generated`；不将凭据放入代码或构建镜像。CLI 需要 APP_ENV=development/test、ENABLE_SIP_LAB=true、随机 SIP_LAB_INSTANCE_ID 与 SIP_LAB_ARI_PASSWORD（仅进程环境）。未显式启用默认阻断，production 禁止执行。ARI 固定 http://127.0.0.1:8088/ari，不接受外部 URL；SIP 默认本机，也可明确指定隔离 LAN 私有 IPv4。详见 [联调步骤](integrations/linphone-sip-lab.md)。
+
+COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED 打开并不表示已接通真实渠道：当前 live 测试仍因缺适配器返回 503，不能生成投递验收摘要。SIP 回声不解除此门禁。

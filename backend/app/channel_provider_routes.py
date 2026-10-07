@@ -42,7 +42,10 @@ def _view(row: ChannelProviderPilot) -> dict:
         "credential_reference": row.credential_reference,
         "callback_reference": row.callback_reference,
         "mode": row.mode,
-        "status": row.status,
+        "status": "blocked" if row.mode == "live" and row.status in {"tested", "enabled"} else row.status,
+        "stored_status": row.status,
+        "external_delivery_verified": False,
+        "test_kind": "sandbox_contract" if row.mode == "sandbox" else "unavailable",
         "version": row.version,
         "evidence_digest": row.evidence_digest,
         "configured_by": row.configured_by,
@@ -149,13 +152,15 @@ def test_provider(
         raise HTTPException(422, "必须确认测试仅使用脱敏白名单目标")
     if row.mode == "live" and os.getenv("COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED", "false").lower() != "true":
         raise HTTPException(409, "部署环境尚未启用真实 Provider 白名单测试")
+    if row.mode == "live":
+        raise HTTPException(503, "尚未实现真实渠道投递验收适配器；配置摘要或 SIP 回声联调不能代替真实投递证据")
     evidence = {
         "channel": row.channel,
         "provider": row.provider,
         "mode": row.mode,
         "version": row.version,
         "contract": "repayguard-channel-v1",
-        "external_delivery": row.mode == "live",
+        "external_delivery": False,
     }
     row.evidence_digest = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
     row.status = "tested"
@@ -187,6 +192,8 @@ def approve_provider(
         raise HTTPException(409, "渠道测试证据已失效或状态不允许批准")
     if not payload.acknowledged:
         raise HTTPException(422, "必须确认已核验 Provider、白名单、回调与合规规则")
+    if row.mode == "live":
+        raise HTTPException(503, "历史配置摘要不是当前真实投递证据，不允许批准真实渠道")
     if row.tested_by == context.actor_id or row.configured_by == context.actor_id:
         raise HTTPException(409, "配置或测试执行人不能批准同一渠道")
     row.status = "enabled"

@@ -196,3 +196,5 @@ flowchart TB
 新增“标准贷款机催”入口，可在连接业务 API 后配置租户政策、进行案件准入、受控状态机对话、PTP 及账本核验联调。政策未配置默认阻断；时段、日上限、有效期和暂停状态由服务端检查，会话保留政策版本与快照。当前仅为显式沙箱，不发起真实外呼、不调用模型、不改变合同或账务；真实电话/媒体与机构本人核验适配器尚未接入。
 
 范围、进度和依赖见 [MVP 计划](docs/standard-loan-machine-collection-mvp.md)。
+
+Linphone 电话链路联调：[Asterisk + Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md)。已提供隔离回声测试配置、固定分机 ARI 工具和崩溃/超时不重拨日志；尚未实测音频，不代表真实催收或公网手机外呼接通。

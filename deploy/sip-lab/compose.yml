@@ -1,0 +1,17 @@
+services:
+  asterisk:
+    build: .
+    restart: "no"
+    ports:
+      - "${SIP_LAB_BIND_ADDRESS:-127.0.0.1}:5060:5060/udp"
+      - "127.0.0.1:8088:8088/tcp"
+      - "${SIP_LAB_BIND_ADDRESS:-127.0.0.1}:10000-10019:10000-10019/udp"
+    volumes:
+      - ./generated:/run/sip-lab:ro
+      - ./http.conf:/etc/asterisk/http.conf:ro
+      - ./extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ./modules.conf:/etc/asterisk/modules.conf:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
