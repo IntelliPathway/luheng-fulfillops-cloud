@@ -200,3 +200,5 @@ docker compose --env-file deploy/1panel/.env \
 按照 [SIP 联调](integrations/linphone-sip-lab.md) 生成私有配置、启动 Asterisk、注册分机 1001，先拨 1000 听回声，再使用 CLI 固定请求键验证系统侧呼叫。保留独立日志：reserved/unknown 先查同 channel ID 和设备记录，404 不能证明没拨过，禁止删除日志或换键盲目重拨。响铃/Up、双向音频和 AI 对话分别记录验收，不能相互替代。当前环境没有 Docker/Asterisk/Linphone，镜像构建、注册、真实 SIP/RTP 及 AI 音频未执行；仅代码与模拟 HTTP 回归。无新增业务数据库迁移或线上 API 部署。
 
 SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通道；保留原请求记录，挂断或查询 404 不能释放重拨权限。真实音频仍需人工终端验收。
+
+派发门禁检查通过 dispatch-check API 排队，独立 Worker 处理，结果从既有 jobs API 读取。succeeded 表示检查处理成功；需另看 gate_passed/blockers，provider_ready 始终 false。重复同会话版本返回旧任务，不能把结果作为实时授权。无数据库迁移、前端更新或真实外呼启用。

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from .audit import audit
 from .dependencies import Context, Database
 from .domain import utcnow
-from .jobs import enqueue_job
+from .jobs import enqueue_job, job_dict
 from .loan_collection import (
     lock_case,
     net_recovery,
@@ -82,6 +82,10 @@ class PolicyPayload(StrictPayload):
         if self.window_start_minute >= self.window_end_minute:
             raise ValueError("联系时段必须为同日开始早于结束，不支持跨午夜")
         return self
+
+
+class DispatchCheckPayload(StrictPayload):
+    expected_version: int = Field(strict=True, ge=1)
 
 
 class EventPayload(StrictPayload):
@@ -219,3 +223,27 @@ def verify(session_id: str, payload: StrictPayload, context: Context, db: Databa
     acknowledge(payload)
     row = reconcile(db, context.tenant_id, session_id)
     return finish(db, context, "loan.promise.reconciled", row)
+
+
+@router.post("/sessions/{session_id}/dispatch-check", status_code=202)
+def dispatch_check(session_id: str, payload: DispatchCheckPayload, context: Context, db: Database):
+    require_role(context, "admin")
+    acknowledge(payload)
+    lock_policy_scope(db, context.tenant_id)
+    row = db.scalar(select(LoanSession).where(
+        LoanSession.tenant_id == context.tenant_id, LoanSession.id == session_id,
+    ))
+    if not row:
+        raise HTTPException(404, "会话不存在或不属于当前租户")
+    lock_case(db, context.tenant_id, row.case_id)
+    if row.version != payload.expected_version:
+        raise HTTPException(409, "会话版本已变化，请刷新")
+    job, created = enqueue_job(db, context, "loan.dispatch_check",
+                              {"session_id": row.id, "session_version": row.version},
+                              f"loan-dispatch-check-{row.id}-{row.version}", commit=False)
+    if created:
+        audit(db, context, "loan.dispatch_check.queued", "loan_session", row.id,
+              {"mode": "sandbox_dispatch_check", "job_id": job.id, "external_execution": False})
+    db.commit()
+    return {"job": job_dict(job), "created": created, "external_execution": False,
+            "detail": "持久队列执行门禁检查，不拨号、不消费真实渠道配额"}

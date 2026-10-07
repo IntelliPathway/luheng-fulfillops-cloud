@@ -17,3 +17,5 @@
 电话派发前置契约新增不可变请求、按键查询接口与单调回执校验；未知结果禁止盲目重拨。新增 Linphone 内部 SIP 联调方案。此增量尚未连接持久 Worker、API 或媒体，不提供真实电话能力；无需迁移或前端发布。
 
 Linphone SIP 联调增量已提供 Asterisk 部署包及固定分机 ARI 工具，不更新前端、不启用业务电话。未知提交先查同呼叫 ID，不盲目重拨；现有 live 渠道契约摘要不再视为投递证据。联调边界与部署步骤见 [SIP 联调](docs/integrations/linphone-sip-lab.md)。
+
+新增标准贷款 Worker 派发门禁演练及排队 API。排队后状态变化会阻断；检查成功与真实派发分开，Provider 就绪始终 false。无迁移或前端发布。
