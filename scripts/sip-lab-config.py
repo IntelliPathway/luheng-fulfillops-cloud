@@ -37,6 +37,10 @@ allow=ulaw,alaw
 auth=auth-1001
 aors=1001
 direct_media=no
+; Advertise the host IP even when Docker bridge is not in local_net.
+media_address={address}
+bind_rtp_to_media_address=no
+media_encryption=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes

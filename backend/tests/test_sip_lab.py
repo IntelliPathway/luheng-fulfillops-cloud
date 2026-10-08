@@ -264,3 +264,15 @@ def test_startup_copies_private_config_with_only_compose_capabilities(tmp_path):
             assert path.read_text() == 'synthetic private config'
             assert path.stat().st_mode & 0o777 == 0o600
             assert path.stat().st_uid == 65534 and path.stat().st_gid == 65534
+
+
+@pytest.mark.parametrize('address', ['127.0.0.1', '192.168.0.199'])
+def test_generator_explicitly_advertises_host_media_without_binding_container(address, tmp_path):
+    destination = tmp_path / 'generated'
+    generator().generate(destination, address)
+    content = (destination / 'pjsip.conf').read_text()
+    endpoint = content.split('type=endpoint', 1)[1].split('[auth-1001]', 1)[0]
+    assert f'media_address={address}\n' in endpoint
+    assert 'bind_rtp_to_media_address=no' in endpoint
+    assert 'media_encryption=no' in endpoint
+    assert 'allow=ulaw,alaw' in endpoint
