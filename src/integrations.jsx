@@ -4,6 +4,7 @@ import {
  LockKey,PhoneCall,Play,Robot,ShieldCheck,SpinnerGap,WarningCircle,Waveform
 } from '@phosphor-icons/react';
 import {useApp} from './context';
+import {VoiceCombinations} from './voice-combinations';
 import {APP_VERSION} from './brand';
 import {channelProviderApi} from './api';
 import {Button,Field,Modal,PageHead} from './ui';
@@ -213,6 +214,8 @@ export function Integrations(){
   <section className="integration-service-grid" aria-label="接入服务">
    {Object.entries(serviceMeta).map(([type])=><ServiceCard key={type} type={type} config={services[type]} onOpen={()=>setEditing(type)}/>) }
   </section>
+
+  <VoiceCombinations key={a.tenant}/>
 
   <section className="provider-pilot-panel" aria-label="多渠道 Provider 试点">
    <div className="integration-section-head"><div><span className="eyebrow">PROVIDER PILOT</span><h2>多渠道 Provider 认证</h2><p>配置、契约测试和独立批准分离；真实模式只接受 HTTPS 与外部密钥引用。</p></div><ShieldCheck size={26}/></div>

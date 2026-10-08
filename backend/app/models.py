@@ -1198,3 +1198,35 @@ class EvidenceTask(Base):
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     resolution_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class VoiceCombination(Base):
+    __tablename__ = "voice_combinations"
+    __table_args__ = (UniqueConstraint("tenant_id", "id"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("VC"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    selection: Mapped[dict[str, Any]] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    connection: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    enabled_report_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    enabled_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    active_report_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class VoiceBenchmark(Base):
+    __tablename__ = "voice_benchmarks"
+    __table_args__ = (ForeignKeyConstraint(["tenant_id", "combination_id"],
+                                         ["voice_combinations.tenant_id", "voice_combinations.id"]),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("VB"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    combination_id: Mapped[str] = mapped_column(String(40))
+    config_version: Mapped[int] = mapped_column(Integer)
+    comparison_id: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="running")
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)

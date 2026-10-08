@@ -69,7 +69,7 @@ class VoiceSelection:
                 'adapters': {kind: CATALOG[getattr(self, kind)].adapter for kind in ('asr', 'llm', 'tts')}}
 
     @classmethod
-    def from_payload(cls, data):
+    def from_payload(cls, data, *, require_available=True):
         if not isinstance(data, dict) or set(data) != {'schema_version', 'asr', 'llm', 'tts'}:
             raise VoiceError('invalid_voice_config')
         if type(data['schema_version']) is not int or data['schema_version'] != 1:
@@ -80,7 +80,7 @@ class VoiceSelection:
             if not isinstance(row, dict) or 'model' not in row or set(row) - allowed:
                 raise VoiceError('invalid_voice_config')
         return cls(data['asr']['model'], data['llm']['model'], data['tts']['model'],
-                   data['tts'].get('voice', 'Vivian'), data['tts'].get('style', 'default')).validate()
+                   data['tts'].get('voice', 'Vivian'), data['tts'].get('style', 'default')).validate(require_available=require_available)
 
 
 PROFILES = MappingProxyType({

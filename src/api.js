@@ -565,3 +565,14 @@ export const loanCollectionApi = {
   event: (tenant,id,body) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/events`,tenant,{method:'POST',body:JSON.stringify(body)}),
   reconcile: (tenant,id) => request(`/loan-collection/sessions/${encodeURIComponent(id)}/reconcile`,tenant,{method:'POST',body:JSON.stringify({acknowledged:true})}),
 };
+
+export const voiceCombinationApi = {
+ overview: tenant => request('/voice-combinations',tenant),
+ save: (tenant,row) => request(`/voice-combinations${row.id?`/${encodeURIComponent(row.id)}`:''}`,tenant,{method:row.id?'PUT':'POST',body:JSON.stringify({name:row.name,selection:row.selection,expected_version:row.version||0})}),
+ connect: (tenant,row) => request(`/voice-combinations/${encodeURIComponent(row.id)}/connection-test`,tenant,{method:'POST',body:JSON.stringify({expected_version:row.version})}),
+ compare: (tenant,rows,samples=3) => request('/voice-combinations/compare',tenant,{method:'POST',body:JSON.stringify({combinations:Object.fromEntries(rows.map(row=>[row.id,row.version])),samples})}),
+ enable: (tenant,row) => request(`/voice-combinations/${encodeURIComponent(row.id)}/enable`,tenant,{method:'POST',body:JSON.stringify({expected_version:row.version})}),
+ activity: (tenant,id) => request(`/voice-combinations/activities/${encodeURIComponent(id)}`,tenant),
+ bind: (tenant,id,row) => request(`/voice-combinations/activities/${encodeURIComponent(id)}/bind`,tenant,{method:'POST',body:JSON.stringify({combination_id:row.id,expected_version:row.version})}),
+ testActivity: (tenant,id) => request(`/voice-combinations/activities/${encodeURIComponent(id)}/test`,tenant,{method:'POST',body:'{}'}),
+};

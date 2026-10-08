@@ -198,3 +198,5 @@ flowchart TB
 范围、进度和依赖见 [MVP 计划](docs/standard-loan-machine-collection-mvp.md)。
 
 Linphone 电话链路联调：[Asterisk + Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md)。已提供隔离回声测试配置、固定分机 ARI 工具和崩溃/超时不重拨日志；尚未实测音频，不代表真实催收或公网手机外呼接通。
+
+模型组合已接入 **AI 与渠道接入**：管理员选择 ASR / LLM / TTS、检查连接、运行单环节对照并查看实际延迟与权重版本，启用后运营可在 **AI 智能催收工作台** 的活动详情绑定和验证。当前验证范围为内部合成语句；Mac 模型宿主、电话媒体和真实业务验收分别记录。接入步骤见 [Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。

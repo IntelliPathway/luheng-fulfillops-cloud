@@ -309,3 +309,64 @@ Fun-ASR-Nano、SenseVoiceSmall、CosyVoice3 登记为预留适配器，catalog �
 建议固定两项，只替换第三项做同批测试，记录配置摘要、revision 与硬件条件。probe 是合成连通检查，TTS 变化也会改变探针生成的 ASR 输入，不能作为严格的同音频 ASR 排名；中文电话 CER、数字/否定句、手机端到端 P50/P95、打断残留与停止效果仍需分别验证。本轮模型/桥/云探针专项 91 项、独立 DSP/音色参数三项通过；实际新权重及 Mac 听音未在当前环境执行。
 
 本轮完整后端回归 489 项通过、3 项环境依赖跳过；文档/部署/依赖清单五项和 Ruff 通过。新增模型来源核对：[ASR 0.6B MLX](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-8bit)、[TTS 1.7B CustomVoice MLX](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit)、[LLM 4bit MLX](https://huggingface.co/mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit)。这些是可准备/加载的来源，不是本机性能验收结果。
+
+## 在 AI 与渠道接入中管理模型组合
+
+页面现已提供组合预设、ASR/LLM/TTS 单环节选择、音色/风格、宿主连接检查、最多四套组合对照、延迟和 revision 报告。管理员保存 → 检查连接 → 选择组合开始对照 → 查看实际报告 → 启用组合；运营人员打开活动详情，选择已启用组合，点击“应用到活动”，再使用“验证活动语音链路”。
+
+| 状态 | 依据 | 可用范围 |
+|---|---|---|
+| 已保存 | 租户数据库中的版本化配置 | 不代表已加载或可通话 |
+| 宿主可达、权重已准备 | 本机宿主校验当前组合的私有 manifest | 不代表推理成功 |
+| 实际模型链路通过 | 固定内部语句，经 TTS → ASR 精确核对 → LLM → TTS | 合成链路测试，不拨号、不读取案件 |
+| 已启用 | 管理员启用当前版本且 24 小时内报告仍有效 | 活动绑定与合成验证 |
+| 活动快照已失效 | 修改、失败重测、过期、权重不一致或启用管理员权限撤销 | 保留历史快照，阻止继续使用 |
+
+FunASR Nano、SenseVoice Small、CosyVoice 3 可以保存为候选配置，但显示适配器待实现，不能连接测试、对照或启用。不会改用 Qwen 冒充这些模型。
+
+### Mac 一次性接入
+
+先按前文安装原生依赖、生成并加载 SIP 与 local-voice.env；已有文件不重建。模型宿主和用于页面验证的 FastAPI 必须在同一台 Mac 原生运行。本轮没有把 Mac 暴露到公网、接入生产后端或转发任意模型服务地址。仅部署静态页面不会部署 FastAPI 或模型。
+
+在仓库根目录生成独立宿主凭据；已生成过则只加载原文件：
+
+```bash
+python3 scripts/sip-lab-model-host-config.py
+. deploy/sip-lab/generated/lab.env
+. deploy/sip-lab/generated/local-voice.env
+. deploy/sip-lab/generated/model-host.env
+```
+
+新文件仅包含启用开关与随机本机 token，权限 0600，不打印 token，也不修改原 SIP/local-voice 密码。不要上传 generated/。宿主与本机业务 API 使用同一个 model-host.env，token 不进入浏览器、组合 JSON 或诊断报告。
+
+终端 A，使用前文 .venv-local-voice。先准备需要比较的模型，复用已有缓存；不要同时运行独立的 serve 进程。以下准备命令在 backend 目录执行，每项首次准备可能需要较多下载时间和磁盘空间：
+
+```bash
+python -m app.sip_lab_local_voice prepare --profile baseline --acknowledged
+python -m app.sip_lab_local_voice prepare --profile asr-fast --acknowledged
+python -m app.sip_lab_local_voice prepare --profile llm-4bit --acknowledged
+python -m app.sip_lab_local_voice prepare --profile tts-large --acknowledged
+python -m app.sip_lab_model_host --acknowledged
+```
+
+宿主监听 127.0.0.1:8091，托管原生模型子进程的 127.0.0.1:8090。准备权重由管理员显式执行，页面测试不会自动下载。自定义组合可在页面“导出配置”，然后执行 `python -m app.sip_lab_local_voice prepare --config /本机路径/VC-配置.json --acknowledged`；仅本机路径，不填 Provider URL。
+
+终端 B，使用已经安装 backend/requirements.txt 的业务后端环境。先加载相同的 lab.env、local-voice.env、model-host.env，再在 backend 启动现有 FastAPI。保留原数据库/认证配置；仅用于本机开发验证的启动方式：
+
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+此时前端开发页的业务 API 代理指向本机 8000。用管理员账号进入 AI 与渠道接入保存组合。模型切换可能需要加载和预热时间，页面显示测试中；连接错误不会产生固定耗时、模拟通过或自动启用。生产 profile 即使设置宿主 token，也禁止本机模型宿主调用。
+
+### 对照口径和安全切换
+
+每套组合默认执行三次相同的内部语句。报告记录实际 config_digest、三个模型的 revision、每次 ASR/LLM/回复 TTS、源音频 TTS、合成测试首音与全链路耗时，使用 nearest-rank P50/P95。三次样本只是联调数据，不能用于宣称稳定生产分位数。报告采用模型工作线程计时，包含流式处理与队列等待，不是纯 GPU 内核耗时。加载、预热、完整 HTTP 往返、电话 RTP 和端上播放没有纳入该计时；合成首音从源音频生成开始计时，不是客户说完话到听见回复的电话延迟。质量测试仍需另外听音和扩展语料。
+
+宿主只管理自己启动的进程。当前电话/WebSocket 或尚未退出的推理内核占用时拒绝切换；空闲时先将旧服务置为 draining，拒绝新会话，等待旧进程退出后再启动新配置。发现独立启动的原生服务则报 unmanaged_model_service_running，不接管或终止它。对照最后使用的模型可能保留加载状态；1003 听音前核对实际 configuration，不能假设仍是 baseline。
+
+活动验证使用已批准快照的 revision；刷新权重后旧快照测试失败，须重新检查连接、对照并由管理员启用，再重新绑定活动。重复运行期间禁止编辑/再次测试同一组合。网络结果未知或后端重启保留已写入的测试意图，不自动重试推理；未完成报告一小时后显示 unknown，请先核对宿主占用状态。修改配置或失败重测不会自动恢复活动。
+
+数据库新增 038_voice_combinations.sql；生产迁移路径保持显式 migration，本地 SQLite 按现有开发 schema 初始化。配置、报告、审计和活动快照均按租户隔离，不保存原音频/识别文本、客户号码、提示词或凭据。组合启用只授权内部合成验证，原电话、政策、本人核验、支付和业务执行门禁不变。
+
+本轮软件验证：完整后端 516 项通过、3 项环境依赖跳过；模型组合/宿主/配置/迁移专项 58 项通过，前端领域/API 契约 49 项、文档/部署/安全/企业/构建包检查均通过，Ruff 与生产构建通过。浏览器预览人工检查了离线模型目录、组合表单、TTS 风格重置和活动入口。新增三项浏览器回归已提交；当前环境的 Chromium 下载返回无效内容，未执行这些自动回归。PostgreSQL 升级、Mac GPU 实际加载/测量和 1003 电话听音尚未在此环境验收。

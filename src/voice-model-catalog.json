@@ -1,0 +1,134 @@
+{
+  "models": {
+    "qwen-asr-1.7b": {
+      "kind": "asr",
+      "model": "mlx-community/Qwen3-ASR-1.7B-8bit",
+      "adapter": "mlx-qwen-asr",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "qwen-asr-0.6b": {
+      "kind": "asr",
+      "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
+      "adapter": "mlx-qwen-asr",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "qwen-llm-30b-8bit": {
+      "kind": "llm",
+      "model": "mlx-community/Qwen3-30B-A3B-Instruct-2507-8bit",
+      "adapter": "mlx-qwen-llm",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "qwen-llm-30b-4bit": {
+      "kind": "llm",
+      "model": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+      "adapter": "mlx-qwen-llm",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "qwen-tts-0.6b": {
+      "kind": "tts",
+      "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+      "adapter": "mlx-qwen-tts",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "qwen-tts-1.7b": {
+      "kind": "tts",
+      "model": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
+      "adapter": "mlx-qwen-tts",
+      "adapter_implemented": true,
+      "device_verified": false
+    },
+    "fun-asr-nano": {
+      "kind": "asr",
+      "model": "FunAudioLLM/Fun-ASR-Nano-2512",
+      "adapter": "funasr-native",
+      "adapter_implemented": false,
+      "device_verified": false
+    },
+    "sensevoice-small": {
+      "kind": "asr",
+      "model": "FunAudioLLM/SenseVoiceSmall",
+      "adapter": "sensevoice-native",
+      "adapter_implemented": false,
+      "device_verified": false
+    },
+    "cosyvoice3": {
+      "kind": "tts",
+      "model": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+      "adapter": "cosyvoice-native",
+      "adapter_implemented": false,
+      "device_verified": false
+    }
+  },
+  "profiles": {
+    "baseline": {
+      "schema_version": 1,
+      "asr": {
+        "model": "qwen-asr-1.7b"
+      },
+      "llm": {
+        "model": "qwen-llm-30b-8bit"
+      },
+      "tts": {
+        "model": "qwen-tts-0.6b",
+        "voice": "Vivian",
+        "style": "default"
+      }
+    },
+    "asr-fast": {
+      "schema_version": 1,
+      "asr": {
+        "model": "qwen-asr-0.6b"
+      },
+      "llm": {
+        "model": "qwen-llm-30b-8bit"
+      },
+      "tts": {
+        "model": "qwen-tts-0.6b",
+        "voice": "Vivian",
+        "style": "default"
+      }
+    },
+    "llm-4bit": {
+      "schema_version": 1,
+      "asr": {
+        "model": "qwen-asr-1.7b"
+      },
+      "llm": {
+        "model": "qwen-llm-30b-4bit"
+      },
+      "tts": {
+        "model": "qwen-tts-0.6b",
+        "voice": "Vivian",
+        "style": "default"
+      }
+    },
+    "tts-large": {
+      "schema_version": 1,
+      "asr": {
+        "model": "qwen-asr-1.7b"
+      },
+      "llm": {
+        "model": "qwen-llm-30b-8bit"
+      },
+      "tts": {
+        "model": "qwen-tts-1.7b",
+        "voice": "Vivian",
+        "style": "default"
+      }
+    }
+  },
+  "voices": [
+    "Vivian",
+    "Ryan"
+  ],
+  "styles": [
+    "default",
+    "calm"
+  ],
+  "business_ready": false
+}

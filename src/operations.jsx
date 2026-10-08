@@ -5,6 +5,7 @@ import {
   Sparkle,WarningCircle,Wrench
 } from '@phosphor-icons/react';
 import {useApp} from './context';
+import {ActivityVoiceCombination} from './voice-combinations';
 import {StrategyExperiments} from './strategy-experiments';
 import {TenantGovernance} from './tenant-governance';
 import {useRemoteResource} from './remote-resource';
@@ -66,6 +67,7 @@ export function AgentScreen(){
   return <>
     <div className="agent-heading"><span className="agent-icon"><Robot size={34}/></span><div><span className="eyebrow">{runId}</span><h1>{activity.name} Agent</h1><p>{a.agentGateway.provider} 自主运行 · 目标、工具、观察结果、会话恢复与重规划均可追溯。</p></div><div className="head-actions"><Button onClick={()=>a.setDialog({type:'policy',package:activity.package})}>编辑策略</Button>{!['blocked','completed'].includes(activity.status)&&<Button icon={paused?Play:Pause} onClick={()=>a.setActivityStatus([activity.id],paused?'running':'paused')}>{paused?'恢复模拟':'暂停模拟'}</Button>}</div></div>
     <div className="agent-meta"><span>{activity.package} · {pkg.title}</span><span>策略 v{activity.version}.0</span><span>{activity.mode==='channel'?'授权渠道':'纯模拟'}</span><Badge status={activity.status}/><select aria-label="切换 Agent 活动" value={activity.id} onChange={event=>{a.navigate(`agents/${event.target.value}`);setTab('运行概览');setSelectedCase('')}}>{a.visibleActivities.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+    <ActivityVoiceCombination key={`${a.tenant}:${activity.id}`} activity={activity}/>
     <Tabs value={tab} onChange={setTab} items={['运行概览','工具轨迹','策略与版本','用量']}/>
     {tab==='运行概览'&&<div className="agent-layout"><section className="agent-primary">
       <div className="section-title"><h2>计划与执行</h2><span className="muted small"><Clock size={14}/>下一检查 2026.09.13 10:00</span></div>

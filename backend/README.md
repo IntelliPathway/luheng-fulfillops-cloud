@@ -162,3 +162,9 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 `python -m app.sip_lab status|call|inspect|hangup` 使用私有随机环境配置连接本机 ARI，仅允许 development/test；call 需 request-key 和 acknowledged，只呼叫测试分机 1001。独立意图日志避免同键重拨，不改业务表，无新增迁移。详细部署、退出码及当前未执行的音频验收见 [Linphone SIP 联调](../docs/integrations/linphone-sip-lab.md)。现有渠道 live 测试与批准缺少投递证据时失败关闭，sandbox 契约继续可用。
 
 迁移 037 增加固定 SIP 测试派发表；新增 loan.sip_echo Worker。默认关闭，仅显式绑定测试租户、开发环境及固定本机 ARI 后可用。sip-echo/reconcile/stop API 的持久结果不证明真实客户机催。
+
+### 模型组合管理
+
+`/api/v1/voice-combinations` 提供租户目录、版本化配置、连接检查、对照与启用；`/activities/{activity_id}/bind` 和 `/test` 提供运营活动绑定与固定内部语句验证。迁移 `038_voice_combinations.sql` 持久化配置与报告，活动保存冻结快照。管理员负责配置、对照和启用；运营不能修改模型或将案件文本交给宿主。配置改变、报告过期、失败重测、revision 不符和启用管理员失权均失效。
+
+可选 `python -m app.sip_lab_model_host --acknowledged` 仅在 Mac 原生语音环境运行，管理已缓存模型子进程，不下载、不拨号。业务 API 的 `SIP_LAB_MODEL_HOST_ENABLED=true` 和私有 `SIP_LAB_MODEL_HOST_TOKEN` 只适用于同机 development/test，固定连接 127.0.0.1:8091，不接受浏览器 URL/凭据，生产 profile 禁止此路径。准备与接入见 [实验室指南](../docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。

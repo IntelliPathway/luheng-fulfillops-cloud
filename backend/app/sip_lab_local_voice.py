@@ -263,6 +263,32 @@ def create_app(engine, token):
         raise VoiceError('invalid_local_voice_token')
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     gate = threading.Lock()
+    draining = threading.Event()
+
+    from fastapi import HTTPException, Request
+
+    def authorize(request):
+        supplied = request.headers.get('authorization', '')
+        if request.headers.get('origin') or not hmac.compare_digest(
+                supplied.encode(), ('Bearer ' + token).encode()):
+            raise HTTPException(status_code=403, detail='local_service_auth_required')
+
+    @app.get('/lab/status')
+    def local_status(request: Request):
+        authorize(request)
+        return {'warmed': engine.warmed, 'busy': gate.locked(), 'draining': draining.is_set(),
+                'configuration': getattr(engine, 'configuration', None), 'business_ready': False}
+
+    @app.post('/lab/drain')
+    def drain(request: Request):
+        authorize(request)
+        if not gate.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail='local_voice_busy')
+        try:
+            draining.set()
+            return {'draining': True, 'business_ready': False}
+        finally:
+            gate.release()
 
     @app.websocket('/lab/voice')
     async def voice(ws: WebSocket):
@@ -270,7 +296,11 @@ def create_app(engine, token):
         if not hmac.compare_digest(supplied.encode(), ('Bearer ' + token).encode()) or ws.headers.get('origin'):
             await ws.close(code=1008)
             return
-        if not engine.warmed or not gate.acquire(blocking=False):
+        if draining.is_set() or not engine.warmed or not gate.acquire(blocking=False):
+            await ws.close(code=1013)
+            return
+        if draining.is_set():
+            gate.release()
             await ws.close(code=1013)
             return
         worker = None
@@ -462,7 +492,7 @@ def main():
         return 2
 
 
-def probe_local(token, selection=None):
+def probe_summary(token, selection=None):
     from .sip_lab_voice import HOST_URL, LocalVoiceClient
     selection = (selection or VoiceSelection()).validate()
     rows = load_manifest(model_directory(), selection)
@@ -483,12 +513,16 @@ def probe_local(token, selection=None):
             time.sleep(0.01)
         if voice.completed != 1 or count == 0 or voice.failed:
             raise VoiceError('local_voice_probe_incomplete')
-        print(json.dumps({'mode': 'local_synthetic_probe', 'service_chain_completed': True,
+        return {'mode': 'local_synthetic_probe', 'service_chain_completed': True,
                           'asr_phrase_matched': True, 'tts_samples': count,
-                          **voice.summary(), 'phone_audio_verified': False, 'business_ready': False}))
-        return 0
+                          **voice.summary(), 'phone_audio_verified': False, 'business_ready': False}
     finally:
         voice.close()
+
+
+def probe_local(token, selection=None):
+    print(json.dumps(probe_summary(token, selection)))
+    return 0
 
 
 if __name__ == '__main__':

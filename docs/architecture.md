@@ -142,3 +142,9 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 下载阶段记录固定模型的具体 revision；原生运行仅加载本地数据目录，拒绝远程自定义代码并离线预热。最多四组问答、八轮/60 秒，断开清理内存；日志仅摘要。内部本地对话不连接业务状态机、身份核验、租户授权、LoanSession 或账务，因此 phone/AI/business 验收状态保持分层。初版无 AEC/连续 partial ASR，设备和模型运行待验收。
 
 本地模型拆为 ASRAdapter.transcribe、LLMAdapter.reply、TTSAdapter.synthesize 三项契约，由只读别名目录映射到内置加载器。profile/JSON/单环节 CLI 覆盖生成规范化配置摘要，保留固定 PCM、取消及输出预算；配置不能导入代码或覆盖网络地址。不同配置独立保存 revision manifest、共享未变模型的快照，运行中不热切换。完成事件返回实际配置/revision 和分阶段耗时，probe 与准备记录比较后才报告合成通过。Fun-ASR/SenseVoice/CosyVoice 为尚未实现的适配器入口，选择时失败，不用 MLX Qwen 接口伪装接通。
+
+### 本机模型组合与活动快照
+
+VoiceCombination / VoiceBenchmark 是租户内配置和测试证据，不是电话 Provider 授权。管理员配置与启用使用租户锁和 expected_version；测试意图先提交再访问固定本机宿主，完成时重新核对角色/版本/请求占用。Activity.service_snapshot 冻结配置摘要、revision 和批准报告，运营探针复核当前审批者、有效期及相同 revision。失败和未知结果不自动推理重试，音频与转写不落业务数据库。
+
+原生 Mac ModelHost 仅加载受审别名的已缓存 manifest，通过本机 token 管理自己的 MLX 子进程；native draining 与 WebSocket 会话共用门禁，旧进程退出前不启动新配置。生产后端默认禁止 loopback 模型路径。配置或合成探针成功不授予真实案件、电话媒体、金融事实或机构身份能力。
