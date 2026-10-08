@@ -168,3 +168,6 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 `/api/v1/voice-combinations` 提供租户目录、版本化配置、连接检查、对照与启用；`/activities/{activity_id}/bind` 和 `/test` 提供运营活动绑定与固定内部语句验证。迁移 `038_voice_combinations.sql` 持久化配置与报告，活动保存冻结快照。管理员负责配置、对照和启用；运营不能修改模型或将案件文本交给宿主。配置改变、报告过期、失败重测、revision 不符和启用管理员失权均失效。
 
 可选 `python -m app.sip_lab_model_host --acknowledged` 仅在 Mac 原生语音环境运行，管理已缓存模型子进程，不下载、不拨号。业务 API 的 `SIP_LAB_MODEL_HOST_ENABLED=true` 和私有 `SIP_LAB_MODEL_HOST_TOKEN` 只适用于同机 development/test，固定连接 127.0.0.1:8091，不接受浏览器 URL/凭据，生产 profile 禁止此路径。准备与接入见 [实验室指南](../docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。
+
+
+`GET /api/v1/voice-combinations/host-status` 新增管理员只读诊断：固定同机宿主、短超时、响应限长与白名单状态，I/O 后重新核对权限；不修改组合/报告、不挂断或加载模型。Mac 原生环境先运行 `python -m app.sip_lab_model_host doctor --profile baseline`；只检查配置、已安装依赖元数据和缓存 manifest，退出 0/2，不输出私有凭据。生产禁止访问实验室宿主。

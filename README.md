@@ -200,3 +200,6 @@ flowchart TB
 Linphone 电话链路联调：[Asterisk + Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md)。已提供隔离回声测试配置、固定分机 ARI 工具和崩溃/超时不重拨日志；尚未实测音频，不代表真实催收或公网手机外呼接通。
 
 模型组合已接入 **AI 与渠道接入**：管理员选择 ASR / LLM / TTS、检查连接、运行单环节对照并查看实际延迟与权重版本，启用后运营可在 **AI 智能催收工作台** 的活动详情绑定和验证。当前验证范围为内部合成语句；Mac 模型宿主、电话媒体和真实业务验收分别记录。接入步骤见 [Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。
+
+
+本地模型联调新增管理员只读宿主状态、检查时间和 Mac 启动前 `doctor`。沿用现有页面布局与刷新入口；诊断不加载模型或中断电话。详见 [SIP/模型接入指南](docs/integrations/linphone-sip-lab.md#宿主当前状态与-mac-启动前检查2026-10-08)。

@@ -15,6 +15,7 @@ from .domain import utcnow
 from .loan_policy import lock_policy_scope
 from .models import Activity, TenantMembership, User, VoiceBenchmark, VoiceCombination, new_id
 from .security import require_role
+from .sip_lab_model_host import HOST_STATES, status_report
 from .sip_lab_voice import TOKEN, VoiceError
 from .sip_lab_voice_config import VoiceSelection, catalog_report, validate_service_configuration
 
@@ -77,6 +78,39 @@ def host_request(action, selection, samples=3, expected_configuration=None):
         if len(response.content) > 32000:
             raise VoiceError('invalid_model_host_report')
         return response.json()
+
+
+def host_status():
+    if os.getenv('APP_ENV', 'development') not in {'development', 'test'} or os.getenv(
+            'SIP_LAB_MODEL_HOST_ENABLED') != 'true':
+        return {'state': 'disabled'}
+    token = os.getenv('SIP_LAB_MODEL_HOST_TOKEN', '')
+    if not TOKEN.fullmatch(token):
+        return {'state': 'credentials_missing'}
+    try:
+        with httpx.Client(timeout=2, trust_env=False, follow_redirects=False) as client:
+            with client.stream('GET', 'http://127.0.0.1:8091/lab/status',
+                               headers={'Authorization': 'Bearer ' + token}) as response:
+                if response.status_code != 200:
+                    return {'state': 'auth_failed' if response.status_code == 403 else 'unreachable'}
+                body = bytearray()
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    if len(body) + len(chunk) > 4096:
+                        return {'state': 'invalid_response'}
+                    body.extend(chunk)
+        import json
+        data = json.loads(body)
+        if not isinstance(data, dict) or not isinstance(data.get('state'), str) or data['state'] not in HOST_STATES:
+            return {'state': 'invalid_response'}
+        expected = status_report(data['state'])
+        if set(data) != set(expected) or any(type(data[key]) is not type(value) or data[key] != value
+                                             for key, value in expected.items()):
+            return {'state': 'invalid_response'}
+        return {'state': data['state']}
+    except httpx.TransportError:
+        return {'state': 'unreachable'}
+    except (ValueError, TypeError):
+        return {'state': 'invalid_response'}
 
 
 def row_for(db, tenant, identifier):
@@ -197,6 +231,17 @@ def overview(context: Context, db: Database):
                              .order_by(VoiceBenchmark.created_at.desc()).limit(40)))
     return {'tenant_id': context.tenant_id, 'catalog': catalog_report(), 'combinations': [view(db, r) for r in rows],
             'reports': [report_view(db, r) for r in reports], **BOUNDARY}
+
+
+@router.get('/host-status')
+def model_host_status(context: Context, db: Database):
+    require_role(context, 'admin')
+    current_actor(db, context, {'admin'})
+    state = host_status()
+    # A slow host response cannot revive a revoked administrator or stale UI evidence.
+    db.rollback()
+    current_actor(db, context, {'admin'})
+    return {'tenant_id': context.tenant_id, 'checked_at': utcnow(), **state, **BOUNDARY}
 
 
 def save(db, context, payload, identifier=None):

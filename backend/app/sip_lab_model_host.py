@@ -1,6 +1,7 @@
 """Loopback-only controller for cached Mac models; never downloads or dials."""
 import argparse
 import hmac
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -16,10 +17,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .sip_lab_local_voice import load_manifest, mac_only, model_directory, probe_summary
 from .sip_lab_voice import TOKEN, VoiceError, local_token
-from .sip_lab_voice_config import VoiceSelection, service_configuration
+from .sip_lab_voice_config import PROFILES, VoiceSelection, service_configuration, validate_service_configuration
 
 NATIVE = 'http://127.0.0.1:8090'
 HOST = 'http://127.0.0.1:8091'
+HOST_STATES = {'idle', 'ready', 'host_busy', 'phone_or_model_busy', 'loading', 'draining',
+               'unmanaged', 'native_unreachable', 'native_auth_failed', 'invalid_response'}
+
+
+def status_report(state):
+    return {'state': state, 'source': 'local_model_host', 'business_ready': False,
+            'phone_audio_verified': False, 'pstn_enabled': False}
 
 
 class SelectionRequest(BaseModel):
@@ -47,6 +55,39 @@ class ModelHost:
         manifest = load_manifest(model_directory(), selection)
         return {'prepared': True, 'configuration': service_configuration(selection, manifest),
                 'busy': self.gate.locked(), 'business_ready': False}
+
+    def status(self):
+        # Only inspect. Do not acquire the inference gate, drain, load or replace a process.
+        managed = self.child is not None and self.child.poll() is None
+        try:
+            response = self.native('GET', '/lab/status')
+        except httpx.TransportError:
+            return status_report('loading' if managed else 'host_busy' if self.gate.locked() else 'idle')
+        if not managed:
+            return status_report('host_busy' if self.gate.locked() else 'unmanaged')
+        if response.status_code != 200:
+            return status_report('native_auth_failed' if response.status_code == 403 else 'native_unreachable')
+        try:
+            if len(response.content) > 16000:
+                raise ValueError('oversized')
+            data = response.json()
+            if not isinstance(data, dict) or any(type(data.get(key)) is not bool
+                                                 for key in ('busy', 'warmed', 'draining')):
+                raise ValueError('invalid flags')
+            validate_service_configuration(data.get('configuration'))
+        except (ValueError, VoiceError, TypeError):
+            return status_report('invalid_response')
+        if data['draining']:
+            state = 'draining'
+        elif data['busy']:
+            state = 'phone_or_model_busy'
+        elif self.gate.locked():
+            state = 'host_busy'
+        elif not data['warmed'] or data['configuration'] != self.configuration:
+            state = 'loading'
+        else:
+            state = 'ready'
+        return status_report(state)
 
     def activate(self, selection):
         expected = self.check(selection)['configuration']
@@ -172,13 +213,53 @@ def create_app(manager, token):
     def probe(request: Request, payload: SelectionRequest):
         return execute(request, payload, 'probe')
 
+    @app.get('/lab/status')
+    def status(request: Request):
+        authorize(request)
+        try:
+            return manager.status()
+        except Exception:
+            raise HTTPException(status_code=503, detail='model_host_unavailable') from None
+
     return app
+
+
+def doctor(profile='baseline'):
+    """Read cached manifests and installed metadata only; no inference or downloads."""
+    from .sip_lab import LabConfig
+    checks = {}
+    def check(name, operation):
+        try:
+            operation()
+            checks[name] = 'passed'
+        except Exception:
+            checks[name] = 'not_ready'
+    check('apple_silicon', mac_only)
+    checks['python_312'] = 'passed' if sys.version_info[:2] == (3, 12) else 'not_ready'
+    check('sip_lab_environment', LabConfig.from_environment)
+    checks['local_voice_enabled'] = 'passed' if os.getenv('ENABLE_SIP_LAB_LOCAL_VOICE') == 'true' else 'not_ready'
+    check('native_token', local_token)
+    checks['host_credentials'] = 'passed' if os.getenv('SIP_LAB_MODEL_HOST_ENABLED') == 'true' and TOKEN.fullmatch(
+        os.getenv('SIP_LAB_MODEL_HOST_TOKEN', '')) else 'not_ready'
+    for package in ('mlx-audio', 'mlx-lm'):
+        check(package, lambda package=package: importlib.metadata.version(package))
+    check('cached_model_manifest', lambda: load_manifest(model_directory(), PROFILES[profile]))
+    return {'profile': profile, 'checks': checks, 'ready_to_start': all(value == 'passed' for value in checks.values()),
+            'business_ready': False, 'phone_audio_verified': False, 'pstn_enabled': False}
 
 
 def main():
     parser = argparse.ArgumentParser(description='Mac 模型组合宿主（仅本机、已缓存模型）')
     parser.add_argument('--acknowledged', action='store_true')
+    parser.add_argument('action', nargs='?', choices=('serve', 'doctor'), default='serve')
+    parser.add_argument('--profile', choices=tuple(PROFILES))
     args = parser.parse_args()
+    if args.action == 'doctor':
+        result = doctor(args.profile or 'baseline')
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result['ready_to_start'] else 2
+    if args.profile is not None:
+        parser.error('--profile 仅用于 doctor；运行时组合由管理员选择')
     if not args.acknowledged:
         raise VoiceError('local_voice_acknowledgement_required')
     mac_only()
@@ -199,4 +280,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

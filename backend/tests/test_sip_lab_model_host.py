@@ -143,3 +143,85 @@ def test_changed_pinned_manifest_is_rejected_before_old_process_stops(monkeypatc
         manager.probe(VoiceSelection(), 1, {kind: 'c' * 40 for kind in ('asr', 'llm', 'tts')})
     assert not manager.gate.locked()
     manager.close()
+
+
+@pytest.mark.parametrize(('busy', 'warmed', 'draining', 'state'), [
+    (False, True, False, 'ready'), (True, True, False, 'phone_or_model_busy'),
+    (False, False, False, 'loading'), (False, True, True, 'draining'),
+])
+def test_readonly_status_never_interrupts_owned_process(busy, warmed, draining, state):
+    manager = ModelHost(TOKEN)
+    manager.child = SimpleNamespace(poll=lambda: None, terminate=lambda: pytest.fail('status must not stop a process'))
+    manager.configuration = configuration(VoiceSelection())
+    calls = []
+    def native(method, path):
+        calls.append((method, path))
+        return httpx.Response(200, json={'busy': busy, 'warmed': warmed, 'draining': draining,
+                                       'configuration': manager.configuration, 'business_ready': False})
+    manager.native = native
+    with TestClient(create_app(manager, 'c' * 64)) as client:
+        assert client.get('/lab/status').status_code == 403
+        assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + 'c' * 64,
+                                                 'Origin': 'http://localhost'}).status_code == 403
+        result = client.get('/lab/status', headers={'Authorization': 'Bearer ' + 'c' * 64})
+        assert result.json()['state'] == state and result.json()['business_ready'] is False
+        assert result.json()['phone_audio_verified'] is False and TOKEN not in result.text
+    assert calls == [('GET', '/lab/status')]
+    manager.child = None
+    manager.close()
+
+
+def test_status_distinguishes_unmanaged_idle_loading_and_inference_gate():
+    manager = ModelHost(TOKEN)
+    manager.native = lambda *args: httpx.Response(403, text=TOKEN)
+    assert manager.status()['state'] == 'unmanaged'
+    def unavailable(*args):
+        raise httpx.ConnectError(TOKEN)
+    manager.native = unavailable
+    assert manager.status()['state'] == 'idle'
+    manager.gate.acquire()
+    assert manager.status()['state'] == 'host_busy' and manager.gate.locked()
+    manager.gate.release()
+    manager.child = SimpleNamespace(poll=lambda: None)
+    assert manager.status()['state'] == 'loading'
+    manager.child = None
+    manager.close()
+
+
+@pytest.mark.parametrize('change', [lambda data: data.update(busy='false'),
+                                    lambda data: data.update(configuration={'secret': TOKEN}),
+                                    lambda data: data.update(warmed=1)])
+def test_status_rejects_invalid_native_evidence(change):
+    manager = ModelHost(TOKEN)
+    manager.child = SimpleNamespace(poll=lambda: None)
+    data = {'busy': False, 'warmed': True, 'draining': False, 'configuration': configuration(VoiceSelection())}
+    change(data)
+    manager.native = lambda *args: httpx.Response(200, json=data)
+    assert manager.status()['state'] == 'invalid_response'
+    manager.child = None
+    manager.close()
+
+
+def test_doctor_uses_only_installed_metadata_and_cached_manifest(monkeypatch):
+    import app.sip_lab_model_host as module
+    monkeypatch.setattr(module, 'mac_only', lambda: None)
+    monkeypatch.setattr(module.sys, 'version_info', (3, 12))
+    monkeypatch.setattr('app.sip_lab.LabConfig.from_environment', lambda: None)
+    monkeypatch.setattr(module, 'local_token', lambda: TOKEN)
+    monkeypatch.setenv('ENABLE_SIP_LAB_LOCAL_VOICE', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_ENABLED', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_TOKEN', 'c' * 64)
+    calls = []
+    monkeypatch.setattr(module.importlib.metadata, 'version', lambda package: calls.append(package) or 'installed')
+    monkeypatch.setattr(module, 'load_manifest', lambda root, selection: calls.append(selection) or {})
+    monkeypatch.setattr(module.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('doctor must not load models'))
+    monkeypatch.setattr(module.httpx, 'Client', lambda **kwargs: pytest.fail('doctor must not use network'))
+    result = module.doctor('asr-fast')
+    assert result['ready_to_start'] and not result['phone_audio_verified']
+    assert calls == ['mlx-audio', 'mlx-lm', PROFILES['asr-fast']]
+    def missing(*args):
+        raise RuntimeError('secret directory ' + TOKEN)
+    monkeypatch.setattr(module, 'load_manifest', missing)
+    result = module.doctor()
+    assert not result['ready_to_start'] and result['checks']['cached_model_manifest'] == 'not_ready'
+    assert TOKEN not in str(result) and 'secret directory' not in str(result)

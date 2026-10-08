@@ -1,4 +1,5 @@
 import copy
+import time
 from datetime import timedelta
 
 import pytest
@@ -317,3 +318,129 @@ def test_unknown_expired_probe_is_visible_and_does_not_authorize_activity(client
     # A new explicit admin probe can recover; it never replays the old request automatically.
     assert benchmark(client,row).json()['reports'][0]['status']=='passed'
     assert enable(client,row)['enabled']
+
+
+def test_admin_status_disabled_and_production_never_contact_host(client, monkeypatch):
+    import httpx
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: pytest.fail('disabled status must not access network'))
+    monkeypatch.delenv('SIP_LAB_MODEL_HOST_ENABLED', raising=False)
+    for role in ('operator', 'viewer'):
+        assert client.get('/api/v1/voice-combinations/host-status', headers=headers(role=role)).status_code == 403
+    result = client.get('/api/v1/voice-combinations/host-status', headers=headers()).json()
+    assert result['state'] == 'disabled' and result['tenant_id'] == 'TENANT_A'
+    assert not result['business_ready'] and not result['phone_audio_verified']
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_ENABLED', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_TOKEN', 'a' * 64)
+    monkeypatch.setenv('APP_ENV', 'production')
+    from app.voice_combination_routes import host_status
+    assert host_status() == {'state': 'disabled'}
+
+
+@pytest.mark.parametrize('payload', [
+    {'state': 'ready'}, {'state': 'ready', 'source': 'local_model_host', 'business_ready': True,
+                       'phone_audio_verified': False, 'pstn_enabled': False},
+    {'state': 'ready', 'source': 'local_model_host', 'business_ready': 0,
+     'phone_audio_verified': False, 'pstn_enabled': False},
+    {'state': 'private token aaaaaa'}, {'state': []}, ['ready'],
+])
+def test_host_status_rejects_untrusted_claims(client, monkeypatch, payload):
+    import httpx
+
+    from app import voice_combination_routes as module
+    original = httpx.Client
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_ENABLED', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_TOKEN', 'a' * 64)
+    def client_factory(**kwargs):
+        assert kwargs == {'timeout': 2, 'trust_env': False, 'follow_redirects': False}
+        return original(**kwargs, transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)))
+    monkeypatch.setattr(module.httpx, 'Client', client_factory)
+    result = client.get('/api/v1/voice-combinations/host-status', headers=headers())
+    assert result.json()['state'] == 'invalid_response' and 'private token' not in result.text
+
+
+def test_business_host_native_readonly_authenticated_chain(client, monkeypatch):
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app import voice_combination_routes as module
+    from app.sip_lab_local_voice import create_app as native_app
+    from app.sip_lab_model_host import ModelHost
+    from app.sip_lab_model_host import create_app as host_app
+    original = httpx.Client
+    native_token, host_token = 'a' * 64, 'c' * 64
+    manager = ModelHost(native_token)
+    manager.configuration = configuration(VoiceSelection())
+    manager.child = SimpleNamespace(poll=lambda: None, terminate=lambda: pytest.fail('diagnostics cannot stop phone'))
+    engine = SimpleNamespace(warmed=True, configuration=manager.configuration)
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_ENABLED', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_TOKEN', host_token)
+    with TestClient(native_app(engine, native_token)) as native, TestClient(host_app(manager, host_token)) as host:
+        calls = []
+        def native_request(method, path):
+            assert (method, path) == ('GET', '/lab/status')
+            calls.append('native')
+            return native.request(method, path, headers={'Authorization': 'Bearer ' + native_token})
+        manager.native = native_request
+        def transport(request):
+            assert request.method == 'GET' and str(request.url) == 'http://127.0.0.1:8091/lab/status'
+            assert request.headers['Authorization'] == 'Bearer ' + host_token
+            calls.append('host')
+            response = host.get('/lab/status', headers={'Authorization': request.headers['Authorization']})
+            return httpx.Response(response.status_code, content=response.content)
+        monkeypatch.setattr(module.httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(transport)))
+        with native.websocket_connect('/lab/voice', headers={'Authorization': 'Bearer ' + native_token}):
+            result = client.get('/api/v1/voice-combinations/host-status', headers=headers()).json()
+            assert result['state'] == 'phone_or_model_busy'
+        until = time.monotonic() + 3
+        while True:
+            result = client.get('/api/v1/voice-combinations/host-status', headers=headers()).json()
+            if result['state'] != 'phone_or_model_busy' or time.monotonic() >= until:
+                break
+            time.sleep(0.01)
+        assert result['state'] == 'ready' and not result['phone_audio_verified']
+        assert calls == ['host', 'native'] * (len(calls) // 2)
+        assert native_token not in str(result) and host_token not in str(result)
+    manager.child = None
+    manager.close()
+
+
+@pytest.mark.parametrize(('kind', 'state'), [('auth', 'auth_failed'), ('redirect', 'unreachable'),
+                                            ('timeout', 'unreachable'), ('oversized', 'invalid_response')])
+def test_host_status_network_failures_are_bounded_and_redacted(client, monkeypatch, kind, state):
+    import httpx
+
+    from app import voice_combination_routes as module
+    original = httpx.Client
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_ENABLED', 'true')
+    monkeypatch.setenv('SIP_LAB_MODEL_HOST_TOKEN', 'c' * 64)
+    def transport(request):
+        if kind == 'timeout':
+            raise httpx.ReadTimeout('secret ' + 'c' * 64)
+        if kind == 'oversized':
+            return httpx.Response(200, content=b'x' * 4097)
+        return httpx.Response(403 if kind == 'auth' else 302, headers={'Location': 'https://outside'},
+                              json={'secret': 'c' * 64})
+    monkeypatch.setattr(module.httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(transport)))
+    result = client.get('/api/v1/voice-combinations/host-status', headers=headers())
+    assert result.status_code == 200 and result.json()['state'] == state
+    assert 'c' * 64 not in result.text and 'secret' not in result.text
+
+
+def test_status_rechecks_revoked_admin_without_changing_saved_reports(client, monkeypatch):
+    row = create(client)
+    def status():
+        with client.app.state.Session() as db:
+            member = db.scalar(select(TenantMembership).where(TenantMembership.tenant_id == 'TENANT_A',
+                               TenantMembership.user_id == 'test-user'))
+            member.role = 'viewer'
+            db.commit()
+        return {'state': 'ready'}
+    monkeypatch.setattr('app.voice_combination_routes.host_status', status)
+    assert client.get('/api/v1/voice-combinations/host-status', headers=headers()).status_code == 403
+    with client.app.state.Session() as db:
+        saved = db.get(VoiceCombination, row['id'])
+        assert saved.version == 1 and saved.connection == {} and saved.active_report_id is None
+        assert db.scalar(select(VoiceBenchmark)) is None

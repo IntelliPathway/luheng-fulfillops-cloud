@@ -485,12 +485,15 @@ test('binds model choices and activity probes to tenant versions without case fa
  const calls=[],original=globalThis.fetch;
  globalThis.fetch=async(url,options={})=>{calls.push({url,options});return {ok:true,json:async()=>({})}};
  const row={id:'VC-AAAAAAAAAAAA',name:'内部对照',version:2,selection:{schema_version:1,asr:{model:'qwen-asr-0.6b'},llm:{model:'qwen-llm-30b-8bit'},tts:{model:'qwen-tts-0.6b',voice:'Vivian',style:'default'}},credential:'must-not-send',url:'https://must-not-send'};
- try{await voiceCombinationApi.overview('TENANT_A');await voiceCombinationApi.save('TENANT_A',row);await voiceCombinationApi.connect('TENANT_A',row);await voiceCombinationApi.compare('TENANT_A',[row]);await voiceCombinationApi.enable('TENANT_A',row);await voiceCombinationApi.activity('TENANT_A','ACT-001');await voiceCombinationApi.bind('TENANT_A','ACT-001',row);await voiceCombinationApi.testActivity('TENANT_A','ACT-001')}finally{globalThis.fetch=original}
+ try{await voiceCombinationApi.overview('TENANT_A');await voiceCombinationApi.save('TENANT_A',row);await voiceCombinationApi.connect('TENANT_A',row);await voiceCombinationApi.compare('TENANT_A',[row]);await voiceCombinationApi.enable('TENANT_A',row);await voiceCombinationApi.activity('TENANT_A','ACT-001');await voiceCombinationApi.bind('TENANT_A','ACT-001',row);await voiceCombinationApi.testActivity('TENANT_A','ACT-001');await voiceCombinationApi.hostStatus('TENANT_A')}finally{globalThis.fetch=original}
  assert.ok(calls.every(call=>call.options.headers['X-Tenant-ID']==='TENANT_A'));
  assert.deepEqual(JSON.parse(calls[1].options.body),{name:row.name,selection:row.selection,expected_version:2});
  assert.deepEqual(JSON.parse(calls[3].options.body),{combinations:{[row.id]:2},samples:3});
  assert.deepEqual(JSON.parse(calls[6].options.body),{combination_id:row.id,expected_version:2});
  assert.equal(calls[7].url,'/api/v1/voice-combinations/activities/ACT-001/test');
  assert.equal(calls[7].options.body,'{}');
+ assert.equal(calls[8].url,'/api/v1/voice-combinations/host-status');
+ assert.equal(calls[8].options.method,undefined);
+ assert.equal(calls[8].options.body,undefined);
  assert.ok(calls.every(call=>!call.options.body||!call.options.body.includes('must-not-send')));
 });

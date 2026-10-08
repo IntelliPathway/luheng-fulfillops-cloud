@@ -12,6 +12,7 @@ const errors={local_model_host_disabled:'本地模型宿主尚未启用，请由
 const explain=code=>errors[code]||'模型链路未通过验证，请检查连接与当前配置。';
 function exportSelection(row){const url=URL.createObjectURL(new Blob([JSON.stringify(row.selection,null,2)+'\n'],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`${row.id}-v${row.version}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 const label=alias=>({'fun-asr-nano':'FunASR Nano','sensevoice-small':'SenseVoice Small','cosyvoice3':'CosyVoice 3'}[alias]||alias.replace('qwen-','Qwen ').replace('llm-30b-','3 30B-A3B ').replace('asr-','3 ASR ').replace('tts-','3 TTS ').replace(/(\d+(?:\.\d+)?)b\b/g,'$1B'));
+const hostStates={disabled:'本地模型宿主未启用，请按接入指南配置同机业务 API。',credentials_missing:'缺少有效的模型宿主凭据，请加载私有 model-host.env。',unreachable:'业务 API 无法连接本机模型宿主，请检查 8091 服务。',auth_failed:'模型宿主凭据不匹配，请核对两端加载的私有配置。',idle:'模型宿主已连接，尚未加载模型；对照测试时加载所选组合。',ready:'模型宿主已连接，模型已预热；电话音频仍需单独验收。',host_busy:'模型宿主正在执行测试或切换，请等待完成。',phone_or_model_busy:'模型正在被电话或语音会话占用，请结束后再切换。',loading:'模型正在加载或预热，请稍后刷新状态。',draining:'模型正在结束旧会话，请稍后刷新状态。',unmanaged:'检测到独立模型进程，宿主不会接管；请先结束该服务。',native_unreachable:'模型宿主已连接，但原生语音服务无法响应。',native_auth_failed:'原生语音服务凭据不匹配，请核对 local-voice.env。',invalid_response:'宿主返回了无效诊断，当前状态无法确认。'};
 const ms=value=>typeof value==='number'?`${value.toLocaleString('zh-CN')} ms`:'—';
 const time=value=>value?new Date(`${value}${/[Z+]|\d-\d\d:\d\d$/.test(value)?'':'Z'}`).toLocaleString('zh-CN',{hour12:false}):'—';
 
@@ -35,7 +36,7 @@ function CombinationForm({row,catalog,onClose,onSave,busy,error,online}){
  const [selection,setSelection]=useState(row?.selection||catalog.profiles.baseline);
  const [preset,setPreset]=useState(row?'custom':'baseline');
  const setStage=(stage,value)=>{setPreset('custom');setSelection(old=>({...old,[stage]:{...old[stage],model:value,...(stage==='tts'&&value!=='qwen-tts-1.7b'?{style:'default'}:{})}}))};
- return <Modal title={row?'编辑模型组合':'新增模型组合'} subtitle="保存后需完成连接检查、真实链路测试，再启用到活动。" onClose={busy?()=>{}:onClose} footer={<><Button disabled={!!busy} onClick={onClose}>取消</Button><Button variant="primary" disabled={!online||!!busy||!name.trim()} onClick={()=>onSave({id:row?.id,version:row?.version||0,name:name.trim(),selection})}>{busy?'保存中…':'保存组合'}</Button></>}>
+ return <Modal title={row?'编辑模型组合':'新增模型组合'} subtitle="保存后需完成连接检查、内部合成链路测试，再启用到活动。" onClose={busy?()=>{}:onClose} footer={<><Button disabled={!!busy} onClick={onClose}>取消</Button><Button variant="primary" disabled={!online||!!busy||!name.trim()} onClick={()=>onSave({id:row?.id,version:row?.version||0,name:name.trim(),selection})}>{busy?'保存中…':'保存组合'}</Button></>}>
   <Field label="组合名称"><input value={name} maxLength={80} onChange={event=>setName(event.target.value)}/></Field>
   <Field label="模型预设" hint="对照预设只替换一个环节，方便比较质量与延迟。"><select value={preset} onChange={event=>{const value=event.target.value;setPreset(value);if(value!=='custom'){setSelection(catalog.profiles[value]);if(!row)setName(profiles[value])}}}>{Object.entries(profiles).map(([id,title])=><option key={id} value={id}>{title}</option>)}<option value="custom">自定义组合</option></select></Field>
   {['asr','llm','tts'].map(stage=><Field key={stage} label={`${stage.toUpperCase()} 模型`}><select value={selection[stage].model} onChange={event=>setStage(stage,event.target.value)}>{Object.entries(catalog.models).filter(([,model])=>model.kind===stage).map(([alias,model])=><option key={alias} value={alias}>{label(alias)}{model.adapter_implemented?'':' · 适配器待实现'}</option>)}</select></Field>)}
@@ -48,9 +49,11 @@ function CombinationForm({row,catalog,onClose,onSave,busy,error,online}){
 
 export function VoiceCombinations(){
  const a=useApp(),online=a.backendStatus==='connected',admin=a.identity.role==='admin';
- const scope=`${a.tenant}:${a.backendStatus}`;
+ const scope=`${a.tenant}:${a.backendStatus}:${a.identity.role}`;
  const resource=useRemoteResource(online,scope,()=>voiceCombinationApi.overview(a.tenant));
- const action=useAction(scope,resource.refresh);
+ const host=useRemoteResource(online&&admin,scope,()=>voiceCombinationApi.hostStatus(a.tenant));
+ const refresh=()=>{resource.refresh();host.refresh()};
+ const action=useAction(scope,refresh);
  const [editing,setEditing]=useState(null),[chosen,setChosen]=useState({scope,ids:[]}),[comparison,setComparison]=useState('all');
  useEffect(()=>{setEditing(null);setChosen({scope,ids:[]});setComparison('all')},[scope]);
  const data=resource.data?.tenant_id===a.tenant?resource.data:null;
@@ -63,9 +66,10 @@ export function VoiceCombinations(){
  const shown=reports.filter(report=>comparison==='all'||report.comparison_id===comparison).slice(0,12);
  const save=row=>action.run('save',async current=>{await voiceCombinationApi.save(a.tenant,row);if(current())setEditing(null)});
  return <section className="voice-combinations governance-panel" aria-label="语音模型组合">
-  <div className="integration-section-head"><div><span className="eyebrow">ASR · LLM · TTS</span><h2>语音模型组合</h2><p>管理员配置与验证，运营人员在活动中选择已启用组合。</p></div><div className="voice-actions"><Button disabled={resource.busy||!!action.busy||!online} onClick={resource.refresh}>刷新状态</Button><Button icon={Plus} variant="primary" disabled={!!action.busy||online&&!admin} onClick={()=>setEditing({row:null,scope})}>新增组合</Button></div></div>
+  <div className="integration-section-head"><div><span className="eyebrow">ASR · LLM · TTS</span><h2>语音模型组合</h2><p>管理员配置与验证，运营人员在活动中选择已启用组合。</p></div><div className="voice-actions"><Button disabled={resource.busy||host.busy||!!action.busy||!online} onClick={refresh}>刷新状态</Button><Button icon={Plus} variant="primary" disabled={!!action.busy||online&&!admin} onClick={()=>setEditing({row:null,scope})}>新增组合</Button></div></div>
   {!online&&<div className="notice">{a.backendStatus==='offline'?'当前为页面演示；模型目录可浏览，连接业务 API 后才能保存、测试和启用。':'业务 API 尚未可用；模型配置和测试操作已暂停。'}<Button onClick={()=>a.navigate('pilot')}>查看接入诊断</Button></div>}
   {online&&!admin&&<p className="notice">当前成员可查看测试报告，在活动页使用管理员已启用的组合。配置、对照测试和启用由管理员完成。</p>}
+  {online&&admin&&<p role="status" className="notice">{host.busy?'正在检查模型宿主…':host.error?'宿主诊断未完成，请刷新状态；配置与历史报告可继续查看。':host.data?.tenant_id===a.tenant?hostStates[host.data.state]||'当前宿主状态无法确认。':'尚无当前宿主诊断。'}{!host.busy&&!host.error&&host.data?.tenant_id===a.tenant&&<small> · 检查于 {time(host.data.checked_at)}</small>}</p>}
   {(resource.error||action.error)&&<p role="alert" className="form-error">{action.error||resource.error}</p>}
   {resource.busy&&<p role="status">正在读取模型组合与报告…</p>}
   <div className="voice-preset-strip">{Object.entries(profiles).map(([id,title])=><div key={id}><b>{title}</b><small>{['asr','llm','tts'].map(stage=>label(catalog.profiles[id][stage].model)).join(' / ')}</small></div>)}</div>

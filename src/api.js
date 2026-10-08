@@ -567,6 +567,7 @@ export const loanCollectionApi = {
 };
 
 export const voiceCombinationApi = {
+ hostStatus: tenant => request('/voice-combinations/host-status',tenant),
  overview: tenant => request('/voice-combinations',tenant),
  save: (tenant,row) => request(`/voice-combinations${row.id?`/${encodeURIComponent(row.id)}`:''}`,tenant,{method:row.id?'PUT':'POST',body:JSON.stringify({name:row.name,selection:row.selection,expected_version:row.version||0})}),
  connect: (tenant,row) => request(`/voice-combinations/${encodeURIComponent(row.id)}/connection-test`,tenant,{method:'POST',body:JSON.stringify({expected_version:row.version})}),

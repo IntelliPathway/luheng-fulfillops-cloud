@@ -346,6 +346,7 @@ python -m app.sip_lab_local_voice prepare --profile baseline --acknowledged
 python -m app.sip_lab_local_voice prepare --profile asr-fast --acknowledged
 python -m app.sip_lab_local_voice prepare --profile llm-4bit --acknowledged
 python -m app.sip_lab_local_voice prepare --profile tts-large --acknowledged
+python -m app.sip_lab_model_host doctor --profile baseline
 python -m app.sip_lab_model_host --acknowledged
 ```
 
@@ -370,3 +371,34 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 数据库新增 038_voice_combinations.sql；生产迁移路径保持显式 migration，本地 SQLite 按现有开发 schema 初始化。配置、报告、审计和活动快照均按租户隔离，不保存原音频/识别文本、客户号码、提示词或凭据。组合启用只授权内部合成验证，原电话、政策、本人核验、支付和业务执行门禁不变。
 
 本轮软件验证：完整后端 516 项通过、3 项环境依赖跳过；模型组合/宿主/配置/迁移专项 58 项通过，前端领域/API 契约 49 项、文档/部署/安全/企业/构建包检查均通过，Ruff 与生产构建通过。浏览器预览人工检查了离线模型目录、组合表单、TTS 风格重置和活动入口。新增三项浏览器回归已提交；当前环境的 Chromium 下载返回无效内容，未执行这些自动回归。PostgreSQL 升级、Mac GPU 实际加载/测量和 1003 电话听音尚未在此环境验收。
+
+
+### 宿主当前状态与 Mac 启动前检查（2026-10-08）
+
+保持现有导航、表格和表单布局。在“AI 与渠道接入 → 语音模型组合”中，管理员打开页面或点击原有“刷新状态”时，会读取当前宿主诊断和检查时间；历史连接检查、启用状态和测试报告独立保留。诊断失败不会清空组合与历史报告；切换租户、身份角色或后端状态时清除旧诊断，忽略迟到响应。运营成员不请求宿主状态接口。
+
+`GET /api/v1/voice-combinations/host-status` 仅限当前有效管理员；读取前后均重新检查成员权限。服务端只连接固定 `127.0.0.1:8091/lab/status`，禁用代理与重定向，使用 2 秒网络超时和 4 KB 响应上限；生产环境不会访问该地址。私有 token、模型文件路径、原生服务响应原文均不返回页面。状态是一次检查的快照，请用刷新获取新状态。
+
+| 当前状态 | 含义与下一步 |
+|---|---|
+| disabled / credentials_missing | 业务 API 未启用同机宿主或缺少有效凭据；加载私有 model-host.env |
+| unreachable / auth_failed | 宿主 8091 未响应或两端 token 不一致；检查进程及环境配置 |
+| idle | 宿主可达，尚未启动模型；准备权重后从页面执行对照测试 |
+| loading / ready | 宿主管理的原生进程加载中，或实际配置一致且已预热；ready 仅指当前模型进程 |
+| host_busy / phone_or_model_busy / draining | 对照、切换或电话/模型会话占用；等待完成后刷新，诊断不挂断或切换 |
+| unmanaged | 8090 有独立运行的服务；宿主不接管，不终止它 |
+| native_unreachable / native_auth_failed / invalid_response | 原生服务不可达、凭据错误或诊断证据无效；不视为就绪 |
+
+在 Mac 专用 Python 3.12 环境、加载前述三个私有 env 后运行：
+
+```bash
+cd backend
+python -m app.sip_lab_model_host doctor --profile baseline
+# 也可检查 asr-fast、llm-4bit、tts-large；默认 baseline
+```
+
+命令只检查 Apple Silicon、Python 版本、SIP/语音/宿主环境、已安装 MLX 依赖元数据和所选组合缓存 manifest。输出逐项 passed/not_ready，不包含密钥、目录或异常原文；全部通过退出 0，否则退出 2。`ready_to_start` 只表示启动前检查通过，不代表模型已加载、推理正确或电话有声音。命令无需 acknowledged，不发网络请求、不加载权重、不下载、不创建或结束模型进程。原有 `python -m app.sip_lab_model_host --acknowledged` 启动方式保持兼容；运行组合由管理员在页面选择。
+
+本轮还用合成原生服务夹具验证了三层接口的真实本机 HTTP/WebSocket 往返、独立 token 鉴权和会话占用/释放。该测试没有运行 MLX 推理、ASR/LLM/TTS 或电话。已部署网页仍需要接入独立业务 API；网页发布不升级你的 Mac/后端，1002 媒体、1003 AI 电话和 M3 Ultra 实际模型听音仍待设备验收。
+
+本轮验证：完整后端 538 项通过、3 项环境依赖跳过；宿主/模型组合专项 49 项覆盖鉴权、真实内部 HTTP 接口协议、通话占用、权限撤销、超时/重定向/超长响应和脱敏。前端领域/API 49 项及文档、部署、安全、企业、构建包检查通过；Ruff 与生产构建通过。真实本机 HTTP/WebSocket 三层验证使用合成语音服务，不包含 GPU 或 ASR/LLM/TTS 推理。浏览器使用明确离线演示验证现有布局与模型表单；受预览后端网络隔离限制，在线宿主提示未做浏览器端验收。
