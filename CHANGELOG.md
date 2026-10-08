@@ -490,3 +490,5 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 ### Docker Desktop LAN 媒体地址修复（2026-10-08）
 
 设备 SDP 回执发现 200 OK 宣告容器私有地址而非主机 LAN 地址，手机无法按该地址回传 RTP。生成器在固定 1001 endpoint 显式设置 media_address 为已验证主机地址，并保持 bind_rtp_to_media_address=no（主机地址不属于容器网卡）、media_encryption=no。现有 generated 不自动覆盖，需只更新 endpoint 媒体设置、保留密码，并重建容器加载配置。加密呼叫 RTP/SAVP 被拒绝时先关闭 Linphone 媒体加密；明文成功的 RTP/AVP SDP 应使用电脑 LAN 地址。采集 SIP 日志不要共享 a=crypto 行或认证头；只取 c=、m=、rtpmap、状态码与 RTP 收发。实验室回归 29 通过、1 个能力测试因 UID 映射跳过；真实回声待设备复测。
+
+- 新增只读 SIP doctor、脱敏日志摘要，status/doctor 不创建呼叫日志；专项 60 通过、1 项跳过，Ruff 通过。

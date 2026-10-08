@@ -172,21 +172,29 @@ class SIPLab:
 
 def main():
     parser = argparse.ArgumentParser(description="Linphone 1001 ↔ Asterisk 本机 SIP 回声联调")
-    parser.add_argument("action", choices=["status", "call", "inspect", "hangup"])
+    parser.add_argument("action", choices=["status", "doctor", "call", "inspect", "hangup"])
     parser.add_argument("--request-key")
     parser.add_argument("--journal", default="sip-lab-calls.db")
     parser.add_argument("--acknowledged", action="store_true")
+    parser.add_argument("--config-dir", default=str(Path(__file__).resolve().parents[2] / "deploy/sip-lab/generated"))
     args = parser.parse_args()
     lab = None
     journal = None
     try:
         config = LabConfig.from_environment()
-        if args.action != "status" and not args.request_key:
+        if args.action not in {"status", "doctor"} and not args.request_key:
             raise SIPLabError("call/inspect/hangup 必须提供稳定 request-key")
-        journal = CallJournal(args.journal)
+        if args.action not in {"status", "doctor"}:
+            journal = CallJournal(args.journal)
         lab = SIPLab(config, journal)
         if args.action == "status":
             result = lab.endpoint_status()
+        elif args.action == "doctor":
+            from .sip_lab_diagnostics import configuration_checks
+            result = {**lab.endpoint_status(), **configuration_checks(args.config_dir)}
+            result["ready_for_echo_attempt"] = bool(result["configuration_ready"]
+                                                   and result["gateway_reachable"]
+                                                   and result["endpoint_state"] == "online")
         elif args.action == "call":
             result = lab.call(args.request_key, acknowledged=args.acknowledged)
         elif args.action == "hangup":
@@ -194,6 +202,8 @@ def main():
         else:
             result = lab.inspect(args.request_key)
         print(json.dumps(result, ensure_ascii=False))
+        if args.action == "doctor":
+            return 0 if result["ready_for_echo_attempt"] else 2
         if args.action == "status":
             return 0 if result["gateway_reachable"] and result["endpoint_state"] == "online" else 2
         if args.action == "call":

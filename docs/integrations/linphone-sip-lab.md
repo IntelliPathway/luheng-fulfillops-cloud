@@ -99,3 +99,11 @@ hangup 仅允许查询日志中本实例已有请求对应的 channel ID；204 �
 ### Docker Desktop LAN 媒体地址修复（2026-10-08）
 
 设备 SDP 回执发现 200 OK 宣告容器私有地址而非主机 LAN 地址，手机无法按该地址回传 RTP。生成器在固定 1001 endpoint 显式设置 media_address 为已验证主机地址，并保持 bind_rtp_to_media_address=no（主机地址不属于容器网卡）、media_encryption=no。现有 generated 不自动覆盖，需只更新 endpoint 媒体设置、保留密码，并重建容器加载配置。加密呼叫 RTP/SAVP 被拒绝时先关闭 Linphone 媒体加密；明文成功的 RTP/AVP SDP 应使用电脑 LAN 地址。采集 SIP 日志不要共享 a=crypto 行或认证头；只取 c=、m=、rtpmap、状态码与 RTP 收发。实验室回归 29 通过、1 个能力测试因 UID 映射跳过；真实回声待设备复测。
+
+## 内部音频阶段与诊断
+
+操作者报告主动拨打回声分机和系统呼入固定分机均可听到回声。这是人工观察，不修改 CLI/API 的 audio_verified=false，不是完整 AI 或生产验收。
+
+从 backend 已加载实验室环境执行 `python -m app.sip_lab doctor`，仅查询固定分机并读取本地配置。输出布尔检查，不输出地址或凭据；本地配置通过不证明运行配置已加载。status/doctor 不创建呼叫日志。
+
+`python -m app.sip_lab_diagnostics` 从标准输入提取 RTP 收发、音频协商及 SIP 状态计数，不输出认证信息、媒体密钥、地址或通道标识。超过 1 MiB 拒绝处理，多呼叫不做单呼叫关联，计数不证明音频验收。专项 60 项通过，1 个能力测试跳过，Ruff 通过。
