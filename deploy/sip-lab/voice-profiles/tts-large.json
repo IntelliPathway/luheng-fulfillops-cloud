@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "asr": {"model": "qwen-asr-1.7b"},
+  "llm": {"model": "qwen-llm-30b-8bit"},
+  "tts": {"model": "qwen-tts-1.7b", "voice": "Vivian", "style": "default"}
+}

@@ -10,3 +10,4 @@
 !backend/app/sip_lab_bridge.py
 !backend/app/sip_lab_voice.py
 !backend/app/sip_lab_voice_session.py
+!backend/app/sip_lab_voice_config.py

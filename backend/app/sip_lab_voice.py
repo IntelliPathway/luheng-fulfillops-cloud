@@ -10,6 +10,7 @@ import uuid
 from collections import deque
 from struct import unpack
 
+# Backward-compatible baseline identifiers; actual service identity comes from completion metadata.
 MODELS = {
     'asr': 'mlx-community/Qwen3-ASR-1.7B-8bit',
     'llm': 'mlx-community/Qwen3-30B-A3B-Instruct-2507-8bit',
@@ -106,10 +107,20 @@ class Utterance:
 
 class LocalVoiceClient:
     """One WS, one remote job, latest turn only. Reader never blocks the RTP scheduler."""
-    def __init__(self, token, *, url=CONTAINER_URL, connect=None, clock=time.monotonic):
+    def __init__(self, token, *, url=CONTAINER_URL, connect=None, clock=time.monotonic,
+                 expected_config_digest=None, expected_revisions=None):
         if not TOKEN.fullmatch(token) or url not in {CONTAINER_URL, HOST_URL}:
             raise VoiceError('invalid_local_voice_destination')
         self.token, self.url, self.connect, self.clock = token, url, connect, clock
+        if expected_config_digest is not None and not TOKEN.fullmatch(expected_config_digest):
+            raise VoiceError('invalid_expected_configuration')
+        self.expected_config_digest = expected_config_digest
+        if expected_revisions is not None and (not isinstance(expected_revisions, dict) or set(
+                expected_revisions) != {'asr', 'llm', 'tts'} or any(not isinstance(value, str) or not re.fullmatch(
+                    r'[a-f0-9]{40}', value) for value in expected_revisions.values())):
+            raise VoiceError('invalid_expected_revisions')
+        self.expected_revisions = dict(expected_revisions) if expected_revisions else None
+        self.configuration = self.error_code = None
         self.lock = threading.Lock()
         self.audio = deque()
         self.pending = None
@@ -171,7 +182,8 @@ class LocalVoiceClient:
         with self.lock:
             return {'local_turns_submitted': self.submitted, 'local_turns_completed': self.completed,
                     'interruptions': self.interruptions, 'local_voice_failed': self.failed,
-                    'turn_metrics': list(self.metrics)}
+                    'turn_metrics': list(self.metrics), 'configuration': self.configuration,
+                    'local_voice_error': self.error_code}
 
     def _run(self):
         from websockets.sync.client import connect as default_connect
@@ -228,6 +240,20 @@ class LocalVoiceClient:
                         binary = event
                     elif kind in {'complete', 'cancelled', 'error'}:
                         with self.lock:
+                            if kind == 'complete':
+                                configuration = event.get('configuration')
+                                if configuration is not None:
+                                    from .sip_lab_voice_config import validate_service_configuration
+                                    validate_service_configuration(configuration)
+                                    if self.configuration and self.configuration != configuration:
+                                        raise VoiceError('local_voice_configuration_changed')
+                                    self.configuration = configuration
+                                if self.expected_config_digest is not None and (
+                                        configuration is None or configuration['config_digest'] != self.expected_config_digest):
+                                    raise VoiceError('local_voice_configuration_mismatch')
+                                if self.expected_revisions is not None and (
+                                        configuration is None or configuration['revisions'] != self.expected_revisions):
+                                    raise VoiceError('local_voice_revision_mismatch')
                             if kind == 'error':
                                 self.failed = True
                             elif kind == 'complete' and remote[0] == self.epoch:
@@ -236,8 +262,15 @@ class LocalVoiceClient:
                                     raise VoiceError('invalid_voice_completion')
                                 self.completed += 1
                                 self.ended = event['end']
-                                self.metrics.append({'elapsed_ms': bounded_ms(event.get('elapsed_ms')),
-                                                     'first_audio_ms': bounded_ms(event.get('first_audio_ms'))})
+                                metrics = {'elapsed_ms': bounded_ms(event.get('elapsed_ms')),
+                                           'first_audio_ms': bounded_ms(event.get('first_audio_ms'))}
+                                stages = event.get('stage_ms')
+                                if stages is not None:
+                                    if not isinstance(stages, dict) or set(stages) != {
+                                            'source_tts', 'asr', 'llm', 'reply_tts'}:
+                                        raise VoiceError('invalid_voice_timing')
+                                    metrics['stage_ms'] = {key: bounded_ms(value) for key, value in stages.items()}
+                                self.metrics.append(metrics)
                             # Generation completion is not playback completion.
                             self.active = self.pending is not None
                         remote = None
@@ -245,10 +278,13 @@ class LocalVoiceClient:
                         raise VoiceError('unexpected_voice_event')
                     if self.failed:
                         break
-        except Exception:
+        except Exception as exc:
             with self.lock:
                 self.failed = True
                 self.audio.clear()
+                self.error_code = str(exc) if isinstance(exc, VoiceError) and str(exc) in {
+                    'local_voice_configuration_changed', 'local_voice_configuration_mismatch',
+                    'local_voice_revision_mismatch', 'invalid_service_configuration'} else 'local_voice_service_failed'
 
 
 def bounded_ms(value):

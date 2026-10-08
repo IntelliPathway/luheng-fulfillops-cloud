@@ -210,9 +210,9 @@ python -m app.sip_lab_local_voice prepare --acknowledged
 python -m app.sip_lab_local_voice serve --acknowledged
 ```
 
-凭据生成只新增 0600 的 local-voice.env，已有文件拒绝覆盖，不改 SIP 密码与原日志。只有首次需要执行生成命令。模型准备会下载较大权重，需要本机网络及磁盘空间；会获取三个固定模型的具体 Git revision，下载到默认 ~/.cache/repayguard-voice/{asr,llm,tts}/{revision}，全部完成后原子写 manifest.json。可通过本机 SIP_LAB_MODELS_DIRECTORY 改缓存根目录，不接受模型或服务地址覆盖。模型权重、缓存与真实凭据不提交仓库。
+凭据生成只新增 0600 的 local-voice.env，已有文件拒绝覆盖，不改 SIP 密码与原日志。只有首次需要执行生成命令。模型准备会下载较大权重，需要本机网络及磁盘空间；默认使用表中的三项模型，获取具体 Git revision 后保存到 ~/.cache/repayguard-voice，全部完成后原子写当前配置的私有 manifest。可通过本机 SIP_LAB_MODELS_DIRECTORY 改缓存根目录，模型选择仅允许下节注册的别名，不接受任意仓库或服务地址。模型权重、缓存与真实凭据不提交仓库。
 
-依赖固定到本轮核对的 mlx-audio/mlx-lm 源码提交，使用专用虚拟环境，勿混入业务后端环境。serve 只加载 manifest 中固定模型及 revision 目录，强制 HF 离线模式，不在通话中下载权重；拒绝自定义 auto_map 及 Python 模型代码。启动预热三项模型后输出 local_voice_ready，表示加载及预热完成，不等于电话/业务验收。local_voice_unavailable 附带固定 stage/error，第三方异常原文不输出。
+依赖固定到本轮核对的 mlx-audio/mlx-lm 源码提交，使用专用虚拟环境，勿混入业务后端环境。serve 只加载当前配置 manifest 中的模型及 revision 目录，强制 HF 离线模式，不在通话中下载权重；拒绝自定义 auto_map 及 Python 模型代码。启动预热三项模型后输出 local_voice_ready 及实际配置/revision，表示加载及预热完成，不等于电话/业务验收。local_voice_unavailable 附带固定 stage/error，第三方异常原文不输出。
 
 服务仅监听 127.0.0.1:8090/lab/voice，要求独立 Bearer token，禁止浏览器 Origin，不接受跨域网页或任意 HTTP 模型请求。Docker Desktop 使用 host.docker.internal 访问主机服务；该路由仍需在操作者 Mac 验证，不应改为公网或无认证服务来绕过连接失败。模型服务保持终端 A 前台运行。
 
@@ -252,4 +252,60 @@ probe 的固定 TTS 短句→ASR 精确匹配→LLM→TTS 完成后，返回 ser
 
 软件验证：完整后端回归 460 项通过、3 项环境依赖跳过；随后补充断连后不可抢占推理仍持有门禁的用例，最终桥/云探针/本地语音专项 63 项通过。独立原生 DSP 两项、文档/部署/依赖清单五项通过，Ruff 与 Compose YAML 检查通过。DSP 专项在安装可选原生依赖后可从 backend 执行 `python -m unittest discover -s tests_local_voice -v`，不要求加载模型。
 
-官方/维护者依据：[MLX LM](https://github.com/ml-explore/mlx-lm)、[MLX Audio](https://github.com/Blaizzy/mlx-audio)、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR)、[非思考 LLM 模型](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507)、[Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)。量化模型来源固定为表中的 mlx-community 模型，具体 revision 在本机准备时记录；本轮没有下载或发布真实模型权重。
+官方/维护者依据：[MLX LM](https://github.com/ml-explore/mlx-lm)、[MLX Audio](https://github.com/Blaizzy/mlx-audio)、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR)、[非思考 LLM 模型](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507)、[Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)。量化模型来源限制为注册表中的 mlx-community 模型，具体 revision 在本机准备时记录；本轮没有下载或发布真实模型权重。
+
+### 快速更换模型配置
+
+完成前述环境初始化后，下列命令均在 backend 目录运行。catalog 列出已实现及预留的适配器，inspect 显示配置摘要、准备状态与已准备 revision；两者不调用模型、不要求实验室凭据，也不表示 GPU 验收通过。
+
+```bash
+python -m app.sip_lab_local_voice catalog
+python -m app.sip_lab_local_voice inspect --profile asr-fast
+```
+
+| profile | 与 baseline 的差异 | 对照目的 |
+|---|---|---|
+| baseline | ASR 1.7B / LLM 30B-A3B 8bit / TTS 0.6B | 原始链路 |
+| asr-fast | 仅 ASR 改为 Qwen3-ASR-0.6B-8bit | 比较识别与延迟；名称不代表已测更快 |
+| llm-4bit | 仅 LLM 改为同一 Instruct-2507 的 4bit 版本 | 比较量化后 JSON 成功率、耗时及内存 |
+| tts-large | 仅 TTS 改为 Qwen3-TTS-1.7B-CustomVoice-8bit | 比较数字发音、可懂度及生成耗时 |
+
+这些同系列 MLX 适配器已经实现；新权重的实际 Mac 加载与听音仍待验证。先停止 media、结束当前通话，再 Ctrl+C 停止旧原生服务，保持旧内核完全退出；模型不在通话中热切换。终端 A 改一个环境变量，重复相同的准备/启动命令：
+
+```bash
+export SIP_LAB_VOICE_PROFILE=asr-fast
+python -m app.sip_lab_local_voice prepare --acknowledged
+python -m app.sip_lab_local_voice serve --acknowledged
+```
+
+终端 B 加载前文虚拟环境及实验室凭据后，明确验证同一方案：
+
+```bash
+python -m app.sip_lab_local_voice probe --profile asr-fast --acknowledged
+```
+
+probe 通过后按前文启动 voice 模式 media，等待并拨 1003。升级本轮代码时需要重建媒体镜像一次；后续仅切换已支持的模型无需修改/重建 SIP 配置或镜像。恢复 baseline 使用同样命令把 profile 改为 baseline，不重置媒体 journal。
+
+也支持只覆盖一个环节，例如 prepare、serve、probe 均加 `--profile baseline --asr qwen-asr-0.6b`。别名由 catalog 列出；`--voice Vivian|Ryan` 选择预置音色，`--style calm` 只允许配合 `--tts qwen-tts-1.7b`，默认 style 不添加指令。0.6B 不宣称指令语气控制；不接受任意提示、克隆音频、Provider URL 或 Python 模块名。
+
+保存自定义组合时可修改 [baseline JSON](../../deploy/sip-lab/voice-profiles/baseline.json)，仅使用已注册别名。另有 [ASR 对照](../../deploy/sip-lab/voice-profiles/asr-fast.json)、[TTS 对照](../../deploy/sip-lab/voice-profiles/tts-large.json)、[LLM 对照](../../deploy/sip-lab/voice-profiles/llm-4bit.json)。例如：
+
+```bash
+unset SIP_LAB_VOICE_PROFILE
+export SIP_LAB_VOICE_CONFIG="$PWD/../deploy/sip-lab/voice-profiles/tts-large.json"
+python -m app.sip_lab_local_voice inspect
+python -m app.sip_lab_local_voice prepare --acknowledged
+python -m app.sip_lab_local_voice serve --acknowledged
+```
+
+终端 B probe 使用同一环境配置或 `--config ../deploy/sip-lab/voice-profiles/tts-large.json`。显式 --config/--profile 优先于环境，单环节 CLI 参数最后覆盖；没有显式选择且两个环境变量同时存在则报 ambiguous_voice_configuration。配置不含密码，不替换 local-voice.env。
+
+每个规范化配置有独立 config_digest 和 manifest-{digest}.json。权重按环节/模型摘要/revision 分目录；兼容旧 baseline 的 manifest.json。重复 prepare 校验并复用已准备 revision，改变一个环节时复用其他环节的已有快照。只有 prepare 显式加 --refresh-revisions 才重新查询全部模型的当前 revision；三项完成后原子替换 manifest，失败保留原已准备配置。多个配置可并存，首次切换到新权重需下载与重新加载/预热。
+
+完成事件、probe 与 media_session_summary 返回实际加载的 configuration，含配置摘要、模型/适配器、音色/风格与三项 revision，不含缓存路径、原文或音频。probe 对照本机已准备配置和 revision；错方案、旧服务或旧权重失败，不把请求参数当作实测结果。每轮 turn_metrics 增加 source_tts/asr/llm/reply_tts 的 stage_ms；这些耗时包括阶段等待，不是纯 GPU 内核耗时，也不含完整手机端点与播放延迟。
+
+Fun-ASR-Nano、SenseVoiceSmall、CosyVoice3 登记为预留适配器，catalog 的 adapter_implemented=false；选择时在下载/加载前报 adapter_not_implemented，不套用 Qwen generate 接口、不回退其他模型。后续实现遵守 ASRAdapter.transcribe、LLMAdapter.reply、TTSAdapter.synthesize 的固定 PCM/取消契约，注册经审查的内置加载器后再验收原生运行时与权重；配置不能注入代码。
+
+建议固定两项，只替换第三项做同批测试，记录配置摘要、revision 与硬件条件。probe 是合成连通检查，TTS 变化也会改变探针生成的 ASR 输入，不能作为严格的同音频 ASR 排名；中文电话 CER、数字/否定句、手机端到端 P50/P95、打断残留与停止效果仍需分别验证。本轮模型/桥/云探针专项 91 项、独立 DSP/音色参数三项通过；实际新权重及 Mac 听音未在当前环境执行。
+
+本轮完整后端回归 489 项通过、3 项环境依赖跳过；文档/部署/依赖清单五项和 Ruff 通过。新增模型来源核对：[ASR 0.6B MLX](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-8bit)、[TTS 1.7B CustomVoice MLX](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit)、[LLM 4bit MLX](https://huggingface.co/mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit)。这些是可准备/加载的来源，不是本机性能验收结果。

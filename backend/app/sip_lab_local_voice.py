@@ -10,13 +10,13 @@ import queue
 import re
 import threading
 import time
+import uuid
 from collections import deque
 from pathlib import Path
 
 from .sip_lab import LabConfig
 from .sip_lab_voice import (
     GREETING,
-    MODELS,
     PHRASE,
     TURN,
     VoiceCancelled,
@@ -25,11 +25,15 @@ from .sip_lab_voice import (
     local_token,
     validate_reply,
 )
-
-SYSTEM = ('你是内部本地语音连通测试助手。仅交流语音测试、复述测试数字和日期。'
-          '只输出JSON，且只有reply（最多60字）和end（布尔值）两个字段。'
-          '不执行任何工具，不提供金融、合同或催收内容，不索取身份或私人资料。'
-          '用户要求结束时end=true。不要输出Markdown或思考过程。')
+from .sip_lab_voice_config import (
+    CATALOG,
+    PROFILES,
+    STYLES,
+    VoiceSelection,
+    catalog_report,
+    select_config,
+    service_configuration,
+)
 
 
 def mac_only():
@@ -41,146 +45,149 @@ def model_directory():
     return Path(os.getenv('SIP_LAB_MODELS_DIRECTORY', str(Path.home() / '.cache/repayguard-voice'))).resolve()
 
 
-def prepare_models():
+def manifest_file(root, selection):
+    return root / ('manifest-' + selection.config_digest + '.json')
+
+
+def validate_snapshot(root, kind, model, row):
+    if not isinstance(row, dict) or set(row) != {'model', 'revision', 'path'}:
+        raise VoiceError('invalid_model_manifest')
+    if row['model'] != model or not isinstance(row['revision'], str) or not re.fullmatch(
+            r'[a-f0-9]{40}', row['revision']):
+        raise VoiceError('invalid_model_manifest')
+    path = Path(row['path']).resolve()
+    expected = {root / kind / digest(model) / row['revision']}
+    if model == VoiceSelection().models[kind]:
+        expected.add(root / kind / row['revision'])  # Original baseline cache remains compatible.
+    if path not in expected or not (path / 'config.json').is_file():
+        raise VoiceError('invalid_local_model_path')
+    if any(path.rglob('*.py')):
+        raise VoiceError('unsupported_remote_model_code')
+    def contains_mapping(value):
+        if isinstance(value, dict):
+            return 'auto_map' in value or any(contains_mapping(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_mapping(item) for item in value)
+        return False
+    for file in path.rglob('*.json'):
+        if file.stat().st_size > 16000000:
+            raise VoiceError('model_config_budget_exceeded')
+        if contains_mapping(json.loads(file.read_text())):
+            raise VoiceError('unsupported_remote_model_code')
+    return row
+
+
+def read_manifest(file):
+    with file.open() as source:
+        raw = source.read(65537)
+    if len(raw) > 65536:
+        raise VoiceError('model_manifest_budget_exceeded')
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise VoiceError('invalid_model_manifest')
+    return data
+
+
+def cached_snapshot(root, kind, model):
+    candidates = [root / 'manifest.json', *sorted(root.glob('manifest-*.json'))[:32]]
+    for file in candidates:
+        if not file.is_file():
+            continue
+        try:
+            data = read_manifest(file)
+            rows = data['models'] if 'schema_version' in data else data
+            row = rows.get(kind)
+            if row and row['model'] == model:
+                return validate_snapshot(root, kind, model, row)
+        except (VoiceError, OSError, ValueError, TypeError, KeyError):
+            continue
+    return None
+
+
+def prepare_models(selection=None, *, refresh=False):
+    selection = (selection or VoiceSelection()).validate()
     mac_only()
-    from huggingface_hub import HfApi, snapshot_download
     root = model_directory()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    existing = manifest_file(root, selection)
+    legacy = selection == VoiceSelection() and (root / 'manifest.json').exists()
+    if not refresh and (existing.exists() or legacy):
+        rows = load_manifest(root, selection)
+        print(json.dumps({'event': 'local_models_prepared', 'reused': True,
+                          'configuration': service_configuration(selection, rows)}), flush=True)
+        return
+    from huggingface_hub import HfApi, snapshot_download
     manifest = {}
-    for kind, model in MODELS.items():
+    for kind, model in selection.models.items():
+        cached = None if refresh else cached_snapshot(root, kind, model)
+        if cached:
+            manifest[kind] = cached
+            continue
         revision = HfApi().model_info(model).sha
         if not re.fullmatch(r'[a-f0-9]{40}', revision):
             raise VoiceError('invalid_model_revision')
-        destination = root / kind / revision
+        destination = root / kind / digest(model) / revision
         snapshot_download(model, revision=revision, local_dir=destination,
                           allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt', '*.jinja', '*.tiktoken'])
         manifest[kind] = {'model': model, 'revision': revision, 'path': str(destination)}
+        validate_snapshot(root, kind, model, manifest[kind])
         print(json.dumps({'event': 'local_model_downloaded', 'kind': kind, 'revision': revision}), flush=True)
-    temporary = root / 'manifest.pending.json'
-    temporary.write_text(json.dumps(manifest))
-    temporary.chmod(0o600)
-    temporary.replace(root / 'manifest.json')
+    temporary = root / ('.manifest-' + uuid.uuid4().hex + '.pending')
+    try:
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'w') as output:
+            json.dump({'schema_version': 1, 'configuration': selection.payload(), 'models': manifest}, output)
+        temporary.replace(existing)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(json.dumps({'event': 'local_models_prepared', 'reused': False,
+                      'configuration': service_configuration(selection, manifest)}), flush=True)
 
 
-def load_manifest(root):
-    data = json.loads((root / 'manifest.json').read_text())
-    if set(data) != set(MODELS):
-        raise VoiceError('invalid_model_manifest')
-    for kind, model in MODELS.items():
-        row = data[kind]
-        if row.get('model') != model or not re.fullmatch(r'[a-f0-9]{40}', row.get('revision', '')):
+def load_manifest(root, selection=None):
+    selection = (selection or VoiceSelection()).validate()
+    root = Path(root).resolve()
+    file = manifest_file(root, selection)
+    if file.exists():
+        envelope = read_manifest(file)
+        if set(envelope) != {'schema_version', 'configuration', 'models'} or type(
+                envelope['schema_version']) is not int or envelope['schema_version'] != 1:
             raise VoiceError('invalid_model_manifest')
-        path = Path(row['path']).resolve()
-        if path != root / kind / row['revision'] or not (path / 'config.json').is_file():
-            raise VoiceError('invalid_local_model_path')
-        # ASR upstream enables trust_remote_code internally; deny custom mappings/code
-        # in our data-only snapshots before passing them to any loader.
-        if any(path.rglob('*.py')):
-            raise VoiceError('unsupported_remote_model_code')
-        for file in path.rglob('*.json'):
-            if file.stat().st_size > 16000000:
-                raise VoiceError('model_config_budget_exceeded')
-            def contains_mapping(value):
-                if isinstance(value, dict):
-                    return 'auto_map' in value or any(contains_mapping(item) for item in value.values())
-                if isinstance(value, list):
-                    return any(contains_mapping(item) for item in value)
-                return False
-            if contains_mapping(json.loads(file.read_text())):
-                raise VoiceError('unsupported_remote_model_code')
+        if envelope['configuration'] != selection.payload():
+            raise VoiceError('model_configuration_mismatch')
+        data = envelope['models']
+    elif selection == VoiceSelection() and (root / 'manifest.json').exists():
+        data = read_manifest(root / 'manifest.json')
+    else:
+        raise VoiceError('model_configuration_not_prepared')
+    if not isinstance(data, dict) or set(data) != {'asr', 'llm', 'tts'}:
+        raise VoiceError('invalid_model_manifest')
+    for kind, model in selection.models.items():
+        validate_snapshot(root, kind, model, data[kind])
     return data
 
 
 class MLXEngine:
-    def __init__(self):
+    def __init__(self, selection=None):
         mac_only()
-        # Runtime loads only the already-prepared revision directories, no network fallback.
+        self.selection = (selection or VoiceSelection()).validate()
+        # Runtime loads prepared revision directories only, with no network fallback.
         os.environ['HF_HUB_OFFLINE'] = '1'
         os.environ['HF_DATASETS_OFFLINE'] = '1'
-        from mlx_audio.stt.utils import load as load_asr
-        from mlx_audio.tts.utils import load as load_tts
-        from mlx_lm import load as load_llm
-        self.manifest = load_manifest(model_directory())
-        self.asr_model = load_asr(self.manifest['asr']['path'], strict=True)
-        self.llm_model, self.tokenizer = load_llm(self.manifest['llm']['path'], trust_remote_code=False)
-        self.tts_model = load_tts(self.manifest['tts']['path'], strict=True)
+        self.manifest = load_manifest(model_directory(), self.selection)
+        from .sip_lab_voice_adapters import build_adapters
+        self.adapters = build_adapters(self.selection, self.manifest)
+        self.configuration = service_configuration(self.selection, self.manifest)
         self.warmed = False
 
     def asr(self, pcm, check):
-        import numpy as np
-        from scipy.signal import resample_poly
-        check()
-        audio = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768
-        rate = self.asr_model.sample_rate
-        if rate != 16000:
-            raise VoiceError('unexpected_asr_sample_rate')
-        result = self.asr_model.generate(resample_poly(audio, 2, 1), language='Chinese',
-                                         max_tokens=128, temperature=0, verbose=False)
-        check()
-        text = result.text.strip()
-        if not text or len(text) > 120:
-            raise VoiceError('invalid_asr_text')
-        return text
+        return self.adapters['asr'].transcribe(pcm, check)
 
     def reply(self, text, history, check):
-        from mlx_lm import stream_generate
-        from mlx_lm.sample_utils import make_sampler
-        check()
-        prompt = self.tokenizer.apply_chat_template(
-            [{'role': 'system', 'content': SYSTEM}, *history, {'role': 'user', 'content': text}],
-            tokenize=False, add_generation_prompt=True, enable_thinking=False)
-        output = ''
-        finish = None
-        generator = stream_generate(self.llm_model, self.tokenizer, prompt, max_tokens=128,
-                                    sampler=make_sampler(temp=0))
-        try:
-            for piece in generator:
-                check()
-                output += piece.text
-                finish = piece.finish_reason
-                if len(output) > 512:
-                    raise VoiceError('llm_output_budget_exceeded')
-        finally:
-            generator.close()
-        check()
-        if finish != 'stop':
-            raise VoiceError('llm_incomplete')
-        try:
-            return validate_reply(json.loads(output))
-        except (ValueError, TypeError) as exc:
-            raise VoiceError('llm_invalid_json') from exc
+        return self.adapters['llm'].reply(text, history, check)
 
     def tts(self, text, check):
-        import numpy as np
-        from scipy.signal import resample_poly
-        # Fixed preset voice; no voice cloning or arbitrary reference audio.
-        check()
-        generator = self.tts_model.generate(text, voice='Vivian', lang_code='Chinese',
-                                            max_tokens=160, verbose=False, stream=True,
-                                            streaming_interval=0.24)
-        total = 0
-        try:
-            for piece in generator:
-                check()
-                rate = piece.sample_rate
-                if rate != 24000:
-                    raise VoiceError('unexpected_tts_sample_rate')
-                samples = np.asarray(piece.audio, dtype=np.float32)
-                if samples.ndim != 1 or not np.isfinite(samples).all() or len(samples) > 240000:
-                    raise VoiceError('invalid_tts_audio')
-                # Polyphase filtering prevents aliasing when returning to phone 8 kHz.
-                output = resample_poly(samples, 1, 3)
-                total += len(output)
-                if total > 80000:
-                    raise VoiceError('tts_audio_budget_exceeded')
-                pcm = (np.clip(output, -1, 1) * 32767).astype('<i2').tobytes()
-                for offset in range(0, len(pcm), 3200):
-                    check()
-                    yield pcm[offset:offset + 3200]
-        finally:
-            generator.close()
-            # A cancelled streaming generator may not reach its upstream reset.
-            self.tts_model.speech_tokenizer.decoder.reset_streaming_state()
+        return self.adapters['tts'].synthesize(text, check)
 
     def warmup(self):
         until = time.monotonic() + 120
@@ -196,6 +203,7 @@ class MLXEngine:
 def execute_turn(engine, kind, pcm, history, cancel, emit, clock=time.monotonic):
     start = clock()
     first = None
+    stage_ms = {'source_tts': 0, 'asr': 0, 'llm': 0, 'reply_tts': 0}
     until = start + 20
     def check():
         if cancel.is_set():
@@ -207,8 +215,12 @@ def execute_turn(engine, kind, pcm, history, cancel, emit, clock=time.monotonic)
         text, reply, end = None, GREETING, False
     else:
         if kind == 'probe':
+            stage_start = clock()
             pcm = b''.join(engine.tts(PHRASE, check))
+            stage_ms['source_tts'] = round((clock() - stage_start) * 1000)
+        stage_start = clock()
         text = engine.asr(pcm, check)
+        stage_ms['asr'] = round((clock() - stage_start) * 1000)
         if kind == 'probe' and re.sub(r'[\W_]', '', text) != PHRASE:
             raise VoiceError('asr_probe_phrase_mismatch')
         # Stop requests are deterministic and precede the model.
@@ -217,9 +229,12 @@ def execute_turn(engine, kind, pcm, history, cancel, emit, clock=time.monotonic)
         elif any(word in text for word in ('欠款', '本金', '余额', '还款', '合同', '催收')):
             reply, end = '这里只进行语音测试，请说一句测试短句。', False
         else:
+            stage_start = clock()
             reply, end = engine.reply(text, list(history), check)
             reply, end = validate_reply({'reply': reply, 'end': end})
+            stage_ms['llm'] = round((clock() - stage_start) * 1000)
     count = 0
+    stage_start = clock()
     for audio in engine.tts(reply, check):
         check()
         if not isinstance(audio, bytes) or not audio or len(audio) % 2 or len(audio) > 3200:
@@ -233,8 +248,9 @@ def execute_turn(engine, kind, pcm, history, cancel, emit, clock=time.monotonic)
     check()
     if not count:
         raise VoiceError('empty_tts_audio')
+    stage_ms['reply_tts'] = round((clock() - stage_start) * 1000)
     return {'end': end, 'reply_digest': digest(reply), 'elapsed_ms': round((clock() - start) * 1000),
-            'first_audio_ms': round((first - start) * 1000),
+            'first_audio_ms': round((first - start) * 1000), 'stage_ms': stage_ms,
             '_history': [{'role': 'user', 'content': text}, {'role': 'assistant', 'content': reply}] if text else []}
 
 
@@ -354,6 +370,8 @@ def create_app(engine, token):
                         complete = outcome['complete']
                         history.extend(complete.pop('_history'))
                         event = {'kind': 'complete', 'turn': active, **complete}
+                        if hasattr(engine, 'configuration'):
+                            event['configuration'] = engine.configuration
                     await ws.send_json(event)
                     worker = None
                     active = None
@@ -384,16 +402,40 @@ def create_app(engine, token):
 
 def main():
     parser = argparse.ArgumentParser(description='Apple Silicon 本地语音测试服务')
-    parser.add_argument('action', choices=['prepare', 'serve', 'probe'])
+    parser.add_argument('action', choices=['catalog', 'inspect', 'prepare', 'serve', 'probe'])
     parser.add_argument('--acknowledged', action='store_true')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--profile', choices=list(PROFILES))
+    group.add_argument('--config')
+    for kind in ('asr', 'llm', 'tts'):
+        parser.add_argument('--' + kind, choices=[alias for alias, spec in CATALOG.items() if spec.kind == kind])
+    parser.add_argument('--voice', choices=['Vivian', 'Ryan'])
+    parser.add_argument('--style', choices=list(STYLES))
+    parser.add_argument('--refresh-revisions', action='store_true')
     args = parser.parse_args()
     stage = 'configuration'
     try:
+        if args.action == 'catalog':
+            print(json.dumps(catalog_report(), ensure_ascii=False))
+            return 0
+        selection = select_config(args, os.environ)
+        if args.refresh_revisions and args.action != 'prepare':
+            raise VoiceError('refresh_only_during_prepare')
+        if args.action == 'inspect':
+            report = {'mode': 'local_voice_configuration', **selection.describe(), 'prepared': False,
+                      'business_ready': False}
+            try:
+                rows = load_manifest(model_directory(), selection)
+                report.update(prepared=True, revisions={kind: row['revision'] for kind, row in rows.items()})
+            except (VoiceError, OSError, ValueError, TypeError, KeyError) as exc:
+                report['preparation_error'] = str(exc) if isinstance(exc, VoiceError) else 'invalid_model_manifest'
+            print(json.dumps(report))
+            return 0
         if not args.acknowledged:
             raise VoiceError('local_voice_acknowledgement_required')
         if args.action == 'prepare':
             stage = 'model_download'
-            prepare_models()
+            prepare_models(selection, refresh=args.refresh_revisions)
             return 0
         LabConfig.from_environment()
         if os.getenv('ENABLE_SIP_LAB_LOCAL_VOICE') != 'true':
@@ -401,14 +443,14 @@ def main():
         token = local_token()
         if args.action == 'probe':
             stage = 'synthetic_probe'
-            return probe_local(token)
+            return probe_local(token, selection)
         stage = 'model_loading'
-        engine = MLXEngine()
+        engine = MLXEngine(selection)
         stage = 'warmup'
         engine.warmup()
         import uvicorn
-        print(json.dumps({'event': 'local_voice_ready', 'models': MODELS, 'business_ready': False,
-                          'revisions': {key: value['revision'] for key, value in engine.manifest.items()}}), flush=True)
+        print(json.dumps({'event': 'local_voice_ready', 'configuration': engine.configuration,
+                          'business_ready': False}), flush=True)
         # Native loopback endpoint; Docker Desktop forwards host.docker.internal to host services.
         uvicorn.run(create_app(engine, token), host='127.0.0.1', port=8090, access_log=False,
                     log_level='critical', ws_max_size=100000, ws_max_queue=8)
@@ -420,9 +462,12 @@ def main():
         return 2
 
 
-def probe_local(token):
+def probe_local(token, selection=None):
     from .sip_lab_voice import HOST_URL, LocalVoiceClient
-    voice = LocalVoiceClient(token, url=HOST_URL)
+    selection = (selection or VoiceSelection()).validate()
+    rows = load_manifest(model_directory(), selection)
+    voice = LocalVoiceClient(token, url=HOST_URL, expected_config_digest=selection.config_digest,
+                             expected_revisions={kind: row['revision'] for kind, row in rows.items()})
     count = 0
     voice.start(kind='probe')
     try:
@@ -434,12 +479,12 @@ def probe_local(token):
             elif voice.completed:
                 break
             if voice.failed:
-                raise VoiceError('local_voice_probe_failed')
+                raise VoiceError(voice.error_code or 'local_voice_probe_failed')
             time.sleep(0.01)
         if voice.completed != 1 or count == 0 or voice.failed:
             raise VoiceError('local_voice_probe_incomplete')
         print(json.dumps({'mode': 'local_synthetic_probe', 'service_chain_completed': True,
-                          'asr_phrase_matched': True, 'models': MODELS, 'tts_samples': count,
+                          'asr_phrase_matched': True, 'tts_samples': count,
                           **voice.summary(), 'phone_audio_verified': False, 'business_ready': False}))
         return 0
     finally:

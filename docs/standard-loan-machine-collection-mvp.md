@@ -200,3 +200,9 @@ Worker 先核验最新授权/保护/余额/会话与资料政策版本，持久�
 这是本地内部语音测试，不接 LoanSession、租户服务启用、Worker 租约、账务或真实渠道 Provider。CLI/API 的正式音频/AI 验收字段继续 false。本机网络及 DSP 软件测试与 Mac 模型/手机人工验收分别记录。详见 [本地部署与验证步骤](integrations/linphone-sip-lab.md)。下一步设备验证及调优，再处理业务 Worker 停止联动、客户身份与政策，不能以本地对话通畅越过正式渠道门禁。
 
 本轮全库 460 项通过、3 项环境依赖跳过；之后追加断连推理门禁测试，最终相关专项 63 项通过，独立 DSP 两项及文档/部署检查五项通过。没有在当前 Linux 环境下载或运行 MLX 权重，也没有替代操作者的 Mac/手机听音验收。
+
+### 本地模型可替换配置（2026-10-08）
+
+新增 baseline/asr-fast/llm-4bit/tts-large 单环节对照、受限 JSON 与 CLI 覆盖，以及 ASR/LLM/TTS 适配器契约。支持 Qwen ASR 0.6B/1.7B、LLM 30B-A3B Instruct-2507 4bit/8bit、TTS CustomVoice 0.6B/1.7B；音色与 1.7B 风格受限。配置摘要分离 manifest 并复用未变模型快照；运行时离线，准备失败保留旧配置。probe 核对服务实际配置与准备 revision，返回分阶段耗时，避免测试旧服务。Fun-ASR/SenseVoice/CosyVoice 为显式预留、未实现的适配器，不声称已接通。固定 1003 测试与业务授权边界不变；软件专项 91 项及独立 DSP/音色三项通过，新模型 Mac 加载、听音、性能与业务仍待验收。具体步骤见稳定 SIP 指南。
+
+本轮完整后端 489 项通过、3 项环境依赖跳过；文档/部署/依赖清单五项与 Ruff 通过。

@@ -361,7 +361,7 @@ def test_native_llm_api_cancellation_eos_budget_and_no_thinking(monkeypatch):
     import sys
     from types import ModuleType, SimpleNamespace
 
-    from app.sip_lab_local_voice import MLXEngine
+    from app.sip_lab_voice_adapters import QwenLLMAdapter
     lm, samplers = ModuleType('mlx_lm'), ModuleType('mlx_lm.sample_utils')
     seen = []
     results = [SimpleNamespace(text='{"reply":"测试完成。","end":false}', finish_reason='stop')]
@@ -377,8 +377,7 @@ def test_native_llm_api_cancellation_eos_budget_and_no_thinking(monkeypatch):
             assert kwargs['enable_thinking'] is False and kwargs['tokenize'] is False
             assert messages[-1]['content'] == PHRASE
             return 'synthetic-prompt'
-    engine = MLXEngine.__new__(MLXEngine)
-    engine.llm_model, engine.tokenizer = object(), Tokenizer()
+    engine = QwenLLMAdapter(object(), Tokenizer())
     assert engine.reply(PHRASE, [], lambda: None) == ('测试完成。', False)
     assert seen[0]['max_tokens'] == 128 and seen[0]['sampler'] == {'temp': 0}
     results[0].finish_reason = 'length'

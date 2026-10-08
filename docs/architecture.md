@@ -140,3 +140,5 @@ Agent Gateway 只开放租户范围内查询和活动暂停/恢复提案等受�
 新增 Mac 原生 MLX 内部测试服务与固定 1003 适配：容器 ARI/UDP 程序经带独立 Bearer 的固定主机 WebSocket，连接原生 ASR→非思考 LLM→流式 TTS。句末 VAD 上送最多 6 秒 8 kHz PCM，服务上采样 16 kHz；TTS 输出分块转为 8 kHz，程序编码 PCMU 回传。生成线程与网络/RTP调度分离，有界队列和单模型会话门禁避免积压。插话使旧轮次失效、清空播放并取消生成；无法硬抢占 GPU 内核，前轮未退出不启动新推理。
 
 下载阶段记录固定模型的具体 revision；原生运行仅加载本地数据目录，拒绝远程自定义代码并离线预热。最多四组问答、八轮/60 秒，断开清理内存；日志仅摘要。内部本地对话不连接业务状态机、身份核验、租户授权、LoanSession 或账务，因此 phone/AI/business 验收状态保持分层。初版无 AEC/连续 partial ASR，设备和模型运行待验收。
+
+本地模型拆为 ASRAdapter.transcribe、LLMAdapter.reply、TTSAdapter.synthesize 三项契约，由只读别名目录映射到内置加载器。profile/JSON/单环节 CLI 覆盖生成规范化配置摘要，保留固定 PCM、取消及输出预算；配置不能导入代码或覆盖网络地址。不同配置独立保存 revision manifest、共享未变模型的快照，运行中不热切换。完成事件返回实际配置/revision 和分阶段耗时，probe 与准备记录比较后才报告合成通过。Fun-ASR/SenseVoice/CosyVoice 为尚未实现的适配器入口，选择时失败，不用 MLX Qwen 接口伪装接通。

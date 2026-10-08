@@ -220,3 +220,5 @@ SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通�
 详见 [SIP 指南的 Mac 部署](integrations/linphone-sip-lab.md)。用独立 arm64 Python 环境安装固定依赖，prepare 下载指定模型并记录 revision；serve 离线加载、预热后显示 local_voice_ready。先运行本地 probe 检查合成短句链路，再启用 media 的 voice 模式，等待 awaiting_linphone_1003，本人 Linphone 拨 1003。记录连续短句、数字复述、耳机下插话及“结束测试”播报后挂断结果。
 
 local_voice_ready 只说明加载和预热完成；probe 成功不证明手机或业务就绪。手机反馈与 media 摘要结合记录，原生模型原文/音频/凭据不共享。local_voice_unavailable 的 stage/error 为固定诊断；media 的 local_voice_failed 或通道清理 unknown 先查现有服务及资源，不改请求键或删卷重拨。停止先 stop media 再 Ctrl+C 原生服务，保留 journal。初版没有 AEC，免提可能误触发打断；GPU 内核取消与电话端到端延迟待设备实测，不对生产并发作承诺。
+
+模型对照使用 [快速更换配置](integrations/linphone-sip-lab.md#快速更换模型配置)：catalog 查看已实现/预留适配器，inspect 查看配置及准备状态，prepare/serve/probe 使用同一个 profile 或 JSON。先结束媒体再完全退出旧模型进程，切换不改 SIP 密码或 journal。准备复用旧 revision；只有 --refresh-revisions 显式更新。配置摘要或 revision 不匹配时 probe 失败，先核对实际 local_voice_ready 后重启正确服务，不通过改掉 probe 选择来假装验收。多轮摘要保存模型与分阶段耗时，仍不保存原文或音频；人工听音与性能评测单独记录。
