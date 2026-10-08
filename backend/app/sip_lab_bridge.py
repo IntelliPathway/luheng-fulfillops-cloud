@@ -116,16 +116,22 @@ class MediaSession:
                 stream = self.stream
             frame = stream.consume(data)
             self.stream = stream
-            # Decode -> attenuate -> encode proves this is a program media path.
-            samples = [sample // 2 for sample in unpack(f'<{frame.sample_count}h', frame.pcm_s16le)]
-            for offset in range(0, len(samples), 160):
-                block = samples[offset:offset + 160]
-                block += [0] * (160 - len(block))
-                if len(self.queue) == self.queue.maxlen:
-                    self.queue_drops += 1
-                self.queue.append(pcmu(pack('<160h', *block)))
+            self.process_audio(frame.pcm_s16le)
         except (MediaPacketError, ValueError):
             self.invalid += 1
+
+    def process_audio(self, pcm):
+        # Decode -> attenuate -> encode proves this is a program media path.
+        samples = [sample // 2 for sample in unpack(f'<{len(pcm) // 2}h', pcm)]
+        for offset in range(0, len(samples), 160):
+            block = samples[offset:offset + 160]
+            block += [0] * (160 - len(block))
+            if len(self.queue) == self.queue.maxlen:
+                self.queue_drops += 1
+            self.queue.append(pcmu(pack('<160h', *block)))
+
+    def close(self):
+        self.queue.clear()
 
     def tick(self, udp, now):
         if now - self.started >= 60:
@@ -182,22 +188,22 @@ def cleanup(client, journal, phone):
     return ok
 
 
-def scoped_phone(event):
+def scoped_phone(event, extension='1002'):
     channel = event.get('channel')
     if not isinstance(channel, dict):
         return None
     dialplan = channel.get('dialplan', {})
     identifier = channel.get('id')
-    if (event.get('type') == 'StasisStart' and event.get('application') == APP
+    if (extension in {'1002', '1003'} and event.get('type') == 'StasisStart' and event.get('application') == APP
             and isinstance(identifier, str) and ID.fullmatch(identifier)
             and isinstance(channel.get('name'), str) and channel['name'].startswith('PJSIP/1001-')
             and isinstance(dialplan, dict) and dialplan.get('context') == 'lab-echo'
-            and dialplan.get('exten') == '1002'):
+            and dialplan.get('exten') == extension):
         return identifier
     return None
 
 
-def prepare_session(client, journal, phone, gateway_ip):
+def prepare_session(client, journal, phone, gateway_ip, session_factory=MediaSession):
     journal.reserve(phone)
     media, bridge = owned_ids(journal.instance, phone)
     request(client, 'POST', f'/bridges/{bridge}', params={'type': 'mixing,proxy_media'}, identity=bridge)
@@ -220,16 +226,20 @@ def prepare_session(client, journal, phone, gateway_ip):
         raise BridgeError('untrusted_rtp_destination')
     request(client, 'POST', f'/bridges/{bridge}/addChannel', params={'channel': f'{phone},{media}'})
     journal.mark(phone, 'active')
-    return MediaSession((gateway_ip, port), time.monotonic(), int.from_bytes(os.urandom(4)))
+    return session_factory((gateway_ip, port), time.monotonic(), int.from_bytes(os.urandom(4)))
 
 
-def run_loop(client, events, udp, journal, gateway_ip, stopping):
+def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1002', session_factory=MediaSession):
     active_phone = None
     session = None
     for phone in journal.unfinished():
         if not cleanup(client, journal, phone):
             raise BridgeError('recovery_cleanup_unconfirmed')
-    print(json.dumps({'event': 'awaiting_linphone_1002', 'model_calls_enabled': False}), flush=True)
+    if extension not in {'1002', '1003'}:
+        raise BridgeError('invalid_lab_extension')
+    voice = extension == '1003'
+    print(json.dumps({'event': 'awaiting_linphone_' + extension, 'local_models_enabled': voice,
+                      'model_calls_enabled': voice, 'business_ready': False}), flush=True)
     try:
         while not stopping():
             try:
@@ -237,7 +247,8 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping):
                 event = json.loads(raw)
                 if not isinstance(event, dict):
                     continue
-                phone = scoped_phone(event)
+                incoming_voice = voice and scoped_phone(event, '1003') is not None
+                phone = scoped_phone(event, extension) or (scoped_phone(event, '1002') if voice else None)
                 if phone:
                     if active_phone == phone:
                         continue
@@ -247,8 +258,10 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping):
                     else:
                         active_phone = phone
                         try:
-                            session = prepare_session(client, journal, phone, gateway_ip)
-                            print(json.dumps({'event': 'program_media_connected', 'model_calls_enabled': False}), flush=True)
+                            current_factory = session_factory if incoming_voice or not voice else MediaSession
+                            session = prepare_session(client, journal, phone, gateway_ip, current_factory)
+                            print(json.dumps({'event': 'program_media_connected', 'model_calls_enabled': incoming_voice,
+                                              'business_ready': False}), flush=True)
                         except (BridgeError, httpx.HTTPError):
                             if not cleanup(client, journal, phone):
                                 raise BridgeError('setup_cleanup_unconfirmed') from None
@@ -259,6 +272,7 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping):
                     if isinstance(channel, dict) and channel.get('id') in {active_phone, owned_ids(journal.instance, active_phone)[0]}:
                         if session:
                             print(json.dumps(session.summary()), flush=True)
+                            session.close()
                         if not cleanup(client, journal, active_phone):
                             raise BridgeError('end_cleanup_unconfirmed')
                         session = active_phone = None
@@ -275,6 +289,7 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping):
                     session.receive(data, peer)
                 if not session.tick(udp, time.monotonic()):
                     print(json.dumps(session.summary()), flush=True)
+                    session.close()
                     if not cleanup(client, journal, active_phone):
                         raise BridgeError('timeout_cleanup_unconfirmed')
                     session = active_phone = None
@@ -289,6 +304,7 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping):
         if active_phone:
             if session:
                 print(json.dumps(session.summary()), flush=True)
+                session.close()
             if not cleanup(client, journal, active_phone):
                 print(json.dumps({'event': 'cleanup_unknown'}), flush=True)
 
@@ -328,6 +344,25 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
+        mode = os.getenv('SIP_LAB_MEDIA_MODE', 'echo')
+        if mode not in {'echo', 'voice'}:
+            raise BridgeError('invalid_media_mode')
+        factory, extension = MediaSession, '1002'
+        if mode == 'voice':
+            from .sip_lab_voice import TOKEN
+            from .sip_lab_voice_session import VoiceMediaSession
+            if os.getenv('SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED') != 'true':
+                raise BridgeError('local_voice_acknowledgement_required')
+            # Read before dropping root: generated credentials are owner-only mounted files.
+            lines = Path('/run/sip-lab/local-voice.env').read_text().splitlines()
+            values = [line.removeprefix('export SIP_LAB_LOCAL_VOICE_TOKEN=') for line in lines
+                      if line.startswith('export SIP_LAB_LOCAL_VOICE_TOKEN=')]
+            if len(values) != 1 or not TOKEN.fullmatch(values[0]):
+                raise BridgeError('invalid_local_voice_config')
+            token = values[0]
+            def factory(peer, now, source):
+                return VoiceMediaSession(peer, now, source, token)
+            extension = '1003'
         config = load_container_config()
         gateway_ip = socket.gethostbyname('asterisk')
         journal = ResourceJournal('/var/lib/media-lab/calls.db', config.instance)
@@ -342,7 +377,8 @@ def main():
                 try:
                     with connect(EVENTS, additional_headers={'Authorization': 'Basic ' + authorization},
                                  proxy=None, open_timeout=3, close_timeout=2, max_size=65536, max_queue=16) as events:
-                        run_loop(client, events, udp, journal, gateway_ip, lambda: stopped)
+                        run_loop(client, events, udp, journal, gateway_ip, lambda: stopped,
+                                 extension=extension, session_factory=factory)
                     return 0
                 except (OSError, TimeoutError):
                     if journal.unfinished() or time.monotonic() >= deadline:

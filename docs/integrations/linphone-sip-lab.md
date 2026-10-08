@@ -137,7 +137,7 @@ docker compose --env-file deploy/sip-lab/generated/compose.env \
 
 真实路径为手机 SIP/RTP ↔ Asterisk 固定分机 ↔ ARI ExternalMedia ↔ media 容器 UDP/PCMU ↔ PCM 解码、减半、重新编码。媒体容器不发布额外主机端口；只接受 ARI 返回且匹配 Asterisk 容器地址、10000–10019 端口的来源，并固定首个合法 SSRC。队列最多 10 帧，20 ms 发送一帧，调度迟滞不补发洪水；不录音、不输出地址或原始包。
 
-媒体资源创建前保存独立私有 journal，UTC 日最多 20 次预留。重启仅清理 journal 中原有通道和桥，不重建未知请求；未确认清理则停止，不自动重启。journal 是独立 Docker 命名卷，不是业务数据库或原呼出日志。容器启动时读私有配置后降权运行。构建上下文仅包含四个应用模块，不包含 generated。实验室无业务租户、Worker 授权或客户目标解析，因此不能用于业务会话。
+媒体资源创建前保存独立私有 journal，UTC 日最多 20 次预留。重启仅清理 journal 中原有通道和桥，不重建未知请求；未确认清理则停止，不自动重启。journal 是独立 Docker 命名卷，不是业务数据库或原呼出日志。容器启动时读私有配置后降权运行。构建上下文只包含固定应用模块，不包含 generated 或本地模型权重。实验室无业务租户、Worker 授权或客户目标解析，因此不能用于业务会话。
 
 异常时只共享媒体容器输出的上述摘要事件。`media_setup_failed` 表示 ARI 设置失败并已清理；`media_lab_unavailable`/`cleanup_unknown` 需要先核对网关与现有资源，不通过删除卷规避恢复。如果 1002 立即挂断，先确认媒体容器存活、等待事件已出现以及新拨号计划已加载。
 
@@ -180,3 +180,76 @@ ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
 当前探针按阶段完成后串行调用 LLM，阶段耗时包含连接与完整输出，不是首 token 延迟或手机端到端延迟。两项快速验证通过后仍需把电话媒体和云服务适配器连接起来。后续用至少 30 轮固定合成对话记录“用户停说到首段回复”的 P50/P95、关键数字/日期/否定句、打断和停止效果；建议 P95≤2 秒作为初始调优目标，尚非实测结果或 SLA。
 
 本轮后端完整回归 435 项通过、3 项跳过（2 项 PostgreSQL、1 项容器 UID/GID 能力）；新增媒体桥与云探针 37 项通过，Ruff、Compose YAML 与构建路径检查通过。实际本机 UDP socket 音频往返已验证，ARI 与云模型服务用模拟协议响应验证；无 Docker 运行或真实云 Key，未声称设备桥接、收费模型或完整电话 AI 通过。
+
+## Mac Studio 本地模型与电话对话（1003）
+
+针对操作者 M3 Ultra / 512 GB 配置新增 Mac 原生 `app.sip_lab_local_voice` 与独立 1003 入站适配。此路径仅联系自己的 Linphone 1001，用于语音测试；没有客户案件、账务、真实渠道启用或业务 Worker 关联。上节百炼云探针继续作为独立对照，不是本地服务的依赖。
+
+| 环节 | 固定本地模型 | 处理 |
+|---|---|---|
+| ASR | mlx-community/Qwen3-ASR-1.7B-8bit | 电话 PCM 8 kHz 抗镜像上采样到 16 kHz；句末后转写，最多 128 token |
+| LLM | mlx-community/Qwen3-30B-A3B-Instruct-2507-8bit | 非思考、固定测试提示、最多 128 token；reply/end JSON 校验，回复最多 60 字 |
+| TTS | mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit | 固定 Vivian 中文预置音色；分块生成 24 kHz，再抗混叠转换为电话 8 kHz |
+
+本地模型服务原生运行于 macOS，不放入 Linux 容器。SIP 与 RTP 继续由 Asterisk/media 容器处理。首轮优先低延迟测试，512 GB 容量不代表已测并发能力。代码通过可选依赖延迟导入 MLX，不改变生产后端镜像或云方案。
+
+### 首次准备（Mac 终端 A）
+
+确保安装原生 arm64 Python 3.12，已有 SIP generated 配置保持原样。在仓库根目录：
+
+```bash
+git pull --ff-only
+python3 scripts/sip-lab-local-voice-config.py
+python3.12 -m venv backend/.venv-local-voice
+. backend/.venv-local-voice/bin/activate
+python -m pip install -r backend/requirements-local-voice.txt
+. deploy/sip-lab/generated/lab.env
+. deploy/sip-lab/generated/local-voice.env
+cd backend
+python -m app.sip_lab_local_voice prepare --acknowledged
+python -m app.sip_lab_local_voice serve --acknowledged
+```
+
+凭据生成只新增 0600 的 local-voice.env，已有文件拒绝覆盖，不改 SIP 密码与原日志。只有首次需要执行生成命令。模型准备会下载较大权重，需要本机网络及磁盘空间；会获取三个固定模型的具体 Git revision，下载到默认 ~/.cache/repayguard-voice/{asr,llm,tts}/{revision}，全部完成后原子写 manifest.json。可通过本机 SIP_LAB_MODELS_DIRECTORY 改缓存根目录，不接受模型或服务地址覆盖。模型权重、缓存与真实凭据不提交仓库。
+
+依赖固定到本轮核对的 mlx-audio/mlx-lm 源码提交，使用专用虚拟环境，勿混入业务后端环境。serve 只加载 manifest 中固定模型及 revision 目录，强制 HF 离线模式，不在通话中下载权重；拒绝自定义 auto_map 及 Python 模型代码。启动预热三项模型后输出 local_voice_ready，表示加载及预热完成，不等于电话/业务验收。local_voice_unavailable 附带固定 stage/error，第三方异常原文不输出。
+
+服务仅监听 127.0.0.1:8090/lab/voice，要求独立 Bearer token，禁止浏览器 Origin，不接受跨域网页或任意 HTTP 模型请求。Docker Desktop 使用 host.docker.internal 访问主机服务；该路由仍需在操作者 Mac 验证，不应改为公网或无认证服务来绕过连接失败。模型服务保持终端 A 前台运行。
+
+### 合成自测与手机对话（Mac 终端 B）
+
+新终端回到仓库根目录，加载同一套环境：
+
+```bash
+. backend/.venv-local-voice/bin/activate
+. deploy/sip-lab/generated/lab.env
+. deploy/sip-lab/generated/local-voice.env
+(cd backend && python -m app.sip_lab_local_voice probe --acknowledged)
+SIP_LAB_MEDIA_ACKNOWLEDGED=true SIP_LAB_MEDIA_MODE=voice \
+SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED=true docker compose \
+  --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media up --build -d --force-recreate
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media logs -f media
+```
+
+probe 的固定 TTS 短句→ASR 精确匹配→LLM→TTS 完成后，返回 service_chain_completed=true、asr_phrase_matched=true；音频仅在内存消费，无云调用。该结果仍带 phone_audio_verified=false、business_ready=false。
+
+等 awaiting_linphone_1003 后，用原 1001 账号拨 1003。应听到本地生成的测试问候；依次说“今天是语音链路测试”“请复述数字一二三四”“结束测试”。最后一句由确定性规则结束测试，结束语播完再挂断。再呼入一通，回复播放中插话说“换一句测试短句”，检查旧声音停止及新回复。挂断后核对 media_session_summary 中 local_turns_completed>0、local_voice_failed=false 和 interruptions；各项仍须人工听音，不能只看计数。1002 在 voice 模式仍可作程序回声对照；同一 media 容器仅一个通话，1002/1003 不并行。
+
+### 当前控制与验收范围
+
+- 一个模型 WS 会话独占原生服务；每通最长 60 秒，包含问候最多 8 轮，句子最多 6 秒。模型服务连接预算 65 秒、每轮在推理边界检查 20 秒预算；不承诺中途硬抢占 MLX 内核。未知派发仍沿用独立媒体 journal，只清理原资源，不重建呼叫。
+- 能量 VAD 连续 60 ms 达阈值开始说话，至少 200 ms 有声才转写，600 ms 静音结束；保留最多 100 ms 预录。初版是句末 ASR，尚非连续实时 partial ASR，阈值与端点需按手机实测调优。
+- 插话立即清除播放队列、发送取消并使旧轮次失效；等待原生推理退出后才能开始下一轮。生成过程中按 token/chunk 检查取消，不能保证即时中断正在运行的 ASR/GPU 内核。生成尚未完成的取消轮次不加入后续模型上下文；已生成完成但播放被打断的回复仍保留在上下文中。
+- 内存上下文最多四组问答；原生输出队列最多八块、客户端播放队列最多 500 帧（10 秒），超限失败而非无限积压。模型/网络失败使本通结束，不自动转云、不自动重拨。
+- 这是内部语音助手，不提供债务说明、本人核验、承诺登记或账务动作；结束与金融话题阻断先于 LLM，结构校验再决定播报。没有客户政策与业务工具调用。
+- 初版没有声学回声消除（AEC）或 jitter buffer。先使用耳机验证打断；手机免提的扬声器回声可能触发 VAD，不能视为真实用户插话已正确识别。分块重采样的接缝、自然度与数字日期仍需真机录入固定测试短句后听音核验。
+
+停止顺序：先使用前文 stop media 结束通话并保留 journal，模型服务再 Ctrl+C。服务重启清空内存上下文；已有不确定媒体资源不重新创建。原生内核尚未退出时继续占用模型执行门禁，避免新会话与旧推理并行。
+
+本轮软件证据包括真实本机 TCP/WebSocket→程序→UDP/PCMU 回传，模型使用可控测试替身；另验证实际 SciPy 抗镜像/抗混叠转换。不能据此声称 MLX 权重加载、Mac GPU、Docker Desktop 路由、手机多轮、打断或性能目标已通过。各阶段耗时从服务开始推理计到首块/完成，不包含手机端点等待和全部播放，不是完整端到端 P95。
+
+软件验证：完整后端回归 460 项通过、3 项环境依赖跳过；随后补充断连后不可抢占推理仍持有门禁的用例，最终桥/云探针/本地语音专项 63 项通过。独立原生 DSP 两项、文档/部署/依赖清单五项通过，Ruff 与 Compose YAML 检查通过。DSP 专项在安装可选原生依赖后可从 backend 执行 `python -m unittest discover -s tests_local_voice -v`，不要求加载模型。
+
+官方/维护者依据：[MLX LM](https://github.com/ml-explore/mlx-lm)、[MLX Audio](https://github.com/Blaizzy/mlx-audio)、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR)、[非思考 LLM 模型](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507)、[Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)。量化模型来源固定为表中的 mlx-community 模型，具体 revision 在本机准备时记录；本轮没有下载或发布真实模型权重。

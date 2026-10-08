@@ -214,3 +214,9 @@ SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通�
 按 [联调指南](integrations/linphone-sip-lab.md) 启动 media profile，等待 awaiting_linphone_1002，手机拨 1002。听到双提示音和减半的程序回声，并在挂断摘要确认接收/解码/发送计数；这验证独立程序音频路径，不代表 ASR/AI 验收。stop media 保留命名卷；cleanup_unknown 先核对原资源，不删卷规避日志。
 
 合成云探针需要北京百炼相应模型权限及专用开关，Key 仅在本机隐藏输入。一次最多四次收费调用。service_chain_completed/asr_phrase_matched 仅证明固定短句的云通路；phone_audio_verified/business_ready=false 不变。failed_stage 与固定 error 可用于脱敏反馈，勿发送 Key、完整 SIP 调试日志或原始录音。两个独立入口通过后，仍需合并手机 AI 对话、打断与业务停止联动验收。
+
+### Mac 本地模型电话验证
+
+详见 [SIP 指南的 Mac 部署](integrations/linphone-sip-lab.md)。用独立 arm64 Python 环境安装固定依赖，prepare 下载指定模型并记录 revision；serve 离线加载、预热后显示 local_voice_ready。先运行本地 probe 检查合成短句链路，再启用 media 的 voice 模式，等待 awaiting_linphone_1003，本人 Linphone 拨 1003。记录连续短句、数字复述、耳机下插话及“结束测试”播报后挂断结果。
+
+local_voice_ready 只说明加载和预热完成；probe 成功不证明手机或业务就绪。手机反馈与 media 摘要结合记录，原生模型原文/音频/凭据不共享。local_voice_unavailable 的 stage/error 为固定诊断；media 的 local_voice_failed 或通道清理 unknown 先查现有服务及资源，不改请求键或删卷重拨。停止先 stop media 再 Ctrl+C 原生服务，保留 journal。初版没有 AEC，免提可能误触发打断；GPU 内核取消与电话端到端延迟待设备实测，不对生产并发作承诺。

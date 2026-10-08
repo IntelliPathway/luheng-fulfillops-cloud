@@ -8,3 +8,5 @@
 !backend/app/sip_lab.py
 !backend/app/sip_lab_media.py
 !backend/app/sip_lab_bridge.py
+!backend/app/sip_lab_voice.py
+!backend/app/sip_lab_voice_session.py

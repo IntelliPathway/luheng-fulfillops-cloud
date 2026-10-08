@@ -1,0 +1,8 @@
+# Dedicated Apple Silicon Python 3.12 environment; not the production backend image.
+# Upstream sources pinned to the interfaces reviewed for this lab adapter.
+mlx-audio[stt,tts] @ git+https://github.com/Blaizzy/mlx-audio.git@200aac3c64e5140dbe0daa4570dcb129f0f7afc9
+mlx-lm @ git+https://github.com/ml-explore/mlx-lm.git@9d8abd94d63a9b3c72e7e9b146e43af1005368fa
+fastapi==0.142.2
+uvicorn[standard]==0.35.0
+httpx==0.28.1
+websockets==17.2

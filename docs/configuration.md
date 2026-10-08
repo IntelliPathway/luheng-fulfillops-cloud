@@ -215,3 +215,15 @@ COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED 打开并不表示已接通真实渠�
 | DASHSCOPE_API_KEY | 无 | 可由秘密注入提供；未设置时在本机隐藏输入，不保存到 generated 或日志 |
 
 云探针沿用 development/test 与实验室配置校验，固定百炼北京 WS/HTTPS 地址和三项模型；不接受任意端点、音频或客户文本参数。专用开关不启用正式渠道或租户 Provider。媒体容器只解析 generated 中实例与 ARI 密码，不执行 shell 配置；读配置后降权，不发布 UDP 60000 主机端口。详细执行与有限验收依据见 [SIP 联调指南](integrations/linphone-sip-lab.md)。
+
+### Mac 本地语音测试配置
+
+| 配置 | 默认 | 作用 |
+|---|---|---|
+| ENABLE_SIP_LAB_LOCAL_VOICE | 未启用 | 原生服务/probe 必须 true；development/test 及实验室凭据仍必需 |
+| SIP_LAB_LOCAL_VOICE_TOKEN | 无 | 独立 64 位随机十六进制 Bearer；生成在私有 local-voice.env，容器只解析此键 |
+| SIP_LAB_MODELS_DIRECTORY | ~/.cache/repayguard-voice | 原生准备/加载目录；manifest 固定三个模型及 Git revision，运行时离线 |
+| SIP_LAB_MEDIA_MODE | echo | voice 模式启用固定 1003 本地对话，1002 仍可回声对照 |
+| SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED | false | media 容器 voice 模式必须明确 true；不授予业务渠道权限 |
+
+本机模型 WS 固定 127.0.0.1:8090/lab/voice；容器地址固定 host.docker.internal:8090，不允许任意 Provider URL。专用 requirements-local-voice.txt 只安装于 macOS arm64 Python 3.12 环境。首次 prepare 需网络下载模型，serve 使用离线本地目录并预热。应用不保存音频/模型原文、不生成客户证据、不回退云服务。脚本生成只新增私有 token，不覆盖原 SIP 配置。实际 Mac/Docker 路由及模型接口仍需验收。

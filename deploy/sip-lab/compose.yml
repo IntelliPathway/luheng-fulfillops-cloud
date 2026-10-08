@@ -26,6 +26,8 @@ services:
       APP_ENV: development
       ENABLE_SIP_LAB: "true"
       SIP_LAB_MEDIA_ACKNOWLEDGED: "${SIP_LAB_MEDIA_ACKNOWLEDGED:-false}"
+      SIP_LAB_MEDIA_MODE: "${SIP_LAB_MEDIA_MODE:-echo}"
+      SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED: "${SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED:-false}"
     volumes:
       - ./generated:/run/sip-lab:ro
       - media-journal:/var/lib/media-lab
