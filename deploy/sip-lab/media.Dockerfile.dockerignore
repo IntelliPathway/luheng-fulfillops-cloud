@@ -1,0 +1,10 @@
+**
+!deploy/
+!deploy/sip-lab/
+!deploy/sip-lab/media.Dockerfile
+!backend/
+!backend/app/
+!backend/app/__init__.py
+!backend/app/sip_lab.py
+!backend/app/sip_lab_media.py
+!backend/app/sip_lab_bridge.py

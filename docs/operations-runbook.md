@@ -208,3 +208,9 @@ SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通�
 ### 停止请求与派发并发
 
 停止 API 及政策、资料、会话变化触发的停止任务，会在同一事务立即持久化 `stop_requested`（未发起的 `prepared` 仍变为 `blocked`）。Worker 在派发意图提交后、重新取得租户与案件锁时刷新派发记录；若状态已变化，禁止原始 POST。已经开始的请求按锁顺序完成，再由停止任务 DELETE 原固定通道。查询保留停止回执，不恢复派发资格，也不将 404 当成音频验收证据。
+
+### 程序媒体与百炼合成快速验收
+
+按 [联调指南](integrations/linphone-sip-lab.md) 启动 media profile，等待 awaiting_linphone_1002，手机拨 1002。听到双提示音和减半的程序回声，并在挂断摘要确认接收/解码/发送计数；这验证独立程序音频路径，不代表 ASR/AI 验收。stop media 保留命名卷；cleanup_unknown 先核对原资源，不删卷规避日志。
+
+合成云探针需要北京百炼相应模型权限及专用开关，Key 仅在本机隐藏输入。一次最多四次收费调用。service_chain_completed/asr_phrase_matched 仅证明固定短句的云通路；phone_audio_verified/business_ready=false 不变。failed_stage 与固定 error 可用于脱敏反馈，勿发送 Key、完整 SIP 调试日志或原始录音。两个独立入口通过后，仍需合并手机 AI 对话、打断与业务停止联动验收。

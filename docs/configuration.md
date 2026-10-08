@@ -204,3 +204,14 @@ PTP 到期核验使用已有外部 Worker；仅运行 API 或 inline 模式不�
 COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED 打开并不表示已接通真实渠道：当前 live 测试仍因缺适配器返回 503，不能生成投递验收摘要。SIP 回声不解除此门禁。
 
 内部测试 Worker 新增 SIP_LAB_TENANT_ID，必须与任务租户完全一致；不允许通过 API 设置。APP_ENV=production 始终阻断。需先应用迁移 037，ARI 固定 127.0.0.1:8088，仅支持同主机网络上下文；不修改现有生产电话 Provider 就绪状态。
+
+### 内部网络媒体及合成云探针
+
+| 配置 | 默认 | 作用 |
+|---|---|---|
+| Compose profile media | 不启动 | 独立媒体容器接收固定 1002 内部测试呼入，journal 命名卷独立保存 |
+| SIP_LAB_MEDIA_ACKNOWLEDGED | false | 必须明确为 true；只验证本人分机程序回声，不调用云模型 |
+| ENABLE_SIP_LAB_VOICE_TEST | 未启用 | 主机合成云探针必须为 true，并使用 --acknowledged；最多四次收费调用 |
+| DASHSCOPE_API_KEY | 无 | 可由秘密注入提供；未设置时在本机隐藏输入，不保存到 generated 或日志 |
+
+云探针沿用 development/test 与实验室配置校验，固定百炼北京 WS/HTTPS 地址和三项模型；不接受任意端点、音频或客户文本参数。专用开关不启用正式渠道或租户 Provider。媒体容器只解析 generated 中实例与 ARI 密码，不执行 shell 配置；读配置后降权，不发布 UDP 60000 主机端口。详细执行与有限验收依据见 [SIP 联调指南](integrations/linphone-sip-lab.md)。

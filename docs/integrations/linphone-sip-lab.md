@@ -112,8 +112,71 @@ hangup 仅允许查询日志中本实例已有请求对应的 channel ID；204 �
 
 新增 `app.sip_lab_media`：按 RFC 3550 验证 RTP v2 头、CSRC、扩展和 padding；仅接受已明确绑定的 SSRC 和静态 PT0/PCMU、PT8/PCMA。输出 8 kHz 单声道 PCM S16LE，单包音频最多 960 个样本、报文最多 4096 字节。丢弃重复与乱序、时间戳重叠/逆行及超过一秒的跳变，支持序号与时间戳回绕；拒绝包不推进流状态。接收预算最多 60 秒样本，统计缺包但不伪造丢失音频。帧 repr 不含音频，摘要不含 SSRC 或原始 payload，不保存或记录音频。
 
-这不是 UDP/ARI 外部媒体适配器，不自动接入当前回声拨号计划，不识别任意加密 payload，调用者必须先验证协商为明文且绑定合法来源。没有 jitter buffer、丢包恢复、RTCP、ASR/TTS 或模型调用。当前 CLI/API 的音频/AI 验收状态保持原边界。后续网络接入仍需固定实验室授权、源地址校验、ARI 事件关联、停止与租约检查，再对接受控语音服务。
+该解码组件本身不监听 UDP/ARI，不识别任意加密 payload，调用者必须先验证协商为明文且绑定合法来源。没有 jitter buffer、丢包恢复、RTCP、ASR/TTS 或模型调用。当前 CLI/API 的音频/AI 验收状态保持原边界。下节新增独立固定分机网络适配器；业务任务媒体接入仍需停止与租约检查。
 
 依据：[RFC 3550](https://www.rfc-editor.org/rfc/rfc3550.html)、[RFC 3551](https://www.rfc-editor.org/rfc/rfc3551.html)。合成 G.711 全部码字与独立参考比较，覆盖已知采样向量、异常包、跨流输入、回绕、乱序、重叠时间戳和预算；不使用真实通话音频。
 
 诊断、媒体与派发专项合计 86 项通过，1 个容器能力测试因环境限制跳过，Ruff 通过。未重跑全库或真实 ASR/TTS 联调。
+
+## 快速验证一：程序网络媒体桥（1002）
+
+2026-10-08 新增可运行的 `app.sip_lab_bridge`，保留原 1000 的 Asterisk 回声。手机仍用已注册的 1001 账号、UDP 和关闭媒体加密，改拨 1002。本步骤不调用云服务。
+
+在仓库根目录更新并启动独立媒体容器，重建实验室使 1002 拨号计划加载：
+
+```bash
+git pull --ff-only
+SIP_LAB_MEDIA_ACKNOWLEDGED=true docker compose \
+  --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media up --build -d --force-recreate
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media logs --tail=40 media
+```
+
+等待 `awaiting_linphone_1002` 后拨 1002。先听两段不同频率的提示音，再说固定测试短句，应该听到音量降低的回声；每次最多 60 秒，仅一个通话。主动挂断，再执行上述 logs 命令。成功路径依次出现 `program_media_connected`、`media_session_summary`，其 `received_packets`、`decoded_samples`、`sent_packets` 应大于 0；结合人工听到双提示音与程序回声才能记录这一层通过。只看到发送计数不能证明回传，计数也不能证明 ASR/AI 成功。
+
+真实路径为手机 SIP/RTP ↔ Asterisk 固定分机 ↔ ARI ExternalMedia ↔ media 容器 UDP/PCMU ↔ PCM 解码、减半、重新编码。媒体容器不发布额外主机端口；只接受 ARI 返回且匹配 Asterisk 容器地址、10000–10019 端口的来源，并固定首个合法 SSRC。队列最多 10 帧，20 ms 发送一帧，调度迟滞不补发洪水；不录音、不输出地址或原始包。
+
+媒体资源创建前保存独立私有 journal，UTC 日最多 20 次预留。重启仅清理 journal 中原有通道和桥，不重建未知请求；未确认清理则停止，不自动重启。journal 是独立 Docker 命名卷，不是业务数据库或原呼出日志。容器启动时读私有配置后降权运行。构建上下文仅包含四个应用模块，不包含 generated。实验室无业务租户、Worker 授权或客户目标解析，因此不能用于业务会话。
+
+异常时只共享媒体容器输出的上述摘要事件。`media_setup_failed` 表示 ARI 设置失败并已清理；`media_lab_unavailable`/`cleanup_unknown` 需要先核对网关与现有资源，不通过删除卷规避恢复。如果 1002 立即挂断，先确认媒体容器存活、等待事件已出现以及新拨号计划已加载。
+
+停止媒体容器：
+
+```bash
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media stop media
+```
+
+保留 journal 卷；不要使用 `down -v` 重置实验室配额。依据：[Asterisk ExternalMedia 官方说明](https://docs.asterisk.org/Development/Reference-Information/Asterisk-Framework-and-API-Examples/External-Media-and-ARI/)。本轮仅运行本机 UDP socket 与模拟 ARI 验证，Docker 构建及手机上的 1002 听音仍需操作者验证。
+
+## 快速验证二：百炼合成 ASR→LLM→TTS
+
+`app.sip_lab_voice_probe` 是独立的收费云连通探针，不连接手机、案件或账本。固定测试源“今天是语音链路测试”：TTS 生成内存 PCM → ASR 识别 → 精确匹配去标点后的短句 → LLM 返回受限 JSON → TTS 合成回复。每次最多四次服务调用，无自动重试；每次 TTS 输出最多 10 秒、回复最多 60 字、LLM 最多 128 输出 token、读取响应最多 64 KiB，阶段间及接收检查 60 秒总预算。网络连接、关闭和系统调度可能增加退出耗时。
+
+在已激活的后端 Python 3.12 虚拟环境中，从仓库根目录执行：
+
+```bash
+. deploy/sip-lab/generated/lab.env
+cd backend
+python -m pip install -r requirements.txt
+ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
+```
+
+在本机不回显提示中输入有相应模型权限的**百炼北京地域** API Key，勿粘贴到聊天或写进 generated 配置。若已通过秘密注入设置 `DASHSCOPE_API_KEY`，探针使用该变量。WS/HTTPS 仅访问固定北京端点，不接受 URL 覆盖，不使用环境代理或重定向。合成音频只留内存，输出仅模型名、阶段耗时、样本数及回复摘要，不保存录音、原文、API Key 或服务端错误正文。
+
+退出 0 且 `service_chain_completed=true`、`asr_phrase_matched=true` 表示本次云服务短句链路完成。`phone_audio_verified=false`、`business_ready=false` 始终保留。失败输出 `failed_stage` 和固定 `error`（例如短句不匹配、响应超限或网络不可用）；`completed_stages` 指此前已经完成的阶段。
+
+| 环节 | 首轮固定模型与参数 | 参考与后续对比 |
+|---|---|---|
+| ASR | fun-asr-flash-8k-realtime-2026-01-28，PCM S16LE/8 kHz | 适配中文电话低采样率；后续用同批合成样本对比 Qwen-ASR，不先假定更优 |
+| LLM | qwen-plus-2025-12-01，enable_thinking=false，JSON | 先验证结构与指令遵循；后续对比 qwen-flash-2025-07-28 的实测耗时、正确率和费用 |
+| TTS | cosyvoice-v3-flash，longanyang，PCM/8 kHz | 先免重采样验证；后续对比其他有权限的音色与 Plus 版本的电话可懂度 |
+
+官方依据（查询日期 2026-10-08）：[Fun-ASR 8K](https://help.aliyun.com/en/model-studio/fun-asr-flash-8k-realtime)、[ASR 客户端事件](https://help.aliyun.com/zh/model-studio/fun-asr-client-events)、[ASR 服务端事件](https://help.aliyun.com/zh/model-studio/fun-asr-server-events)、[Qwen Plus](https://help.aliyun.com/zh/model-studio/qwen-plus)、[Qwen Flash](https://help.aliyun.com/zh/model-studio/qwen-flash)、[CosyVoice 客户端事件](https://help.aliyun.com/zh/model-studio/cosyvoice-client-events)、[系统音色](https://help.aliyun.com/zh/model-studio/cosyvoice-voice-list)。TTS 使用平台版本名，尚无此探针固定的日期快照；须在验收时记录模型名、音色、地域和时间。
+
+建议正式链路为电话 RTP → PCM → 流式 ASR → 句末/VAD → 确定性对话状态机 → LLM 结构化候选 → 当前政策检查 → 分句 TTS → PCMU/RTP 回传。拒绝联系、争议与身份未核验由状态机裁决；模型输出不得直接修改账务、承诺或拨号资格。还要补独立的打断控制（取消旧 TTS 并清空未播队列）、多轮上下文和业务 Worker 停止联动。
+
+当前探针按阶段完成后串行调用 LLM，阶段耗时包含连接与完整输出，不是首 token 延迟或手机端到端延迟。两项快速验证通过后仍需把电话媒体和云服务适配器连接起来。后续用至少 30 轮固定合成对话记录“用户停说到首段回复”的 P50/P95、关键数字/日期/否定句、打断和停止效果；建议 P95≤2 秒作为初始调优目标，尚非实测结果或 SLA。
+
+本轮后端完整回归 435 项通过、3 项跳过（2 项 PostgreSQL、1 项容器 UID/GID 能力）；新增媒体桥与云探针 37 项通过，Ruff、Compose YAML 与构建路径检查通过。实际本机 UDP socket 音频往返已验证，ARI 与云模型服务用模拟协议响应验证；无 Docker 运行或真实云 Key，未声称设备桥接、收费模型或完整电话 AI 通过。
