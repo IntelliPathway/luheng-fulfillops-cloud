@@ -91,3 +91,7 @@ hangup 仅允许查询日志中本实例已有请求对应的 channel ID；204 �
 ### 停止请求与派发并发
 
 停止 API 及政策、资料、会话变化触发的停止任务，会在同一事务立即持久化 `stop_requested`（未发起的 `prepared` 仍变为 `blocked`）。Worker 在派发意图提交后、重新取得租户与案件锁时刷新派发记录；若状态已变化，禁止原始 POST。已经开始的请求按锁顺序完成，再由停止任务 DELETE 原固定通道。查询保留停止回执，不恢复派发资格，也不将 404 当成音频验收证据。
+
+### Asterisk 启动权限修复（2026-10-08）
+
+设备联调发现 `install: cannot change permissions ... Operation not permitted`：`install -o/-g -m` 在交接所有权后修改模式，受容器最小能力限制。启动脚本改为 root 创建并设置 0600，然后单独 chown 给 asterisk；保留现有 Compose 能力和非 root 服务运行。拉取修复后须 `up --build -d --force-recreate`，无需重新生成配置或修改凭据。实验室回归 27 项通过；新增能力回归因本环境仅映射 UID/GID 0 跳过，Docker 启动仍需设备验证。

@@ -228,3 +228,39 @@ def test_concurrent_reservations_share_one_dispatch_intent(config, tmp_path):
         results = list(pool.map(reserve, range(8)))
     assert sum(created for _, created in results) == 1
     assert len({row["channel_id"] for row, _ in results}) == 1
+
+
+def test_startup_copies_private_config_with_only_compose_capabilities(tmp_path):
+    import os
+    import shutil
+    import subprocess
+
+    if os.geteuid() != 0 or not shutil.which('setpriv'):
+        pytest.skip('requires Linux root and setpriv for capability regression')
+    source = tmp_path / 'source'
+    target = tmp_path / 'target'
+    source.mkdir(mode=0o700)
+    target.mkdir()
+    for name in ('pjsip.conf', 'ari.conf'):
+        (source / name).write_text('synthetic private config')
+        (source / name).chmod(0o600)
+        (target / name).write_text('previous config')
+        try:
+            os.chown(target / name, 65534, 65534)
+        except OSError as exc:
+            if exc.errno == 22:
+                pytest.skip("container user namespace does not map service UID/GID")
+            raise
+    script = (ROOT / 'deploy/sip-lab/start.sh').read_text().split('exec asterisk', 1)[0]
+    script = script.replace('/run/sip-lab/', str(source) + '/')
+    script = script.replace('/etc/asterisk/', str(target) + '/')
+    script = script.replace('asterisk:asterisk', '65534:65534')
+    for _ in range(2):
+        result = subprocess.run(['setpriv', '--bounding-set=-all,+chown,+dac_override,+setuid,+setgid',
+                                 'sh', '-c', script], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        for name in ('pjsip.conf', 'ari.conf'):
+            path = target / name
+            assert path.read_text() == 'synthetic private config'
+            assert path.stat().st_mode & 0o777 == 0o600
+            assert path.stat().st_uid == 65534 and path.stat().st_gid == 65534

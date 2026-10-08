@@ -482,3 +482,7 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 - 修复 SIP 派发意图提交后与停止请求并发的窗口：立即保存停止状态、发送前刷新派发记录；查询保留挂断回执。新增跨事务停止与停止后查询回归。
 
 本轮验证：SIP 派发、标准贷款会话、租户政策及派发门禁四组回归 67 项通过，Ruff 通过。此轮未重跑全库测试，未执行真实 Asterisk/RTP 或 PostgreSQL 并发验收，无新增数据库迁移。
+
+### Asterisk 启动权限修复（2026-10-08）
+
+设备联调发现 `install: cannot change permissions ... Operation not permitted`：`install -o/-g -m` 在交接所有权后修改模式，受容器最小能力限制。启动脚本改为 root 创建并设置 0600，然后单独 chown 给 asterisk；保留现有 Compose 能力和非 root 服务运行。拉取修复后须 `up --build -d --force-recreate`，无需重新生成配置或修改凭据。实验室回归 27 项通过；新增能力回归因本环境仅映射 UID/GID 0 跳过，Docker 启动仍需设备验证。
