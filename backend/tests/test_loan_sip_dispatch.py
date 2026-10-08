@@ -250,3 +250,41 @@ def test_policy_change_blocks_prepared_dispatch_and_schedules_stop(client, lab):
     assert work(client, queued['job']['id'])['state'] == 'blocked'
     assert DatabaseWorker(client.app.state.Session, worker_id='stop-policy').run_once()
     assert not lab
+
+
+def test_stop_between_committed_intent_and_send_prevents_origination(client, lab, monkeypatch):
+    _, queued = reserve(client)
+    original_lock = loan_sip_dispatch.lock_policy_scope
+    locks = 0
+
+    def stop_before_reacquiring(db, tenant):
+        nonlocal locks
+        locks += 1
+        if locks == 2:
+            response = client.post(BASE + f"/sip-dispatches/{queued['dispatch']['id']}/stop", headers=H,
+                                   json={'request_key': 'race-stop', 'acknowledged': True})
+            assert response.status_code == 202
+            assert response.json()['dispatch']['state'] == 'stop_requested'
+        return original_lock(db, tenant)
+
+    monkeypatch.setattr(loan_sip_dispatch, 'lock_policy_scope', stop_before_reacquiring)
+    result = work(client, queued['job']['id'])
+    assert result['state'] == 'stop_requested'
+    assert not lab
+    assert DatabaseWorker(client.app.state.Session, worker_id='race-stop').run_once()
+    assert [request.method for request in lab] == ['DELETE']
+
+
+def test_query_after_stop_cannot_reopen_or_originate(client, lab):
+    _, queued = reserve(client)
+    result = work(client, queued['job']['id'])
+    stopped = client.post(BASE + f"/sip-dispatches/{result['id']}/stop", headers=H,
+                          json={'request_key': 'stop-query', 'acknowledged': True}).json()
+    assert stopped['dispatch']['state'] == 'stop_requested'
+    work(client, stopped['job']['id'])
+    query = client.post(BASE + f"/sip-dispatches/{result['id']}/reconcile", headers=H,
+                        json={'request_key': 'query-stop', 'acknowledged': True}).json()
+    result = work(client, query['job']['id'])
+    assert result['state'] == 'stop_requested'
+    assert result['observation']['hangup_state'] == 'unknown'
+    assert [request.method for request in lab] == ['POST', 'DELETE', 'GET']

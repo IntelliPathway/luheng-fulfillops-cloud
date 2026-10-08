@@ -134,6 +134,8 @@ def queue_sip_stops(db, context, revision, *, session_id=None, case_id=None):
             dispatch.state = "blocked"
             dispatch.observation = {"blockers": ["资料、政策或会话状态变化，测试已停止"],
                                     "external_request_sent": False}
+        elif dispatch.state != "blocked":
+            dispatch.state = "stop_requested"
 
 
 @router.get("/overview")
@@ -353,6 +355,8 @@ def stop_sip(dispatch_id: str, payload: SipLookupPayload, context: Context, db: 
     if row.state == "prepared":
         row.state = "blocked"
         row.observation = {"blockers": ["管理员已停止测试派发"], "external_request_sent": False}
+    elif row.state != "blocked":
+        row.state = "stop_requested"
     audit(db, context, "loan.sip_echo.stop_requested", "loan_sip_dispatch", row.id,
           {"mode": "internal_sip_echo", "job_id": job.id})
     db.commit()

@@ -204,3 +204,7 @@ SIP 实验室支持 `hangup --request-key` 仅挂断日志关联的本实例通�
 派发门禁检查通过 dispatch-check API 排队，独立 Worker 处理，结果从既有 jobs API 读取。succeeded 表示检查处理成功；需另看 gate_passed/blockers，provider_ready 始终 false。重复同会话版本返回旧任务，不能把结果作为实时授权。无数据库迁移、前端更新或真实外呼启用。
 
 固定分机派发通过 sip-echo API 进入 Worker。上线前应用 037，并在隔离测试主机绑定 SIP_LAB_TENANT_ID。未知结果使用 reconcile 查询原请求，禁止删除记录/改实例/换请求键重拨。stop 对未发送记录立即阻断，对已发送记录排队请求挂断；保留测试配额和原始意图。60 秒回声与异步 stop 均不证明客户联系/音频/身份验收。
+
+### 停止请求与派发并发
+
+停止 API 及政策、资料、会话变化触发的停止任务，会在同一事务立即持久化 `stop_requested`（未发起的 `prepared` 仍变为 `blocked`）。Worker 在派发意图提交后、重新取得租户与案件锁时刷新派发记录；若状态已变化，禁止原始 POST。已经开始的请求按锁顺序完成，再由停止任务 DELETE 原固定通道。查询保留停止回执，不恢复派发资格，也不将 404 当成音频验收证据。

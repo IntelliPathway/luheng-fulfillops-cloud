@@ -145,6 +145,9 @@ def dispatch_job(db, job):
         db.commit()  # Durable intent before I/O: a recovered job can only GET.
         lock_policy_scope(db, job.tenant_id)
         lock_case(db, job.tenant_id, session.case_id)
+        db.refresh(row)
+        if row.state != "dispatching":
+            return dispatch_view(row)
         db.refresh(session)
         db.refresh(job)
         blockers = execution_blockers(db, session, row.authorized_by, row.session_version)
@@ -156,7 +159,7 @@ def dispatch_job(db, job):
             return dispatch_view(row)
     # Hold scope locks through bounded local I/O, so policy/protection changes
     # serialize before or after this fixed-extension request; no debtor data leaves.
-    observation = {"channel_state": "unknown", "retry_allowed": False}
+    observation = {**(row.observation or {}), "channel_state": "unknown", "retry_allowed": False}
     with http_client(config) as client:
         try:
             if send:
