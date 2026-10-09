@@ -187,3 +187,32 @@ def test_cli_never_prints_provider_exception_or_key(enabled, monkeypatch, capsys
     output = capsys.readouterr().out
     assert KEY not in output and 'provider body' not in output
     assert json.loads(output)['error'] == 'voice_probe_unavailable_or_failed'
+
+
+def test_subscription_key_rejected_before_network_client_or_clock():
+    def forbidden(*args, **kwargs):
+        pytest.fail('subscription key must be rejected before any service activity')
+
+    key = 'sk-sp-SYNTHETIC_ONLY_' + 'x' * 32
+    with pytest.raises(ProbeError, match='^subscription_key_not_supported$'):
+        VoiceProbe(key, ws_factory=forbidden, clock=forbidden)
+
+
+@pytest.mark.parametrize('key_source', ['environment', 'prompt'])
+def test_cli_subscription_key_never_calls_services_or_discloses_key(enabled, monkeypatch, capsys, key_source):
+    key = 'sk-sp-SYNTHETIC_ONLY_' + 'x' * 32
+    monkeypatch.setenv('ENABLE_SIP_LAB_VOICE_TEST', 'true')
+    monkeypatch.setattr('sys.argv', ['voice-probe', '--acknowledged'])
+    if key_source == 'environment':
+        monkeypatch.setenv('DASHSCOPE_API_KEY', key)
+        monkeypatch.setattr('getpass.getpass', lambda _: pytest.fail('must use injected credential'))
+    else:
+        monkeypatch.setattr('getpass.getpass', lambda _: key)
+    monkeypatch.setattr(VoiceProbe, 'run', lambda _: pytest.fail('must not call service chain'))
+    assert main() == 2
+    output = capsys.readouterr().out
+    assert key not in output
+    result = json.loads(output)
+    assert result['error'] == 'subscription_key_not_supported'
+    assert result['completed_stages'] == [] and result['failed_stage'] is None
+    assert result['service_chain_completed'] is False and result['phone_audio_verified'] is False

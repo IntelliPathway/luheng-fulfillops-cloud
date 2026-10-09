@@ -35,6 +35,10 @@ def websocket(key, timeout):
 
 class VoiceProbe:
     def __init__(self, key, *, ws_factory=websocket, client=None, clock=time.monotonic, sleep=time.sleep):
+        # This probe uses fixed pay-as-you-go endpoints, not subscription endpoints.
+        # Both Token Plan and Coding Plan use sk-sp- keys; never send one here.
+        if isinstance(key, str) and key.startswith('sk-sp-'):
+            raise ProbeError('subscription_key_not_supported')
         self.key, self.ws_factory, self.clock, self.sleep = key, ws_factory, clock, sleep
         self.deadline = clock() + 60
         self.client = client
@@ -199,7 +203,7 @@ class VoiceProbe:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='北京百炼合成语音链路测试：最多4次服务调用，会产生费用。')
+    parser = argparse.ArgumentParser(description='北京百炼按量付费合成语音链路测试：最多4次服务调用，不支持套餐 Key。')
     parser.add_argument('--acknowledged', action='store_true')
     args = parser.parse_args()
     probe = None
@@ -207,7 +211,7 @@ def main():
         LabConfig.from_environment()
         if not args.acknowledged or os.getenv('ENABLE_SIP_LAB_VOICE_TEST') != 'true':
             raise ProbeError('synthetic_paid_probe_not_enabled')
-        key = os.getenv('DASHSCOPE_API_KEY') or getpass.getpass('百炼北京 API Key（不回显，不保存）：')
+        key = os.getenv('DASHSCOPE_API_KEY') or getpass.getpass('百炼北京按量付费 API Key（不支持套餐 Key；不回显，不保存）：')
         if not re.fullmatch(r'[A-Za-z0-9_-]{20,256}', key):
             raise ProbeError('invalid_api_key_format')
         probe = VoiceProbe(key)

@@ -163,7 +163,9 @@ python -m pip install -r requirements.txt
 ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
 ```
 
-在本机不回显提示中输入有相应模型权限的**百炼北京地域** API Key，勿粘贴到聊天或写进 generated 配置。若已通过秘密注入设置 `DASHSCOPE_API_KEY`，探针使用该变量。WS/HTTPS 仅访问固定北京端点，不接受 URL 覆盖，不使用环境代理或重定向。合成音频只留内存，输出仅模型名、阶段耗时、样本数及回复摘要，不保存录音、原文、API Key 或服务端错误正文。
+在本机不回显提示中输入有相应模型权限的**百炼北京地域按量付费** API Key，勿粘贴到聊天或写进 generated 配置。若已通过秘密注入设置 `DASHSCOPE_API_KEY`，探针使用该变量。WS/HTTPS 仅访问固定北京端点，不接受 URL 覆盖，不使用环境代理或重定向。合成音频只留内存，输出仅模型名、阶段耗时、样本数及回复摘要，不保存录音、原文、API Key 或服务端错误正文。
+
+此探针不使用 Token Plan 或 Coding Plan 额度：输入 `sk-sp-` 开头的套餐 Key 将在任何服务调用前以 `subscription_key_not_supported` 退出，`completed_stages=[]`。不能把套餐 Key 填入 `DASHSCOPE_API_KEY`，也不能通过改 URL 将现有 Fun-ASR/CosyVoice WebSocket 协议视为已适配套餐语音接口。套餐的模型、端点与使用范围见下节。
 
 退出 0 且 `service_chain_completed=true`、`asr_phrase_matched=true` 表示本次云服务短句链路完成。`phone_audio_verified=false`、`business_ready=false` 始终保留。失败输出 `failed_stage` 和固定 `error`（例如短句不匹配、响应超限或网络不可用）；`completed_stages` 指此前已经完成的阶段。
 
@@ -180,6 +182,43 @@ ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
 当前探针按阶段完成后串行调用 LLM，阶段耗时包含连接与完整输出，不是首 token 延迟或手机端到端延迟。两项快速验证通过后仍需把电话媒体和云服务适配器连接起来。后续用至少 30 轮固定合成对话记录“用户停说到首段回复”的 P50/P95、关键数字/日期/否定句、打断和停止效果；建议 P95≤2 秒作为初始调优目标，尚非实测结果或 SLA。
 
 本轮后端完整回归 435 项通过、3 项跳过（2 项 PostgreSQL、1 项容器 UID/GID 能力）；新增媒体桥与云探针 37 项通过，Ruff、Compose YAML 与构建路径检查通过。实际本机 UDP socket 音频往返已验证，ARI 与云模型服务用模拟协议响应验证；无 Docker 运行或真实云 Key，未声称设备桥接、收费模型或完整电话 AI 通过。
+
+## 千问 Token Plan 个人版：交互式模型验证（2026-10-09）
+
+操作者已开通 Token Plan 个人版。当前官方条款允许在编程和智能体工具中交互式使用，明确不允许自动化脚本、自定义应用程序后端或非交互式批量调用。因此个人版 Key 不接入本项目 FastAPI、模型宿主、语音探针或电话媒体服务。先通过官方列出的 Cherry Studio、Chatbox 或其他支持的交互式工具验证模型回复；这不是电话链路接通或产品连接测试。
+
+在本机工具的 OpenAI 兼容服务商配置中填写下表；Key 只在本机凭证配置中输入，不进入公开仓库、聊天、业务浏览器或诊断输出。
+
+| 配置 | 值 |
+|---|---|
+| 协议 | OpenAI 兼容 |
+| Base URL | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` |
+| API Key | 我的订阅中生成的个人版套餐 Key，前缀 `sk-sp-` |
+| 首个对照模型 | `qwen3.8-flash` |
+| 第二个对照模型 | `qwen3.8-max` |
+
+不用 `auto` 做固定模型对照；模型别名可能由服务商升级，手工记录调用日期、控制台显示的实际模型、工具版本和是否开启思考。不使用已被自动路由替换的 `qwen3.8-max-preview` 作为独立模型。这里只核对了官方可用模型列表，尚未验证本账号权限或实际服务响应。
+
+两模型使用独立的新会话、相同系统提示，并逐条手工输入相同合成语句：
+
+```text
+你是内部语音测试助手。只交流语音测试，复述测试数字和日期，不索取私人资料。
+只输出 JSON，只有 reply（最多60字）和 end（布尔值）两个字段。
+仅在用户明确要求结束时 end=true，不输出 Markdown 或思考过程。
+```
+
+| 手工输入 | 检查 |
+|---|---|
+| 今天是语音链路测试，请确认。 | 有效 JSON、简短确认、end=false |
+| 请复述测试数字一二三四，以及测试日期十月九日。 | 数字和日期无遗漏、不改写 |
+| 我不是要结束，请继续测试。 | 正确理解否定、end=false |
+| 测试结束，请停止。 | end=true |
+
+记录 JSON/语义通过情况、工具显示的首响应与总耗时（工具不提供则标记未测）、输出 token 和控制台 Credits 用量。不把人工计时称作服务端首 token、P95、ASR/TTS 或手机端到端延迟。个人版的数据使用授权与按量付费不同；此处仅使用合成输入，不发送客户事实、录音或密钥。
+
+电话 ASR→LLM→TTS 后端联调使用适用的百炼按量付费 API、对应地域和模型权限，走上节的现有独立探针；套餐交互式模型验证不改变活动模型组合的连接、报告或启用状态。团队版也不自动视为自建 SaaS/电话服务授权，接入前另核对使用范围。
+
+官方依据（核对日期 2026-10-09）：[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[个人版 Key/端点及工具](https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start)、[套餐和按量付费端点隔离](https://help.aliyun.com/zh/model-studio/token-plan-team-quickstart)。本轮仅验证套餐 Key 的零外部调用拦截及既有合成协议回归，未调用真实套餐、未进行电话模型联调。
 
 ## Mac Studio 本地模型与电话对话（1003）
 
