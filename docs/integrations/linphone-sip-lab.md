@@ -216,7 +216,7 @@ HTTP仅使用固定套餐HTTPS端点，禁用环境代理和重定向，连接�
 | 配置 | 值 |
 |---|---|
 | 协议 | OpenAI 兼容 |
-| Base URL | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` |
+| Base URL | `https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1` |
 | API Key | 我的订阅中生成的个人版套餐 Key，前缀 `sk-sp-` |
 | 首个对照模型 | `qwen3.8-flash` |
 | 第二个对照模型 | `qwen3.8-max` |
@@ -242,7 +242,9 @@ HTTP仅使用固定套餐HTTPS端点，禁用环境代理和重定向，连接�
 
 现有电话 ASR→LLM→TTS 云探针仍使用百炼按量付费 API、对应地域和模型权限。Token Plan 的 ASR/TTS 接口尚未适配；独立 LLM 实验不改变活动模型组合的连接、报告或启用状态。
 
-官方依据（核对日期 2026-10-09）：[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[个人版 Key/端点及工具](https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start)、[结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[关闭思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[套餐和按量付费端点隔离](https://help.aliyun.com/zh/model-studio/token-plan-team-quickstart)。软件测试使用合成 Key/模拟 HTTP 响应；未调用真实套餐、未进行电话模型联调。
+实际 HTTP 地址由上述 Base URL 追加一次 `/chat/completions`：`https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions`。2026-10-09 根据操作者控制台地址修正，并以千问AI平台当前文档核对；API Key 仍在本机不回显提示中输入，不能填写这段 URL。
+
+官方依据（核对日期 2026-10-09）：[千问AI平台当前套餐端点与 Chatbox 配置](https://platform.qianwenai.com/docs/developer-guides/clients-and-developer-tools/chatbox)、[千问AI平台套餐端点](https://platform.qianwenai.com/docs/token-plan/team/token-plan-team-quickstart)、[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[关闭思考](https://help.aliyun.com/zh/model-studio/deep-thinking)。软件测试使用合成 Key/模拟 HTTP 响应；未调用真实套餐、未进行电话模型联调。
 
 ## Mac Studio 本地模型与电话对话（1003）
 

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app import sip_lab_qwen_probe as module
-from app.sip_lab_qwen_probe import CASES, CHAT, KEY_ENV, MODELS, QwenProbeError, QwenTokenProbe, main
+from app.sip_lab_qwen_probe import CASES, KEY_ENV, MODELS, QwenProbeError, QwenTokenProbe, main
 
 KEY = "sk-sp-SYNTHETIC_TEST_ONLY_" + "x" * 24
 
@@ -36,7 +36,7 @@ def test_two_model_suite_uses_exact_subscription_endpoint_and_synthetic_cases():
 
     def handle(request):
         requests.append(request)
-        assert str(request.url) == CHAT
+        assert str(request.url) == "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions"
         assert request.method == "POST"
         assert request.headers["Authorization"] == "Bearer " + KEY
         payload = json.loads(request.content)
@@ -185,6 +185,7 @@ def test_status_never_prompts_or_calls_provider(monkeypatch, capsys):
     output = capsys.readouterr().out
     data = json.loads(output)
     assert data["credential_state"] == "configured" and data["external_calls"] == 0
+    assert data["endpoint"] == "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions"
     assert data["llm_verified"] is False and KEY not in output
 
 

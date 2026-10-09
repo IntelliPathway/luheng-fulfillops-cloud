@@ -14,7 +14,8 @@ import httpx
 
 from .sip_lab_voice import VoiceError, validate_reply
 
-CHAT = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+BASE_URL = "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1"
+CHAT = BASE_URL + "/chat/completions"
 MODELS = ("qwen3.8-flash", "qwen3.8-max")
 KEY_ENV = "QWEN_TOKEN_PLAN_API_KEY"
 KEY_PATTERN = re.compile(r"sk-sp-[A-Za-z0-9_-]{14,250}")
