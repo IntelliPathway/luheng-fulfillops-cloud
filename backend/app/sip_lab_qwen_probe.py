@@ -18,7 +18,7 @@ BASE_URL = "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1"
 CHAT = BASE_URL + "/chat/completions"
 MODELS = ("qwen3.8-flash", "qwen3.8-max")
 KEY_ENV = "QWEN_TOKEN_PLAN_API_KEY"
-KEY_PATTERN = re.compile(r"sk-sp-[A-Za-z0-9_-]{14,250}")
+MAX_KEY_LENGTH = 1024
 SYSTEM = (
     "你是内部语音测试助手。只交流语音测试，复述测试数字和日期，不索取私人资料。"
     "只输出 JSON，只有 reply（最多60字）和 end（布尔值）两个字段。"
@@ -43,15 +43,45 @@ class QwenProbeError(RuntimeError):
     pass
 
 
-def credential_state():
-    key = os.getenv(KEY_ENV, "")
-    return "configured" if KEY_PATTERN.fullmatch(key) else "invalid" if key else "missing"
+def normalize_key(value):
+    if not isinstance(value, str):
+        raise QwenProbeError("credential_missing")
+    key = value.strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in {"'", '"'}:
+        key = key[1:-1].strip()
+    if not key:
+        raise QwenProbeError("credential_missing")
+    if len(key) > MAX_KEY_LENGTH:
+        raise QwenProbeError("credential_too_long")
+    if key.lower().startswith(("https://", "http://")):
+        raise QwenProbeError("credential_is_url")
+    if key.lower().startswith("bearer "):
+        raise QwenProbeError("credential_is_authorization_header")
+    if "*" in key or key in {"YOUR_API_KEY", "your_api_key", "sk-sp-xxxxx"} or "…" in key or "..." in key:
+        raise QwenProbeError("credential_is_masked_or_placeholder")
+    if not key.isascii():
+        raise QwenProbeError("credential_contains_non_ascii")
+    if any(character.isspace() or ord(character) < 33 or ord(character) == 127 for character in key):
+        raise QwenProbeError("credential_contains_whitespace_or_control")
+    return key
 
 
-def status():
+def credential_state(key):
+    try:
+        normalize_key(key)
+        return "configured"
+    except QwenProbeError as exc:
+        return "missing" if str(exc) == "credential_missing" else "invalid"
+
+
+def status(key=None, source=None):
+    if key is None:
+        key = os.getenv(KEY_ENV, "")
+        source = "environment" if key else "none"
     return {
         "mode": "qwen_token_plan_llm_probe",
-        "credential_state": credential_state(),
+        "credential_state": credential_state(key),
+        "credential_source": source,
         "endpoint": CHAT,
         "models": list(MODELS),
         "external_calls": 0,
@@ -65,9 +95,8 @@ class QwenTokenProbe:
     def __init__(self, key, *, transport=None, clock=time.monotonic):
         if os.getenv("APP_ENV") == "production":
             raise QwenProbeError("production_probe_disabled")
-        if not isinstance(key, str) or not KEY_PATTERN.fullmatch(key):
-            raise QwenProbeError("invalid_token_plan_key")
-        self.key, self.transport, self.clock = key, transport, clock
+        self.key, self.transport, self.clock = normalize_key(key), transport, clock
+        self.credential_source = "direct"
         self.results = []
         self.external_calls = 0
         self.request_state = "not_sent"
@@ -187,6 +216,8 @@ class QwenTokenProbe:
     def report(self, passed, error=None):
         return {
             "mode": "qwen_token_plan_llm_probe",
+            "credential_state": "configured",
+            "credential_source": self.credential_source,
             "llm_verified": passed,
             "endpoint": CHAT,
             "results": self.results,
@@ -216,17 +247,20 @@ def main():
         print(json.dumps(status(), ensure_ascii=False))
         return 0
     probe = None
+    key = os.getenv(KEY_ENV, "")
+    source = "environment" if key else "none"
     try:
         if not args.acknowledged:
             raise QwenProbeError("probe_acknowledgement_required")
         if os.getenv("APP_ENV") == "production":
             raise QwenProbeError("production_probe_disabled")
-        key = os.getenv(KEY_ENV, "")
         if not key:
             if not sys.stdin.isatty():
                 raise QwenProbeError("credential_missing_use_local_prompt")
-            key = getpass.getpass("Token Plan API Key（不回显、不保存）：")
+            source = "local_prompt"
+            key = getpass.getpass("Token Plan 完整 API Key（不是 Base URL；不回显、不保存）：")
         probe = QwenTokenProbe(key)
+        probe.credential_source = source
         models = (args.model, *(model for model in MODELS if model != args.model)) if args.compare else (args.model,)
         cases = tuple(CASES) if args.suite else ("confirm",)
         result = probe.run(models, cases)
@@ -243,7 +277,13 @@ def main():
         result = (
             probe.report(False, error)
             if probe
-            else {**status(), "error": error, "results": [], "request_state": "not_sent", "retry_performed": False}
+            else {
+                **status(key, source),
+                "error": error,
+                "results": [],
+                "request_state": "not_sent",
+                "retry_performed": False,
+            }
         )
         print(json.dumps(result, ensure_ascii=False))
         return 2

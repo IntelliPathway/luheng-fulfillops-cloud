@@ -198,6 +198,10 @@ python -m app.sip_lab_qwen_probe probe --acknowledged
 
 `status` 仅查看是否配置凭证，不推理、不查询余额。默认 `probe` 调用一次 `qwen3.8-flash`；Key 在本机提示中不回显输入、不写文件。已有秘密注入可使用独立 `QWEN_TOKEN_PLAN_API_KEY`；不读取 `DASHSCOPE_API_KEY`，不把 Key 写入命令参数。无需 SIP generated 配置或 Mac 模型权重。当前执行环境没有操作者 Key，真实请求由操作者在 Mac 上执行。
 
+凭证校验不以固定前缀、最短长度或字母数字格式替代 Provider 鉴权：保留完整的不透明 Key，去掉复制时的首尾空白和成对外层引号，只阻断空值、URL、脱敏/示例文本、内部空白/控制字符、非ASCII字符及超过1024字符的输入。结果显示 `credential_source=local_prompt|environment|none|direct`；提示框输入不会再被误报为环境变量missing，configured只表示可发送，不能证明鉴权成功。
+
+旧版 `invalid_token_plan_key`、`external_calls=0` 是本地格式阻断，不是千问拒绝。更新后 `credential_is_url` 表示把 Base URL 填成了 Key；`credential_is_masked_or_placeholder` 表示复制了掩码/示例；`credential_contains_whitespace_or_control` 表示 Key 中间有空白或控制字符。输入完整套餐 Key，不能输入本文 URL、Bearer头或工作台显示的脱敏值。若来源为environment且该变量有误，可在本机 `unset QWEN_TOKEN_PLAN_API_KEY` 后重新使用不回显提示；不要共享完整Key。真正401对应 `authentication_failed`，请求状态为rejected，才是远端鉴权失败。
+
 Flash 成功后可运行一次两模型对照（两次请求），或四条语句对照（最多八次请求）：
 
 ```bash

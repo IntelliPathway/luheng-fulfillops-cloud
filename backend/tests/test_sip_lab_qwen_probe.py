@@ -224,7 +224,9 @@ def test_cli_local_hidden_prompt_and_default_single_model(monkeypatch, capsys):
     assert main() == 0
     output = capsys.readouterr().out
     assert KEY not in output and len(requests) == 1
-    assert json.loads(output)["llm_verified"] is True
+    result = json.loads(output)
+    assert result["llm_verified"] is True
+    assert result["credential_source"] == "local_prompt" and result["credential_state"] == "configured"
 
 
 def test_cli_exception_does_not_expose_key_and_production_never_prompts(monkeypatch, capsys):
@@ -244,3 +246,75 @@ def test_cli_exception_does_not_expose_key_and_production_never_prompts(monkeypa
     assert json.loads(capsys.readouterr().out)["error"] == "production_probe_disabled"
     with pytest.raises(QwenProbeError, match="production_probe_disabled"):
         QwenTokenProbe(KEY)
+
+
+@pytest.mark.parametrize("copied", ["  " + KEY + "\n", '"' + KEY + '"', "'" + KEY + "'"])
+def test_copied_key_is_normalized_before_fixed_endpoint_authentication(copied):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.headers["Authorization"] == "Bearer " + KEY
+        assert str(request.url) == module.CHAT
+        return response()
+
+    result = QwenTokenProbe(copied, transport=httpx.MockTransport(handle)).run((MODELS[0],), ("confirm",))
+    assert result["llm_verified"] and len(requests) == 1
+    assert KEY not in json.dumps(result)
+
+
+def test_provider_authenticates_opaque_key_without_client_prefix_or_length_assumptions():
+    key = "SYNTHETIC+opaque/token=="
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.headers["Authorization"] == "Bearer " + key
+        assert str(request.url) == module.CHAT
+        return httpx.Response(401, json={"error": {"message": key}})
+
+    probe = QwenTokenProbe(key, transport=httpx.MockTransport(handle))
+    with pytest.raises(QwenProbeError, match="authentication_failed"):
+        probe.run((MODELS[0],), ("confirm",))
+    assert len(requests) == 1 and probe.request_state == "rejected"
+    assert key not in json.dumps(probe.report(False, "authentication_failed"))
+
+
+@pytest.mark.parametrize(
+    "key,error",
+    [
+        ("", "credential_missing"),
+        ("  ", "credential_missing"),
+        (module.BASE_URL, "credential_is_url"),
+        ("sk-sp-****", "credential_is_masked_or_placeholder"),
+        ("YOUR_API_KEY", "credential_is_masked_or_placeholder"),
+        (KEY + " inside", "credential_contains_whitespace_or_control"),
+        (KEY + "\0", "credential_contains_whitespace_or_control"),
+        ("Bearer " + KEY, "credential_is_authorization_header"),
+        ("中文", "credential_contains_non_ascii"),
+        ("x" * 1025, "credential_too_long"),
+    ],
+)
+def test_invalid_prompt_has_precise_source_and_zero_service_requests(key, error, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["qwen-probe", "probe", "--acknowledged"])
+    monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(module.getpass, "getpass", lambda _: key)
+    monkeypatch.setattr(QwenTokenProbe, "run", lambda *args: pytest.fail("unexpected request"))
+    assert main() == 2
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["credential_source"] == "local_prompt"
+    assert result["credential_state"] == ("missing" if error == "credential_missing" else "invalid")
+    assert result["error"] == error and result["request_state"] == "not_sent" and result["external_calls"] == 0
+    assert KEY not in output
+
+
+def test_invalid_environment_key_reports_environment_source(monkeypatch, capsys):
+    monkeypatch.setenv(KEY_ENV, KEY + " inside")
+    monkeypatch.setattr("sys.argv", ["qwen-probe", "probe", "--acknowledged"])
+    monkeypatch.setattr(module.getpass, "getpass", lambda _: pytest.fail("must not replace configured credential"))
+    assert main() == 2
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["credential_source"] == "environment" and result["credential_state"] == "invalid"
+    assert result["external_calls"] == 0 and KEY not in output
