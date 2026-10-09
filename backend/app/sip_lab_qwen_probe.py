@@ -104,6 +104,11 @@ class QwenTokenProbe:
         self.active_case = None
 
     def call(self, model, case_id):
+        result, _, _ = self._call_reply(model, case_id)
+        return result
+
+    def _call_reply(self, model, case_id):
+        """Return validated text in memory for the fixed synthetic voice probe only."""
         if model not in MODELS or case_id not in CASES:
             raise QwenProbeError("invalid_probe_selection")
         if self.external_calls >= 8:
@@ -194,7 +199,7 @@ class QwenTokenProbe:
             "tested_at": datetime.now(UTC).isoformat(),
         }
         self.results.append(result)
-        return result
+        return result, reply, end
 
     def run(self, models, cases):
         if (

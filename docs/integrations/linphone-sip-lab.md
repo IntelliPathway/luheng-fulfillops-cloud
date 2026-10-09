@@ -244,11 +244,46 @@ HTTP仅使用固定套餐HTTPS端点，禁用环境代理和重定向，连接�
 
 记录 JSON/语义通过情况、工具显示的首响应与总耗时（工具不提供则标记未测）、输出 token 和控制台 Credits 用量。不把人工计时称作服务端首 token、P95、ASR/TTS 或手机端到端延迟。个人版的数据使用授权与按量付费不同；此处仅使用合成输入，不发送客户事实、录音或密钥。
 
-现有电话 ASR→LLM→TTS 云探针仍使用百炼按量付费 API、对应地域和模型权限。Token Plan 的 ASR/TTS 接口尚未适配；独立 LLM 实验不改变活动模型组合的连接、报告或启用状态。
+现有 `app.sip_lab_voice_probe` 仍使用百炼按量付费 API、对应地域和模型权限，继续拒绝套餐 Key。下节新增套餐专属语音探针；两个入口不互换 Key，不改变活动模型组合的连接、报告或启用状态。
 
 实际 HTTP 地址由上述 Base URL 追加一次 `/chat/completions`：`https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions`。2026-10-09 根据操作者控制台地址修正，并以千问AI平台当前文档核对；API Key 仍在本机不回显提示中输入，不能填写这段 URL。
 
-官方依据（核对日期 2026-10-09）：[千问AI平台当前套餐端点与 Chatbox 配置](https://platform.qianwenai.com/docs/developer-guides/clients-and-developer-tools/chatbox)、[千问AI平台套餐端点](https://platform.qianwenai.com/docs/token-plan/team/token-plan-team-quickstart)、[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[关闭思考](https://help.aliyun.com/zh/model-studio/deep-thinking)。软件测试使用合成 Key/模拟 HTTP 响应；未调用真实套餐、未进行电话模型联调。
+官方依据（核对日期 2026-10-09）：[千问AI平台当前套餐端点与 Chatbox 配置](https://platform.qianwenai.com/docs/developer-guides/clients-and-developer-tools/chatbox)、[千问AI平台套餐端点](https://platform.qianwenai.com/docs/token-plan/team/token-plan-team-quickstart)、[个人版概述与使用范围](https://platform.qianwenai.com/docs/token-plan/personal/token-plan-personal-overview)、[结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[关闭思考](https://help.aliyun.com/zh/model-studio/deep-thinking)。软件测试使用合成 Key/模拟 HTTP 响应；真实 LLM 结果见下方操作者回传记录，不等于电话模型联调。
+
+### 操作者回传的真实 LLM 结果与套餐语音验证
+
+2026-10-09 23:42（Asia/Shanghai），操作者回传本机真实套餐请求的脱敏 JSON：Flash/Max 各四场景均通过，8 次请求完成且无重试。数据来源为操作者报告，开发环境未持有真实 Key、未独立重放；不提交原始凭据或服务响应。
+
+| 模型 | 确认/数字日期/否定结束/明确结束 | 平均完整响应 | 范围 | 总输出 token |
+|---|---|---|---|---|
+| qwen3.8-flash | 4/4 | 1155 ms | 952–1292 ms | 116 |
+| qwen3.8-max | 4/4 | 1311 ms | 1083–1493 ms | 73 |
+
+仅一轮、每场景一次；没有首 token、稳定 P95、语音可懂度或手机端到端测量。Flash 作为下一轮合成链路候选，Max 保留对照，未自动写入管理员已启用的模型组合。
+
+新增 `app.sip_lab_qwen_voice_probe`，不依赖 SIP generated 配置或 MLX 权重。固定路径：TTS 生成“今天是语音链路测试，请确认。” → ASR 去标点后精确匹配 → 已验证的 Flash 固定合成请求 → TTS 合成有效 JSON 中的回复。识别不符时在 LLM 前停止，不发送任意录音/识别文本；不连接手机、案件或账务。
+
+| 环节 | 固定模型/端点 |
+|---|---|
+| TTS | qwen-audio-3.0-tts-plus；longanhuan_v3.6；PCM S16LE 单声道 8 kHz；wss://token-plan.maas.qianwenaiapi.com/api-ws/v1/inference |
+| ASR | qwen-audio-3.0-asr-flash；内存 WAV Base64 Data URI；https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation |
+| LLM | qwen3.8-flash；原固定 /compatible-mode/v1/chat/completions；关闭思考、非流式、最多128输出 token |
+
+在已安装 `backend/requirements.txt` 的后端环境、`backend` 目录执行：
+
+```bash
+git pull --ff-only
+python -m app.sip_lab_qwen_voice_probe status
+python -m app.sip_lab_qwen_voice_probe probe --acknowledged --play
+```
+
+输入同一个完整套餐 Key，不回显、不保存；也可复用独立 `QWEN_TOKEN_PLAN_API_KEY`，不读取 `DASHSCOPE_API_KEY`。Mac 的 `--play` 播放最终合成回复；仅显式播放时写入 0600 临时 WAV，完成/异常后删除。不需要听音时去掉 `--play`；非 Mac 在外部请求前拒绝该播放参数。播放完成只证明播放器进程成功，不代表人已听见或电话音频通过。
+
+成功应包含 `service_chain_completed=true`、`asr_phrase_matched=true`、`asr_verified/llm_verified/tts_verified=true`、`external_calls=4` 和依次完成的 source_tts/asr/llm/reply_tts；使用 `--play` 后正常为 `playback_state=completed`。报告每段耗时、TTS 首音包、样本数与 LLM token/digest，不输出 Key、原文、音频或 Provider 错误正文。总耗时包括生成测试源、非流式 ASR/LLM 与全部回复生成，排除播放、电话端点等待和 RTP；不能称为客户说完话至听见回复的延迟。
+
+每次最多四次模型调用，各 TTS 最多10秒 PCM；事件与 HTTP 响应有大小/次数限制，阶段检查120秒预算，连接/关闭/系统调度可能增加退出时间。未知结果、拒绝或识别不符立即停止，不自动重试、不切换模型或计费通道。失败贴回 `active_stage`、`completed_stages`、`request_state`、`external_calls` 与 `error` 即可；HTTP 401/403/429 单独区分，WS task-failed 保留固定脱敏错误。语音模型实际套餐权限仍由本次真实请求验证；LLM 权限通过不能推定语音权限。
+
+官方依据（2026-10-09）：[套餐个人版模型清单](https://platform.qianwenai.com/docs/token-plan/personal/token-plan-personal-overview)、[套餐语音合成及专属 WebSocket](https://platform.qianwenai.com/docs/token-plan/best-practices/multimodal-generation)、[ASR HTTP/Data URI 协议](https://platform.qianwenai.com/docs/api-reference/speech-recognition/fun-asr-flash/http-api)。本轮软件验证含可控合成 Provider 和真实本机 WebSocket 二进制往返，不包含真实 ASR/TTS 推理。电话桥尚未使用此套餐适配器；先回传合成测试 JSON 和人工听音结果，再进行独立电话接入验收。
 
 ## Mac Studio 本地模型与电话对话（1003）
 

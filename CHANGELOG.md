@@ -2,6 +2,8 @@
 
 ## v5.0.0
 
+2026-10-09 套餐语音验证入口：记录操作者回传的 Flash/Max 各四场景真实 LLM 通过结果；新增独立 qwen_token_plan_voice_probe，以固定套餐 WebSocket TTS、HTTP WAV Data URI ASR、Flash JSON 回复及回复 TTS 完成四调用合成验证。提供 Mac 显式听音、私有临时 WAV 自动清理、逐阶段耗时/首音包、部分失败与未知结果诊断；不重试、不切换计费通道、不改变电话/活动就绪状态。既有按量付费套餐 Key 拒绝规则保持不变。语音/LLM/媒体专项141项（含真实本机 WebSocket 合成音频往返）、文档契约3项与Ruff通过；本环境无真实Key，实际套餐ASR/TTS及手机对话仍待本机验证。
+
 2026-10-09 千问凭证输入修复：操作者遇到本地 invalid_token_plan_key 且零外部请求。移除客户端对Key前缀/最短长度/字符集的鉴权假设，处理复制时首尾空白与成对引号；URL、掩码、内部空白/控制字符等给出具体错误。报告实际凭证来源，提示框输入不再误报environment missing；仍仅请求固定套餐端点，不输出Key、不重试。LLM/云探针74项、文档契约3项和Ruff检查通过；真实鉴权与推理由Provider返回验证。
 
 2026-10-09 千问端点修正：根据操作者提供的控制台地址及千问AI平台当前文档，独立LLM探针改用 token-plan.maas.qianwenaiapi.com/compatible-mode/v1，并追加一次 /chat/completions。更新请求/诊断回归和接入文档；LLM/云探针59项、文档契约3项与Ruff/格式检查通过，status实际输出新端点。实际API Key仍由本机提示输入，未调用真实套餐。
