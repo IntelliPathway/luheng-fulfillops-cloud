@@ -185,7 +185,31 @@ ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
 
 ## 千问 Token Plan 个人版：交互式模型验证（2026-10-09）
 
-操作者已开通 Token Plan 个人版。当前官方条款允许在编程和智能体工具中交互式使用，明确不允许自动化脚本、自定义应用程序后端或非交互式批量调用。因此个人版 Key 不接入本项目 FastAPI、模型宿主、语音探针或电话媒体服务。先通过官方列出的 Cherry Studio、Chatbox 或其他支持的交互式工具验证模型回复；这不是电话链路接通或产品连接测试。
+操作者已开通 Token Plan 个人版，了解官方使用范围后明确授权先做本人非商业合成测试。新增独立本机 `app.sip_lab_qwen_probe`，使用套餐专属端点测试 LLM，不接入本项目 FastAPI、模型宿主、电话媒体或租户活动。官方条款的工具使用范围并未因此变化；这次试验不代表服务商批准应用后端使用。也可使用官方列出的 Cherry Studio、Chatbox 做下述手工对照。
+
+在已安装现有 backend/requirements.txt 的后端虚拟环境中，从仓库根目录执行：
+
+```bash
+git pull --ff-only
+cd backend
+python -m app.sip_lab_qwen_probe status
+python -m app.sip_lab_qwen_probe probe --acknowledged
+```
+
+`status` 仅查看是否配置凭证，不推理、不查询余额。默认 `probe` 调用一次 `qwen3.8-flash`；Key 在本机提示中不回显输入、不写文件。已有秘密注入可使用独立 `QWEN_TOKEN_PLAN_API_KEY`；不读取 `DASHSCOPE_API_KEY`，不把 Key 写入命令参数。无需 SIP generated 配置或 Mac 模型权重。当前执行环境没有操作者 Key，真实请求由操作者在 Mac 上执行。
+
+Flash 成功后可运行一次两模型对照（两次请求），或四条语句对照（最多八次请求）：
+
+```bash
+python -m app.sip_lab_qwen_probe probe --compare --acknowledged
+python -m app.sip_lab_qwen_probe probe --compare --suite --acknowledged
+```
+
+`--model qwen3.8-max` 可只测 Max。两模型均关闭思考，JSON Object 模式，最多128输出 token；不接受任意 URL、模型、提示或文件，不切换至按量付费。每请求仅一个独立测试句，不携带历史对话。`--suite` 验证确认、原样复述 `1234`/`10月9日`、否定结束和明确结束；结果输出 requested/reported model、UTC时间、完整响应耗时、token用量、回复长度/digest和end，不输出Key、回复原文或服务商错误正文。
+
+退出0、`llm_verified=true` 表示所选测试句通过结构/指定内容/end校验；不是全面语义准确率。失败立即停止后续请求，无重试：401为 `authentication_failed`，403为 `model_or_plan_denied`，429为 `quota_or_rate_limited`，超时或网络错误保留 `request_state=unknown`。请求数包含已尝试但未确认完成的请求；有失败时不自动重新运行整个对照。
+
+HTTP仅使用固定套餐HTTPS端点，禁用环境代理和重定向，连接超时5秒、读写超时10秒；响应读取期间检查30秒耗时预算与64KiB大小上限，系统调度与阻塞读取可能增加退出时间。`APP_ENV=production` 拒绝执行。`elapsed_ms` 包含连接与完整非流式响应；`first_token_ms=null`，不声称首token、P95或电话延迟。缺少服务商模型名/用量时报告null，不补造；Credits以套餐控制台实际用量为准，`billing_verified=false`。`phone_audio_verified`、`service_chain_completed`、`business_ready`始终false。
 
 在本机工具的 OpenAI 兼容服务商配置中填写下表；Key 只在本机凭证配置中输入，不进入公开仓库、聊天、业务浏览器或诊断输出。
 
@@ -216,9 +240,9 @@ ENABLE_SIP_LAB_VOICE_TEST=true python -m app.sip_lab_voice_probe --acknowledged
 
 记录 JSON/语义通过情况、工具显示的首响应与总耗时（工具不提供则标记未测）、输出 token 和控制台 Credits 用量。不把人工计时称作服务端首 token、P95、ASR/TTS 或手机端到端延迟。个人版的数据使用授权与按量付费不同；此处仅使用合成输入，不发送客户事实、录音或密钥。
 
-电话 ASR→LLM→TTS 后端联调使用适用的百炼按量付费 API、对应地域和模型权限，走上节的现有独立探针；套餐交互式模型验证不改变活动模型组合的连接、报告或启用状态。团队版也不自动视为自建 SaaS/电话服务授权，接入前另核对使用范围。
+现有电话 ASR→LLM→TTS 云探针仍使用百炼按量付费 API、对应地域和模型权限。Token Plan 的 ASR/TTS 接口尚未适配；独立 LLM 实验不改变活动模型组合的连接、报告或启用状态。
 
-官方依据（核对日期 2026-10-09）：[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[个人版 Key/端点及工具](https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start)、[套餐和按量付费端点隔离](https://help.aliyun.com/zh/model-studio/token-plan-team-quickstart)。本轮仅验证套餐 Key 的零外部调用拦截及既有合成协议回归，未调用真实套餐、未进行电话模型联调。
+官方依据（核对日期 2026-10-09）：[个人版概述与使用范围](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)、[个人版 Key/端点及工具](https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start)、[结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[关闭思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[套餐和按量付费端点隔离](https://help.aliyun.com/zh/model-studio/token-plan-team-quickstart)。软件测试使用合成 Key/模拟 HTTP 响应；未调用真实套餐、未进行电话模型联调。
 
 ## Mac Studio 本地模型与电话对话（1003）
 

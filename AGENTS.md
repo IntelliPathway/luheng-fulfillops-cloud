@@ -135,3 +135,5 @@ The optional Mac loopback model host manages only its own child, cached reviewed
 
 
 User chose to keep the current product UI after the UX review. Preserve existing navigation, layout and interaction; focus subsequent iterations on local backend/Mac model integration and independently verified phone media. Read-only model diagnostics must never drain, load, infer, download or terminate processes, nor change stored approvals. Treat current host status, synthetic benchmark and actual phone/device acceptance as distinct evidence. Keep private tokens and raw host responses out of browser diagnostics.
+
+On 2026-10-09 the user explicitly authorized personal, noncommercial Token Plan model testing after being informed of the subscription usage restrictions. Provide a separate local CLI using the fixed Token Plan endpoint and reviewed Qwen3.8 aliases with bounded synthetic inputs, hidden credential entry and no automatic retries or billing-plan fallback. This experiment does not enable tenant activities, customer calling, phone media or production model use. Keep the pay-as-you-go voice probe's subscription-key mismatch guard.

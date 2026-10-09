@@ -201,7 +201,7 @@ Linphone 电话链路联调：[Asterisk + Linphone SIP 实验室](docs/integrati
 
 模型组合已接入 **AI 与渠道接入**：管理员选择 ASR / LLM / TTS、检查连接、运行单环节对照并查看实际延迟与权重版本，启用后运营可在 **AI 智能催收工作台** 的活动详情绑定和验证。当前验证范围为内部合成语句；Mac 模型宿主、电话媒体和真实业务验收分别记录。接入步骤见 [Linphone SIP 实验室](docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。
 
-千问 Token Plan 个人版用于支持工具中的交互式模型对照，不用于本项目电话后端。现有云语音探针使用百炼按量付费 API，并在服务调用前拒绝套餐 Key；端点配置与合成测试语句见 [个人版模型验证](docs/integrations/linphone-sip-lab.md#千问-token-plan-个人版交互式模型验证2026-10-09)。
+千问 Token Plan 独立 LLM 测试入口：在 backend 中执行 `python -m app.sip_lab_qwen_probe probe --acknowledged`，本机不回显输入套餐Key，默认仅一次 Flash 合成请求；`--compare` 对照 Flash/Max，`--suite` 校验数字、日期、否定和结束意图。按操作者授权用于本人非商业测试，无实际Key仍待实测，不接电话或租户活动。现有完整云语音探针继续使用按量付费 API；详见 [个人版模型验证](docs/integrations/linphone-sip-lab.md#千问-token-plan-个人版交互式模型验证2026-10-09)。
 
 
 本地模型联调新增管理员只读宿主状态、检查时间和 Mac 启动前 `doctor`。沿用现有页面布局与刷新入口；诊断不加载模型或中断电话。详见 [SIP/模型接入指南](docs/integrations/linphone-sip-lab.md#宿主当前状态与-mac-启动前检查2026-10-08)。
