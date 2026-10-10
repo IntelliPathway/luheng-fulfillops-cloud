@@ -549,3 +549,9 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 - 操作者回传18092宿主doctor及真实四阶段合成探针通过（7820 ms、四次调用，无错误）；媒体构建随后卡在Docker Hub的python:3.12-slim元数据Bad Gateway，电话尚未验收。
 - 补齐media.Dockerfile中的千问握手模块COPY，以及对应dockerignore精确白名单。新增隔离进程回归，仅从实际镜像COPY清单取文件，核对白名单，验证Provider握手和音频回执；删除依赖时明确失败，不能从完整仓库偷用模块。不引入FastAPI/MLX或额外镜像依赖。
 - 更新指南：先单独拉取基础镜像，确认既有Asterisk为Up后使用 `--no-deps` 仅重建media。媒体/千问/镜像专项58项、文档/部署四项及Ruff通过；本环境无Docker，不声称实际镜像构建或OrbStack路由通过，未重跑全库。
+
+### 媒体镜像本机缓存构建入口（2026-10-10）
+
+- 操作者构建仍在Docker Hub元数据HEAD返回Bad Gateway。新增stdlib脚本，先检查本机基础镜像，只暂时对构建子进程禁用BuildKit并关闭pull；精确打包十个媒体模块及Dockerfile，拒绝额外COPY/符号链接，完成或失败清理临时上下文，无自动拉取、重试或镜像来源切换。pip安装仍需PyPI。
+- Compose固定 `sip-lab-media:latest`，指南以 `--no-build --pull never --no-deps` 启动脚本产物。提供缓存缺失、工具不可用和构建失败固定诊断，不改变宿主、SIP凭据或页面。
+- 媒体/千问/缓存构建专项64项、文档/部署四项及Ruff通过；Docker命令由测试替身验证，真实隔离模块导入和本机媒体协议回归通过。本环境无Docker，实际OrbStack构建、电话路由及听音仍待操作者执行；旧构建器为已弃用的临时联调路径，未重跑全库。

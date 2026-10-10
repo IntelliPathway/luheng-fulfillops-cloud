@@ -4,7 +4,7 @@
 
 最新联调：操作者确认旧8092被OrbStack占用并返回空响应；旧ready在绑定前发出，已修复。宿主/doctor/probe/媒体客户端统一迁移到18092，输入Key前先保留端口，只有真实开始监听才输出 `host_listening=true`。使用同一 `backend/.venv` 更新依赖、重启宿主并执行doctor/probe；电话测试前重建media客户端。保留OrbStack、SIP凭据与业务边界；真实云电话尚待验收。具体排障表见SIP指南。
 
-最新设备进展：操作者回传18092宿主doctor与真实四阶段合成探针通过（7820 ms、四次云调用，无错误）；媒体镜像尚因Docker Hub基础镜像元数据Bad Gateway未构建。已补齐media镜像千问模块COPY及dockerignore白名单，并验证隔离镜像文件的握手/音频回执。当前步骤为单独拉取python:3.12-slim、在已运行asterisk条件下仅重建media，再做手机听音；云宿主成功不代替Docker或电话验收。
+最新设备进展：操作者回传18092宿主doctor与真实四阶段合成探针通过（7820 ms、四次云调用，无错误）；媒体镜像仍因Docker Hub基础镜像元数据Bad Gateway未构建。已补齐media镜像千问模块COPY及dockerignore白名单，并验证隔离镜像文件的握手/音频回执。新增临时缓存构建脚本：检查本机python:3.12-slim，以最小上下文调用旧构建器，再让Compose `--no-build --pull never` 启动明确的本机媒体镜像；不修改全局设置，pip仍需PyPI网络。缓存构建/媒体/千问64项及文档/部署四项通过，本环境无Docker，实际构建与手机听音待执行；云宿主成功不代替Docker或电话验收。具体命令与失败诊断见SIP指南。
 
 云验证安排：操作者回传真实套餐LLM四场景与合成语音链路通过，后者6714 ms含测试源生成，排除电话和播放。`app.sip_lab_qwen_voice serve`复用已验证的ASR/Flash/TTS，在Mac只持有内存Key，以独立token连接1003；`SIP_LAB_MEDIA_MODE=qwen`显式选择，原MLX voice与默认echo保留。ASR音频仅为本人测试，LLM只收到固定合成句/上下文，未接客户资料或业务动作。开发环境没有真实Key，软件验证不冒充云电话验收；按量付费Key保护、活动组合批准和业务就绪保持原状。启动与验收步骤见 [SIP/模型指南](integrations/linphone-sip-lab.md#千问套餐接入手机测试2026-10-10)。
 

@@ -360,6 +360,31 @@ docker compose --env-file deploy/sip-lab/generated/compose.env \
 
 媒体镜像修复验证：媒体/千问/隔离镜像专项58项通过，文档/部署四项和Ruff通过；隔离用例同时覆盖完整COPY依赖成功和缺失模块时不回退仓库导入。开发环境无Docker运行，未重跑全库；构建、容器路由和手机听音继续由操作者联调。
 
+#### 单独拉取后构建仍请求元数据并报502
+
+操作者随后回传同一Docker Hub元数据Bad Gateway；仅拉取基础镜像的步骤未解除阻塞。新增临时缓存构建脚本，先检查当前Docker daemon中已有 `python:3.12-slim`，仅在构建子进程中设置 `DOCKER_BUILDKIT=0` 并使用 `--pull=false`。只把实际Dockerfile和十个已列出的媒体模块放入临时上下文，拒绝额外COPY、缺失源文件或源符号链接，完成/失败后删除；不把仓库配置、凭据或虚拟环境发送给构建器。不要直接从仓库根目录执行旧构建器，根dockerignore与媒体专用白名单不同。
+
+终端A保持运行；在终端B、仓库根目录执行下列两步。第一步只有输出 `build_state=completed` 后才能执行第二步。已有asterisk须为Up；这条路径只替换media，不重建asterisk：
+
+```bash
+git pull --ff-only
+python3 scripts/sip-lab-media-local-build.py
+```
+
+```bash
+SIP_LAB_MEDIA_ACKNOWLEDGED=true SIP_LAB_MEDIA_MODE=qwen \
+SIP_LAB_QWEN_VOICE_ACKNOWLEDGED=true docker compose \
+  --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media \
+  up --no-deps --no-build --pull never -d --force-recreate media
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media logs -f media
+```
+
+Compose显式使用 `sip-lab-media:latest`，配合 `--no-build --pull never` 复用脚本产物，不再次触发BuildKit。`local_base_missing_or_docker_unavailable` 表示缓存检查失败，先运行 `docker image inspect python:3.12-slim` 区分基础镜像缺失和daemon/context故障；镜像缺失仍须成功执行 `docker pull python:3.12-slim`，脚本不会自动拉取、重试或更换镜像来源。`local_media_build_failed` 时看其前面的Docker输出：旧构建器不可用或PyPI安装失败均不能视为成功。这不是完整离线构建，pip仍需访问PyPI。
+
+此为联调临时路径，Docker已弃用Linux旧构建器；不修改全局Docker/OrbStack设置，网络恢复后可继续使用上面的正常构建命令。官方依据：[旧构建器及DOCKER_BUILDKIT](https://docs.docker.com/reference/cli/docker/image/build/)、[Compose启动参数](https://docs.docker.com/reference/cli/docker/compose/up/)。缓存构建/媒体/千问专项64项、文档/部署四项与Ruff通过，覆盖缓存缺失不构建、失败不重试、临时上下文清理和固定诊断；Docker进程由测试替身验证，本环境无Docker，实际OrbStack构建与手机听音仍待执行。
+
 等 `awaiting_linphone_1003`，应显示 `cloud_models_enabled=true`、`local_models_enabled=false`。使用已注册的1001账号拨1003，先用耳机：
 
 | 操作 | 应检查 |
