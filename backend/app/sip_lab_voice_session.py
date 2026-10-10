@@ -44,6 +44,8 @@ class VoiceMediaSession(MediaSession):
             super().close()
 
     def summary(self):
-        return {**super().summary(), **self.voice.summary(), 'mode': 'local_voice_lab',
-                'voice_session_failed': self.failed, 'cloud_provider_calls': 0,
+        cloud = getattr(self.voice, 'expected_provider', None) == 'qwen_token_plan'
+        return {**super().summary(), 'cloud_provider_calls': 0, **self.voice.summary(),
+                'mode': 'qwen_token_plan_voice_lab' if cloud else 'local_voice_lab',
+                'voice_session_failed': self.failed,
                 'ai_dialogue_ready': False, 'business_ready': False}

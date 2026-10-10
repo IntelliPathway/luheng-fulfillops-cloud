@@ -229,7 +229,8 @@ def prepare_session(client, journal, phone, gateway_ip, session_factory=MediaSes
     return session_factory((gateway_ip, port), time.monotonic(), int.from_bytes(os.urandom(4)))
 
 
-def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1002', session_factory=MediaSession):
+def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1002', session_factory=MediaSession,
+             voice_provider='local'):
     active_phone = None
     session = None
     for phone in journal.unfinished():
@@ -238,7 +239,8 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1
     if extension not in {'1002', '1003'}:
         raise BridgeError('invalid_lab_extension')
     voice = extension == '1003'
-    print(json.dumps({'event': 'awaiting_linphone_' + extension, 'local_models_enabled': voice,
+    print(json.dumps({'event': 'awaiting_linphone_' + extension, 'local_models_enabled': voice and voice_provider == 'local',
+                      'cloud_models_enabled': voice and voice_provider == 'qwen_token_plan',
                       'model_calls_enabled': voice, 'business_ready': False}), flush=True)
     try:
         while not stopping():
@@ -331,6 +333,33 @@ def load_container_config():
     return config
 
 
+def voice_factory(mode):
+    if mode == 'echo':
+        return MediaSession, '1002'
+    if mode not in {'voice', 'qwen'}:
+        raise BridgeError('invalid_media_mode')
+    from .sip_lab_voice import QWEN_CONTAINER_URL, TOKEN, LocalVoiceClient
+    from .sip_lab_voice_session import VoiceMediaSession
+    cloud = mode == 'qwen'
+    acknowledged = 'SIP_LAB_QWEN_VOICE_ACKNOWLEDGED' if cloud else 'SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED'
+    if os.getenv(acknowledged) != 'true':
+        raise BridgeError('qwen_voice_acknowledgement_required' if cloud else 'local_voice_acknowledgement_required')
+    name = 'qwen-voice.env' if cloud else 'local-voice.env'
+    prefix = 'export SIP_LAB_QWEN_VOICE_TOKEN=' if cloud else 'export SIP_LAB_LOCAL_VOICE_TOKEN='
+    # Only the private host connection token is mounted; no Provider API key is read here.
+    lines = Path('/run/sip-lab/' + name).read_text().splitlines()
+    values = [line.removeprefix(prefix) for line in lines if line.startswith(prefix)]
+    if len(values) != 1 or not TOKEN.fullmatch(values[0]):
+        raise BridgeError('invalid_voice_connection_config')
+    token = values[0]
+
+    def factory(peer, now, source):
+        client = LocalVoiceClient(token, url=QWEN_CONTAINER_URL, expected_provider='qwen_token_plan') if cloud else None
+        return VoiceMediaSession(peer, now, source, token, client=client)
+
+    return factory, '1003'
+
+
 def main():
     from websockets.sync.client import connect
 
@@ -345,24 +374,7 @@ def main():
     signal.signal(signal.SIGINT, stop)
     try:
         mode = os.getenv('SIP_LAB_MEDIA_MODE', 'echo')
-        if mode not in {'echo', 'voice'}:
-            raise BridgeError('invalid_media_mode')
-        factory, extension = MediaSession, '1002'
-        if mode == 'voice':
-            from .sip_lab_voice import TOKEN
-            from .sip_lab_voice_session import VoiceMediaSession
-            if os.getenv('SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED') != 'true':
-                raise BridgeError('local_voice_acknowledgement_required')
-            # Read before dropping root: generated credentials are owner-only mounted files.
-            lines = Path('/run/sip-lab/local-voice.env').read_text().splitlines()
-            values = [line.removeprefix('export SIP_LAB_LOCAL_VOICE_TOKEN=') for line in lines
-                      if line.startswith('export SIP_LAB_LOCAL_VOICE_TOKEN=')]
-            if len(values) != 1 or not TOKEN.fullmatch(values[0]):
-                raise BridgeError('invalid_local_voice_config')
-            token = values[0]
-            def factory(peer, now, source):
-                return VoiceMediaSession(peer, now, source, token)
-            extension = '1003'
+        factory, extension = voice_factory(mode)
         config = load_container_config()
         gateway_ip = socket.gethostbyname('asterisk')
         journal = ResourceJournal('/var/lib/media-lab/calls.db', config.instance)
@@ -378,7 +390,8 @@ def main():
                     with connect(EVENTS, additional_headers={'Authorization': 'Basic ' + authorization},
                                  proxy=None, open_timeout=3, close_timeout=2, max_size=65536, max_queue=16) as events:
                         run_loop(client, events, udp, journal, gateway_ip, lambda: stopped,
-                                 extension=extension, session_factory=factory)
+                                 extension=extension, session_factory=factory,
+                                 voice_provider='qwen_token_plan' if mode == 'qwen' else 'local')
                     return 0
                 except (OSError, TimeoutError):
                     if journal.unfinished() or time.monotonic() >= deadline:

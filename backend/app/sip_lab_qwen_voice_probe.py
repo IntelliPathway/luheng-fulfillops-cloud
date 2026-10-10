@@ -28,6 +28,7 @@ from .sip_lab_qwen_probe import (
     credential_state,
     normalize_key,
 )
+from .sip_lab_voice import connect_without_redirects
 
 WS = "wss://token-plan.maas.qianwenaiapi.com/api-ws/v1/inference"
 ASR_URL = "https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation"
@@ -41,9 +42,7 @@ PHRASE = CASES["confirm"][0]
 
 @contextmanager
 def websocket(key, timeout):
-    from websockets.sync.client import connect
-
-    with connect(
+    with connect_without_redirects(
         WS,
         additional_headers={"Authorization": "Bearer " + key},
         proxy=None,

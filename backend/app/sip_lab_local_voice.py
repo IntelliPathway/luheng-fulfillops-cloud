@@ -254,7 +254,7 @@ def execute_turn(engine, kind, pcm, history, cancel, emit, clock=time.monotonic)
             '_history': [{'role': 'user', 'content': text}, {'role': 'assistant', 'content': reply}] if text else []}
 
 
-def create_app(engine, token):
+def create_app(engine, token, *, turn_executor=None):
     from fastapi import FastAPI, WebSocket
     from starlette.websockets import WebSocketDisconnect
 
@@ -262,6 +262,7 @@ def create_app(engine, token):
     if not TOKEN.fullmatch(token):
         raise VoiceError('invalid_local_voice_token')
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    executor = turn_executor or execute_turn
     gate = threading.Lock()
     draining = threading.Event()
 
@@ -276,8 +277,11 @@ def create_app(engine, token):
     @app.get('/lab/status')
     def local_status(request: Request):
         authorize(request)
-        return {'warmed': engine.warmed, 'busy': gate.locked(), 'draining': draining.is_set(),
+        result = {'warmed': engine.warmed, 'busy': gate.locked(), 'draining': draining.is_set(),
                 'configuration': getattr(engine, 'configuration', None), 'business_ready': False}
+        if hasattr(engine, 'lab_provider'):
+            result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False)
+        return result
 
     @app.post('/lab/drain')
     def drain(request: Request):
@@ -314,8 +318,11 @@ def create_app(engine, token):
         until = time.monotonic() + 65
 
         def run(kind, pcm):
+            turn_deadline = time.monotonic() + 20
             def emit(audio):
                 while not cancel.is_set():
+                    if time.monotonic() >= turn_deadline:
+                        raise VoiceError('turn_deadline_exceeded')
                     try:
                         outgoing.put(audio, timeout=0.05)
                         return
@@ -323,12 +330,14 @@ def create_app(engine, token):
                         pass
                 raise VoiceCancelled('turn_cancelled')
             try:
-                outcome['complete'] = execute_turn(engine, kind, pcm, history, cancel, emit)
+                outcome['complete'] = executor(engine, kind, pcm, history, cancel, emit)
             except VoiceCancelled:
                 outcome['cancelled'] = True
-            except Exception:
+            except Exception as exc:
                 # Do not retain model text, audio, exception bodies or paths in diagnostics.
                 outcome['error'] = True
+                if hasattr(engine, 'record_error'):
+                    engine.record_error(exc)
 
         def launch(kind, pcm):
             nonlocal worker
@@ -339,6 +348,9 @@ def create_app(engine, token):
 
         try:
             await ws.accept()
+            if hasattr(engine, 'lab_provider'):
+                engine.begin_session()
+                await ws.send_json({'kind': 'ready', 'provider': engine.lab_provider})
             receive = asyncio.create_task(ws.receive())
             while time.monotonic() < until:
                 done, _ = await asyncio.wait([receive], timeout=0.01)
@@ -365,7 +377,10 @@ def create_app(engine, token):
                             cancel.set()
                             if waiting:
                                 waiting = None
-                                await ws.send_json({'kind': 'cancelled', 'turn': active})
+                                event = {'kind': 'cancelled', 'turn': active}
+                                if hasattr(engine, 'diagnostics'):
+                                    event.update(engine.diagnostics())
+                                await ws.send_json(event)
                                 active = None
                         else:
                             if active or turns >= 8 or set(command) != {'kind', 'turn', 'samples'}:
@@ -402,6 +417,8 @@ def create_app(engine, token):
                         event = {'kind': 'complete', 'turn': active, **complete}
                         if hasattr(engine, 'configuration'):
                             event['configuration'] = engine.configuration
+                    if hasattr(engine, 'diagnostics'):
+                        event.update(engine.diagnostics())
                     await ws.send_json(event)
                     worker = None
                     active = None

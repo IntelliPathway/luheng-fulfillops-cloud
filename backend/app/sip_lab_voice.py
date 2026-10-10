@@ -18,6 +18,8 @@ MODELS = {
 }
 CONTAINER_URL = 'ws://host.docker.internal:8090/lab/voice'
 HOST_URL = 'ws://127.0.0.1:8090/lab/voice'
+QWEN_HOST_URL = 'ws://127.0.0.1:8092/lab/voice'
+QWEN_CONTAINER_URL = 'ws://host.docker.internal:8092/lab/voice'
 PHRASE = '今天是语音链路测试'
 GREETING = '这里是本地语音测试，请说一句测试短句。说结束测试即可结束。'
 TOKEN = re.compile(r'[a-f0-9]{64}\Z')
@@ -30,6 +32,17 @@ class VoiceError(RuntimeError):
 
 class VoiceCancelled(VoiceError):
     pass
+
+
+def connect_without_redirects(url, **kwargs):
+    from websockets.sync.client import reconnect
+
+    class FixedDestination(reconnect):
+        def process_redirect(self, exc):
+            return exc
+
+    # Context-manager entry connects once. Never iterate the reconnect object.
+    return FixedDestination(url, **kwargs)
 
 
 def local_token():
@@ -108,10 +121,18 @@ class Utterance:
 class LocalVoiceClient:
     """One WS, one remote job, latest turn only. Reader never blocks the RTP scheduler."""
     def __init__(self, token, *, url=CONTAINER_URL, connect=None, clock=time.monotonic,
-                 expected_config_digest=None, expected_revisions=None):
-        if not TOKEN.fullmatch(token) or url not in {CONTAINER_URL, HOST_URL}:
+                 expected_config_digest=None, expected_revisions=None, expected_provider=None):
+        cloud = expected_provider == 'qwen_token_plan'
+        destinations = {QWEN_HOST_URL, QWEN_CONTAINER_URL} if cloud else {CONTAINER_URL, HOST_URL}
+        if (not TOKEN.fullmatch(token) or url not in destinations or expected_provider not in {None, 'qwen_token_plan'}
+                or (cloud and (expected_config_digest is not None or expected_revisions is not None))):
             raise VoiceError('invalid_local_voice_destination')
         self.token, self.url, self.connect, self.clock = token, url, connect, clock
+        self.expected_provider = expected_provider
+        self.provider = None
+        self.cloud_provider_calls = 0
+        self.provider_request_state = 'not_sent'
+        self.provider_error = self.provider_active_stage = None
         if expected_config_digest is not None and not TOKEN.fullmatch(expected_config_digest):
             raise VoiceError('invalid_expected_configuration')
         self.expected_config_digest = expected_config_digest
@@ -180,13 +201,31 @@ class LocalVoiceClient:
 
     def summary(self):
         with self.lock:
-            return {'local_turns_submitted': self.submitted, 'local_turns_completed': self.completed,
+            result = {'local_turns_submitted': self.submitted, 'local_turns_completed': self.completed,
                     'interruptions': self.interruptions, 'local_voice_failed': self.failed,
                     'turn_metrics': list(self.metrics), 'configuration': self.configuration,
                     'local_voice_error': self.error_code}
+            if self.expected_provider:
+                result.update(provider=self.provider, cloud_provider_calls=self.cloud_provider_calls,
+                              provider_request_state=self.provider_request_state, provider_error=self.provider_error,
+                              provider_active_stage=self.provider_active_stage, provider_call_count_scope='last_host_event')
+            return result
+
+    def provider_event(self, event):
+        from .sip_lab_qwen_voice import MAX_CALLS, SAFE_ERRORS, validate_provider
+        provider = validate_provider(event.get('provider'))
+        count = event.get('cloud_provider_calls')
+        state, error, stage = (event.get(key) for key in (
+            'provider_request_state', 'provider_error', 'provider_active_stage'))
+        if (self.provider != provider or type(count) is not int or not self.cloud_provider_calls <= count <= MAX_CALLS
+                or state not in {'not_sent', 'unknown', 'completed', 'rejected'} or error not in SAFE_ERRORS | {None}
+                or stage not in {None, 'asr', 'llm', 'tts'}):
+            raise VoiceError('invalid_qwen_provider_event')
+        self.cloud_provider_calls, self.provider_request_state = count, state
+        self.provider_error, self.provider_active_stage = error, stage
 
     def _run(self):
-        from websockets.sync.client import connect as default_connect
+        default_connect = connect_without_redirects
         deadline = self.clock() + 65
         remote = None
         binary = None
@@ -195,6 +234,16 @@ class LocalVoiceClient:
             with (self.connect or default_connect)(self.url, additional_headers={
                     'Authorization': 'Bearer ' + self.token}, proxy=None, open_timeout=3,
                     close_timeout=1, max_size=65536, max_queue=8) as ws:
+                if self.expected_provider:
+                    from .sip_lab_qwen_voice import validate_provider
+                    raw = ws.recv(timeout=3)
+                    if not isinstance(raw, str) or len(raw) > 4096:
+                        raise VoiceError('invalid_qwen_provider_handshake')
+                    event = json.loads(raw)
+                    if not isinstance(event, dict) or set(event) != {'kind', 'provider'} or event['kind'] != 'ready':
+                        raise VoiceError('invalid_qwen_provider_handshake')
+                    with self.lock:
+                        self.provider = validate_provider(event['provider'])
                 while not self.stop.is_set() and self.clock() < deadline:
                     commands = []
                     with self.lock:
@@ -240,6 +289,8 @@ class LocalVoiceClient:
                         binary = event
                     elif kind in {'complete', 'cancelled', 'error'}:
                         with self.lock:
+                            if self.expected_provider:
+                                self.provider_event(event)
                             if kind == 'complete':
                                 configuration = event.get('configuration')
                                 if configuration is not None:
@@ -284,7 +335,9 @@ class LocalVoiceClient:
                 self.audio.clear()
                 self.error_code = str(exc) if isinstance(exc, VoiceError) and str(exc) in {
                     'local_voice_configuration_changed', 'local_voice_configuration_mismatch',
-                    'local_voice_revision_mismatch', 'invalid_service_configuration'} else 'local_voice_service_failed'
+                    'local_voice_revision_mismatch', 'invalid_service_configuration',
+                    'qwen_voice_provider_mismatch', 'invalid_qwen_provider_handshake',
+                    'invalid_qwen_provider_event'} else 'local_voice_service_failed'
 
 
 def bounded_ms(value):

@@ -283,7 +283,7 @@ def test_fixed_websocket_factory_does_not_use_proxy_or_other_billing_endpoint(mo
         calls.append((url, kwargs))
         yield object()
 
-    monkeypatch.setattr("websockets.sync.client.connect", connect)
+    monkeypatch.setattr(module, "connect_without_redirects", connect)
     with module.websocket(KEY, 10):
         pass
     assert calls[0][0] == "wss://token-plan.maas.qianwenaiapi.com/api-ws/v1/inference"

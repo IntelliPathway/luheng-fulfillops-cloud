@@ -283,7 +283,70 @@ python -m app.sip_lab_qwen_voice_probe probe --acknowledged --play
 
 每次最多四次模型调用，各 TTS 最多10秒 PCM；事件与 HTTP 响应有大小/次数限制，阶段检查120秒预算，连接/关闭/系统调度可能增加退出时间。未知结果、拒绝或识别不符立即停止，不自动重试、不切换模型或计费通道。失败贴回 `active_stage`、`completed_stages`、`request_state`、`external_calls` 与 `error` 即可；HTTP 401/403/429 单独区分，WS task-failed 保留固定脱敏错误。语音模型实际套餐权限仍由本次真实请求验证；LLM 权限通过不能推定语音权限。
 
-官方依据（2026-10-09）：[套餐个人版模型清单](https://platform.qianwenai.com/docs/token-plan/personal/token-plan-personal-overview)、[套餐语音合成及专属 WebSocket](https://platform.qianwenai.com/docs/token-plan/best-practices/multimodal-generation)、[ASR HTTP/Data URI 协议](https://platform.qianwenai.com/docs/api-reference/speech-recognition/fun-asr-flash/http-api)。本轮软件验证含可控合成 Provider 和真实本机 WebSocket 二进制往返，不包含真实 ASR/TTS 推理。电话桥尚未使用此套餐适配器；先回传合成测试 JSON 和人工听音结果，再进行独立电话接入验收。
+官方依据（2026-10-09）：[套餐个人版模型清单](https://platform.qianwenai.com/docs/token-plan/personal/token-plan-personal-overview)、[套餐语音合成及专属 WebSocket](https://platform.qianwenai.com/docs/token-plan/best-practices/multimodal-generation)、[ASR HTTP/Data URI 协议](https://platform.qianwenai.com/docs/api-reference/speech-recognition/fun-asr-flash/http-api)。合成探针的软件验证含可控 Provider 和真实本机 WebSocket 二进制往返。操作者后续真实 ASR/TTS 结果与新增电话入口见下节。
+
+### 千问套餐接入手机测试（2026-10-10）
+
+操作者回传 `qwen_token_plan_voice_probe`：四次真实调用完成，ASR/LLM/TTS 与短句核对均通过，`playback_state=completed`，无重试。总耗时6714 ms；source_tts 2491 ms（首音872 ms）、ASR 1058 ms、Flash 910 ms、reply_tts 2254 ms（首音787 ms）。来源为操作者运行结果，不是开发环境独立推理；播放器成功不代替人工听音，手机音频仍未验收。总耗时包含测试源合成；各阶段相加得到的约2755 ms ASR→回复首音包估计排除电话端点、传输和播放，不能当作真实手机延迟。
+
+新增 `app.sip_lab_qwen_voice serve`，只监听 `127.0.0.1:8092/lab/voice`，与原MLX宿主8090分开。复用同一媒体桥的固定1003分机，通过 `SIP_LAB_MEDIA_MODE=qwen` 选择套餐路径；默认仍为 echo，原 `voice` 模式仍连接MLX。1002程序回声不调用模型。Key通过Mac隐藏输入只留在进程内存，Docker仅读取独立0600的 `qwen-voice.env` 连接token；无Key文件、网页或案件数据。
+
+终端A，从仓库根目录开始；使用已安装 `backend/requirements.txt` 的后端虚拟环境，不需要MLX权重。已有SIP配置继续复用。执行后保持进程运行，在提示框输入此前已验证的同一个完整套餐Key：
+
+```bash
+git pull --ff-only
+python3 scripts/sip-lab-qwen-voice-config.py
+. deploy/sip-lab/generated/lab.env
+. deploy/sip-lab/generated/qwen-voice.env
+cd backend
+python -m app.sip_lab_qwen_voice serve --acknowledged
+```
+
+生成器复用既有合法0600文件，不替换SIP或MLX凭据；无效权限/内容、符号链接会报错。`qwen_voice_ready` 表示协议宿主配置完成，没有自动调用/预热模型，`provider_verified=false`；若端口已被占用，启动失败，不杀旧进程或接管8090/模型宿主。页面的已启用组合不会因本次启动而变化。
+
+终端B，从仓库根目录开始，激活同一后端环境；先运行宿主的合成自测，验证独立token、模型握手和真实云请求。不在命令中粘贴Key：
+
+```bash
+. deploy/sip-lab/generated/lab.env
+. deploy/sip-lab/generated/qwen-voice.env
+(cd backend && python -m app.sip_lab_qwen_voice probe --acknowledged)
+```
+
+应返回 `service_chain_completed=true`、`asr_phrase_matched=true`、`provider.kind=qwen_token_plan`、`cloud_provider_calls=4`。这次合成源/回复仍只在内存消费，不自动播放、不证明电话接通。`python -m app.sip_lab_qwen_voice status` 只输出静态配置、零云调用；它不验证宿主或套餐权限。
+
+挂断已有测试通话后，在终端B启动/更新媒体容器；既有资源journal保留，重启先清理旧同一资源，不盲目重拨：
+
+```bash
+SIP_LAB_MEDIA_ACKNOWLEDGED=true SIP_LAB_MEDIA_MODE=qwen \
+SIP_LAB_QWEN_VOICE_ACKNOWLEDGED=true docker compose \
+  --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media up --build -d --force-recreate media
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media logs -f media
+```
+
+等 `awaiting_linphone_1003`，应显示 `cloud_models_enabled=true`、`local_models_enabled=false`。使用已注册的1001账号拨1003，先用耳机：
+
+| 操作 | 应检查 |
+|---|---|
+| 接通 | 听到“这里是千问语音测试……” |
+| 说“今天是语音链路测试” | 听到模型测试确认 |
+| 说“请复述数字一二三四和日期十月九日” | 回复包含1234与10月9日；听音检查数字日期 |
+| 说“不要结束测试” | 回复后通话继续，不能被结束关键词误断 |
+| 回复播放时说“换一句测试短句” | 旧音频队列清空，旧轮次取消后才进入新轮次 |
+| 最后说“结束测试” | 确定性结束语完整播完后挂断，不经过LLM裁决 |
+
+每次通话最多60秒、含问候最多8轮、每句最多6秒。全部请求在每个独占会话内最多24次（包括取消/失败前已经尝试的请求），无重试、跨模型或计费通道回退。只把固定测试短句映射到已审查的合成LLM提示；其他语句回复固定范围提示，不发送其文本给LLM。ASR会收到本通测试音频，勿读客户资料。数字/日期允许上述固定汉字与阿拉伯数字形式；否定结束与结束分开精确匹配，不采用关键词包含来终止。
+
+ASR是句末HTTP识别，LLM为完整非流式JSON；TTS收到PCM即分块送给媒体播放队列，不再等待全部TTS生成。录音、转写与模型原文不保存，只有固定模型配置、调用计数、摘要和阶段耗时。内存保留最多四组已完成的合成问答，取消的未完成轮次不进入历史。Provider TTS流与HTTP响应有长度/时长上限；20秒轮次检查也覆盖输出队列等待。取消时立即清播放队列，TTS接收按50 ms检查取消并关闭旧连接；HTTP请求的同步连接/读取最多3秒检查一次，不能承诺即时撤回服务端已接受的请求。旧工作线程退出前继续持有独占门禁；不并发重启下一模型轮次。
+
+宿主先发送固定Provider握手，媒体端核对组合后才发送测试命令/音频，避免误连MLX或其他服务；每次完成/取消/失败重新核对Provider元数据。WebSocket与HTTP均不跟随重定向、不开启环境代理或自动重连。模型alias不是固定权重revision，服务商升级仍需重新验证。
+
+挂断后日志 `media_session_summary` 的 `mode=qwen_token_plan_voice_lab`，`local_turns_completed>0`、`local_voice_failed=false`、`provider.kind=qwen_token_plan`，并给出 `cloud_provider_calls`、`provider_request_state`、脱敏 `provider_error` 与 `interruptions`。计数依据最后宿主事件，不保证覆盖已断连但远端仍执行的请求，也不是账单。只有结合手机实际听音、回传、连续多轮、结束与打断检查，才能记录手机链路通过；`ai_dialogue_ready/business_ready` 不随技术测试自动变为true。失败不打印原文/Key/Provider错误正文。
+
+停止时先挂断并 `docker compose --env-file deploy/sip-lab/generated/compose.env -f deploy/sip-lab/compose.yml --profile media stop media`，再对终端A执行Ctrl+C。原1000回声、1002媒体回声、MLX配置/权重、活动批准和生产业务不改变。当前软件回归使用可控云协议响应，并验证真实本机WebSocket→UDP/PCMU；Docker Desktop→Mac路由、真实云手机多轮、听音与打断仍待操作者执行。
+
+本轮软件验证：完整后端645项通过、3项环境依赖跳过（两项PostgreSQL、一项容器UID/GID能力）；真实本机宿主合成探针→四阶段模型协议→UDP/PCMU增强用例单独通过。文档/部署契约四项与Ruff通过。恢复的测试环境中可选原生uvloop存在二进制兼容问题，完整回归使用Python asyncio与h11，不跳过任何语音用例；此结果不包含Mac GPU、Docker运行或真实套餐推理。
 
 ## Mac Studio 本地模型与电话对话（1003）
 
