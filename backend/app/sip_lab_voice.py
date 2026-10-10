@@ -35,7 +35,10 @@ class VoiceCancelled(VoiceError):
 
 
 def connect_without_redirects(url, **kwargs):
-    from websockets.sync.client import reconnect
+    try:
+        from websockets.sync.client import reconnect
+    except ImportError:
+        raise VoiceError('websocket_dependency_incompatible') from None
 
     class FixedDestination(reconnect):
         def process_redirect(self, exc):
@@ -133,6 +136,7 @@ class LocalVoiceClient:
         self.cloud_provider_calls = 0
         self.provider_request_state = 'not_sent'
         self.provider_error = self.provider_active_stage = None
+        self.connection_stage = 'not_started'
         if expected_config_digest is not None and not TOKEN.fullmatch(expected_config_digest):
             raise VoiceError('invalid_expected_configuration')
         self.expected_config_digest = expected_config_digest
@@ -208,7 +212,8 @@ class LocalVoiceClient:
             if self.expected_provider:
                 result.update(provider=self.provider, cloud_provider_calls=self.cloud_provider_calls,
                               provider_request_state=self.provider_request_state, provider_error=self.provider_error,
-                              provider_active_stage=self.provider_active_stage, provider_call_count_scope='last_host_event')
+                              provider_active_stage=self.provider_active_stage, provider_call_count_scope='last_host_event',
+                              host_connection_stage=self.connection_stage)
             return result
 
     def provider_event(self, event):
@@ -231,10 +236,12 @@ class LocalVoiceClient:
         binary = None
         cancelled = False
         try:
+            self.connection_stage = 'host_connect'
             with (self.connect or default_connect)(self.url, additional_headers={
                     'Authorization': 'Bearer ' + self.token}, proxy=None, open_timeout=3,
                     close_timeout=1, max_size=65536, max_queue=8) as ws:
                 if self.expected_provider:
+                    self.connection_stage = 'provider_handshake'
                     from .sip_lab_qwen_voice import validate_provider
                     raw = ws.recv(timeout=3)
                     if not isinstance(raw, str) or len(raw) > 4096:
@@ -244,6 +251,7 @@ class LocalVoiceClient:
                         raise VoiceError('invalid_qwen_provider_handshake')
                     with self.lock:
                         self.provider = validate_provider(event['provider'])
+                self.connection_stage = 'voice_turn'
                 while not self.stop.is_set() and self.clock() < deadline:
                     commands = []
                     with self.lock:
@@ -307,6 +315,9 @@ class LocalVoiceClient:
                                     raise VoiceError('local_voice_revision_mismatch')
                             if kind == 'error':
                                 self.failed = True
+                                self.audio.clear()
+                                if self.expected_provider:
+                                    self.error_code = self.provider_error or 'qwen_host_inference_failed'
                             elif kind == 'complete' and remote[0] == self.epoch:
                                 if type(event.get('end')) is not bool or not re.fullmatch(
                                         r'[a-f0-9]{64}', event.get('reply_digest', '')):
@@ -337,7 +348,22 @@ class LocalVoiceClient:
                     'local_voice_configuration_changed', 'local_voice_configuration_mismatch',
                     'local_voice_revision_mismatch', 'invalid_service_configuration',
                     'qwen_voice_provider_mismatch', 'invalid_qwen_provider_handshake',
-                    'invalid_qwen_provider_event'} else 'local_voice_service_failed'
+                    'invalid_qwen_provider_event', 'websocket_dependency_incompatible'} else 'local_voice_service_failed'
+                if self.expected_provider and self.error_code == 'local_voice_service_failed':
+                    from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
+                    if isinstance(exc, ConnectionRefusedError):
+                        self.error_code = 'qwen_host_connection_refused'
+                    elif isinstance(exc, TimeoutError):
+                        self.error_code = 'qwen_host_timeout'
+                    elif isinstance(exc, InvalidStatus):
+                        self.error_code = ('qwen_host_auth_or_session_denied' if exc.response.status_code == 403
+                                           else 'qwen_host_handshake_rejected')
+                    elif isinstance(exc, ConnectionClosed):
+                        self.error_code = 'qwen_host_connection_closed'
+                    elif isinstance(exc, InvalidHandshake):
+                        self.error_code = 'qwen_host_handshake_rejected'
+                    elif isinstance(exc, OSError):
+                        self.error_code = 'qwen_host_network_failed'
 
 
 def bounded_ms(value):

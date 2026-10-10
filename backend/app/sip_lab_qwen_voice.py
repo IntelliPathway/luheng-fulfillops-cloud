@@ -3,6 +3,7 @@
 import argparse
 import base64
 import getpass
+import importlib.metadata
 import json
 import os
 import re
@@ -81,6 +82,83 @@ SAFE_ERRORS = frozenset(
 GREETING = "这里是千问语音测试，请说固定测试短句。说结束测试即可结束。"
 SCOPE_REPLY = "这里只进行固定语音测试，请说今天是语音链路测试。"
 STOP_REPLY = "测试结束，再见。"
+
+
+class HostProbeError(VoiceError):
+    def __init__(self, code, diagnostics):
+        super().__init__(code)
+        self.diagnostics = diagnostics
+
+
+def websocket_dependencies():
+    version = None
+    try:
+        version = importlib.metadata.version("websockets")
+        from websockets.sync.client import reconnect
+
+        compatible = isinstance(reconnect, type) and callable(getattr(reconnect, "process_redirect", None))
+    except ImportError:
+        compatible = False
+    return {
+        "websockets_version": version
+        if isinstance(version, str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,30}", version)
+        else None,
+        "websockets_required": "17.2",
+        "websocket_no_redirect_api_available": compatible,
+    }
+
+
+def doctor_host(token, *, transport=None):
+    report = {
+        "mode": "qwen_voice_host_doctor",
+        "host": QWEN_HOST_URL,
+        **websocket_dependencies(),
+        "host_reachable": False,
+        "host_authenticated": False,
+        "host_ready": False,
+        "external_calls": 0,
+        "phone_audio_verified": False,
+        "business_ready": False,
+    }
+    try:
+        with httpx.Client(transport=transport, trust_env=False, follow_redirects=False, timeout=3) as client:
+            with client.stream(
+                "GET", "http://127.0.0.1:8092/lab/status", headers={"Authorization": "Bearer " + token}
+            ) as response:
+                report["host_reachable"] = True
+                if response.status_code != 200:
+                    raise VoiceError(
+                        "qwen_host_auth_failed" if response.status_code == 403 else "qwen_host_status_rejected"
+                    )
+                report["host_authenticated"] = True
+                body = bytearray()
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    if len(body) + len(chunk) > 4096:
+                        raise VoiceError("invalid_qwen_host_status")
+                    body.extend(chunk)
+                data = json.loads(body)
+        provider = validate_provider(data.get("provider"))
+        if any(type(data.get(name)) is not bool for name in ("busy", "draining", "warmed")):
+            raise VoiceError("invalid_qwen_host_status")
+        report.update(provider=provider, host_busy=data["busy"], host_draining=data["draining"])
+        if not report["websocket_no_redirect_api_available"]:
+            raise VoiceError("websocket_dependency_incompatible")
+        if data["busy"]:
+            raise VoiceError("qwen_host_busy")
+        if data["draining"] or not data["warmed"]:
+            raise VoiceError("qwen_host_not_ready")
+        report.update(host_ready=True, error=None)
+    except VoiceError as exc:
+        report["error"] = str(exc)
+    except httpx.TimeoutException:
+        report["error"] = "qwen_host_timeout"
+    except httpx.ConnectError:
+        report["error"] = "qwen_host_connection_failed"
+    except httpx.HTTPError:
+        report["error"] = "qwen_host_network_failed"
+    except (ValueError, TypeError, AttributeError):
+        report["error"] = "invalid_qwen_host_status"
+    return report
 
 
 def provider_configuration():
@@ -483,13 +561,17 @@ def probe_host(token):
             "business_ready": False,
             "billing_verified": False,
         }
+    except VoiceError as exc:
+        raise HostProbeError(
+            str(exc), {**voice.summary(), "tts_samples_received": samples, "service_chain_completed": False}
+        ) from None
     finally:
         voice.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定8092端口、短句与合成对话。")
-    parser.add_argument("action", choices=["status", "serve", "probe"])
+    parser.add_argument("action", choices=["status", "doctor", "serve", "probe"])
     parser.add_argument("--acknowledged", action="store_true")
     args = parser.parse_args()
     stage = "configuration"
@@ -502,16 +584,24 @@ def main():
                         "provider": provider_configuration(),
                         "host": QWEN_HOST_URL,
                         "external_calls": 0,
+                        **websocket_dependencies(),
                         "business_ready": False,
                         "phone_audio_verified": False,
                     }
                 )
             )
             return 0
-        if not args.acknowledged:
+        if args.action != "doctor" and not args.acknowledged:
             raise VoiceError("qwen_voice_acknowledgement_required")
         LabConfig.from_environment()
         token = connection_token()
+        if args.action == "doctor":
+            report = doctor_host(token)
+            print(json.dumps(report))
+            return 0 if report["host_ready"] else 2
+        stage = "dependency_check"
+        if not websocket_dependencies()["websocket_no_redirect_api_available"]:
+            raise VoiceError("websocket_dependency_incompatible")
         if args.action == "probe":
             stage = "synthetic_probe"
             print(json.dumps(probe_host(token)))
@@ -533,6 +623,7 @@ def main():
                     "event": "qwen_voice_ready",
                     "provider": engine.lab_provider,
                     "host": QWEN_HOST_URL,
+                    **websocket_dependencies(),
                     "provider_verified": False,
                     "business_ready": False,
                 }
@@ -556,6 +647,8 @@ def main():
                     "event": "qwen_voice_unavailable",
                     "stage": stage,
                     "error": str(exc) if isinstance(exc, VoiceError) else "qwen_host_unavailable_or_failed",
+                    **(exc.diagnostics if isinstance(exc, HostProbeError) else {}),
+                    **websocket_dependencies(),
                     "phone_audio_verified": False,
                     "business_ready": False,
                 }

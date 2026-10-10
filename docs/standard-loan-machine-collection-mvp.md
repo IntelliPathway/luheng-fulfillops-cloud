@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10。状态：沙箱闭环、版本化租户政策及授权快照已实现；内部SIP回声获得操作者听音反馈，操作者回传真实千问套餐合成ASR/LLM/TTS通过。新增独立8092套餐宿主与固定1003电话桥入口，分块TTS/取消/合成多轮已完成软件验证；Mac/Docker Desktop真实电话云模型、听音与打断尚待验收。套餐路径仅用于本人内部测试，后续真实业务渠道与试点待接入。
 
+最新联调：操作者宿主合成探针回传 `local_voice_service_failed`，根因尚未定位；已补齐启动依赖检查、只读doctor和失败阶段/Provider错误码透传。先在同一后端虚拟环境更新requirements、重启宿主，再运行doctor与probe；不以启动ready替代实际监听、鉴权或推理验证。具体排障表见SIP指南。
+
 云验证安排：操作者回传真实套餐LLM四场景与合成语音链路通过，后者6714 ms含测试源生成，排除电话和播放。`app.sip_lab_qwen_voice serve`复用已验证的ASR/Flash/TTS，在Mac只持有内存Key，以独立token连接1003；`SIP_LAB_MEDIA_MODE=qwen`显式选择，原MLX voice与默认echo保留。ASR音频仅为本人测试，LLM只收到固定合成句/上下文，未接客户资料或业务动作。开发环境没有真实Key，软件验证不冒充云电话验收；按量付费Key保护、活动组合批准和业务就绪保持原状。启动与验收步骤见 [SIP/模型指南](integrations/linphone-sip-lab.md#千问套餐接入手机测试2026-10-10)。
 
 ## 目标与边界

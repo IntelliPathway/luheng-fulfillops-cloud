@@ -295,6 +295,7 @@ python -m app.sip_lab_qwen_voice_probe probe --acknowledged --play
 
 ```bash
 git pull --ff-only
+python -m pip install -r backend/requirements.txt
 python3 scripts/sip-lab-qwen-voice-config.py
 . deploy/sip-lab/generated/lab.env
 . deploy/sip-lab/generated/qwen-voice.env
@@ -309,10 +310,28 @@ python -m app.sip_lab_qwen_voice serve --acknowledged
 ```bash
 . deploy/sip-lab/generated/lab.env
 . deploy/sip-lab/generated/qwen-voice.env
+(cd backend && python -m app.sip_lab_qwen_voice doctor)
 (cd backend && python -m app.sip_lab_qwen_voice probe --acknowledged)
 ```
 
 应返回 `service_chain_completed=true`、`asr_phrase_matched=true`、`provider.kind=qwen_token_plan`、`cloud_provider_calls=4`。这次合成源/回复仍只在内存消费，不自动播放、不证明电话接通。`python -m app.sip_lab_qwen_voice status` 只输出静态配置、零云调用；它不验证宿主或套餐权限。
+
+`doctor` 使用独立连接token，对固定本机 `/lab/status` 只发一次GET，不连接云服务、不抢占会话或重试模型；无需API Key或 `--acknowledged`。应返回 `host_ready=true`、`host_authenticated=true`、`host_busy=false`、`websocket_no_redirect_api_available=true`、`external_calls=0`。两终端都必须激活已安装当前 `backend/requirements.txt` 的同一个Python环境，当前锁定 `websockets==17.2`；只更新源码不会更新虚拟环境。新版启动在输入Key前检查无重定向API，ready输出当前依赖版本。
+
+操作者回传的 `local_voice_service_failed` 只说明客户端异常，尚不能确认根因。修复后会返回固定脱敏错误、`host_connection_stage`、`provider_active_stage` 和最后宿主调用计数，供分层定位；不输出异常原文、Key、识别文本或Provider错误正文。
+
+| 脱敏错误 | 处理 |
+|---|---|
+| `websocket_dependency_incompatible` | 在两个终端使用的后端虚拟环境执行 `python -m pip install -r backend/requirements.txt`；重启终端A宿主 |
+| `qwen_host_connection_failed/refused` | 检查终端A进程是否仍运行、同机8092是否监听；`qwen_voice_ready` 本身不保证完成绑定 |
+| `qwen_host_auth_failed/auth_or_session_denied` | 两终端重新加载同一个 `qwen-voice.env`；用doctor区分token拒绝和宿主占用，不重建凭据 |
+| `qwen_host_busy` | 结束旧测试，等待旧工作退出；不要重复触发探针 |
+| `qwen_host_timeout/connection_closed/handshake_rejected` | 根据连接阶段区分连接/Provider握手/轮次；回传完整脱敏JSON，不贴原始网络日志 |
+| `authentication_failed/model_or_plan_denied/quota_or_rate_limited` | 已到达宿主云调用；按 `provider_active_stage` 和调用计数核对套餐Key、权限或额度，不自动重试 |
+
+依赖/API不兼容、拒绝、超时与连接关闭均保留固定诊断；宿主云错误事件不再丢失Provider错误码，失败会清空未播放音频。此修复不证明操作者本次失败来自依赖或Key，仍需更新后doctor与probe结果定位。
+
+诊断修复软件验证：语音/媒体桥/模型组合专项169项与宿主专项16项通过，含真实本机WebSocket错误token拒绝、合成Provider ASR 401阶段/计数透传；文档/部署四项和Ruff通过。本轮未重跑全库，测试继续使用已记录的asyncio/h11环境，不包含真实套餐请求或操作者Mac故障复现。
 
 挂断已有测试通话后，在终端B启动/更新媒体容器；既有资源journal保留，重启先清理旧同一资源，不盲目重拨：
 

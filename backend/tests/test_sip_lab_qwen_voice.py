@@ -376,14 +376,9 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     session = None
-    try:
-        until = time.monotonic() + 3
-        while not server.started and thread.is_alive() and time.monotonic() < until:
-            time.sleep(0.01)
-        assert server.started
-        probe = module.probe_host(TOKEN)
-        assert probe["service_chain_completed"] and probe["asr_phrase_matched"] and probe["cloud_provider_calls"] == 4
-        # Only a read-only busy check; do not retry the synthetic model request.
+
+    def wait_idle():
+        # Read-only check; never retry inference while releasing the old session.
         until = time.monotonic() + 2
         with httpx.Client(trust_env=False) as client:
             while client.get("http://127.0.0.1:8092/lab/status", headers={"Authorization": "Bearer " + TOKEN}).json()[
@@ -391,6 +386,31 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
             ]:
                 assert time.monotonic() < until
                 time.sleep(0.01)
+
+    try:
+        until = time.monotonic() + 3
+        while not server.started and thread.is_alive() and time.monotonic() < until:
+            time.sleep(0.01)
+        assert server.started
+        doctor = module.doctor_host(TOKEN)
+        assert doctor["host_ready"] and doctor["external_calls"] == 0 and engine.external_calls == 0
+        assert module.doctor_host("c" * 64)["error"] == "qwen_host_auth_failed"
+        with pytest.raises(module.HostProbeError, match="qwen_host_auth_or_session_denied") as denied:
+            module.probe_host("c" * 64)
+        assert denied.value.diagnostics["cloud_provider_calls"] == 0
+        assert denied.value.diagnostics["host_connection_stage"] == "host_connect"
+        probe = module.probe_host(TOKEN)
+        assert probe["service_chain_completed"] and probe["asr_phrase_matched"] and probe["cloud_provider_calls"] == 4
+        wait_idle()
+        original_transport = engine.transport
+        engine.transport = httpx.MockTransport(lambda _: httpx.Response(401, json={"detail": KEY}))
+        with pytest.raises(module.HostProbeError, match="authentication_failed") as failure:
+            module.probe_host(TOKEN)
+        report = failure.value.diagnostics
+        assert report["cloud_provider_calls"] == 2 and report["provider_active_stage"] == "asr"
+        assert report["provider_request_state"] == "rejected" and KEY not in json.dumps(report)
+        wait_idle()
+        engine.transport = original_transport
         with (
             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as program,
             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as gateway,
@@ -477,3 +497,130 @@ def test_actual_websocket_redirect_is_not_followed_or_retried():
             server.shutdown()
             thread.join(timeout=2)
     assert len(requests) == 1
+
+
+def test_old_websocket_api_is_reported_before_connection_or_cloud_call(monkeypatch, capsys):
+    import websockets.sync.client
+
+    from app.sip_lab import LabConfig
+    from app.sip_lab_voice import connect_without_redirects
+
+    monkeypatch.delattr(websockets.sync.client, "reconnect")
+    monkeypatch.setattr(module.importlib.metadata, "version", lambda _: "15.0.1")
+    report = module.websocket_dependencies()
+    assert report["websockets_version"] == "15.0.1" and not report["websocket_no_redirect_api_available"]
+    with pytest.raises(VoiceError, match="websocket_dependency_incompatible"):
+        connect_without_redirects(QWEN_HOST_URL)
+    monkeypatch.setattr(LabConfig, "from_environment", lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(module.sys, "argv", ["host", "serve", "--acknowledged"])
+    monkeypatch.setattr(module.getpass, "getpass", lambda _: pytest.fail("must fail before key prompt"))
+    assert module.main() == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["stage"] == "dependency_check" and report["error"] == "websocket_dependency_incompatible"
+
+
+@pytest.mark.parametrize(
+    "failure,expected",
+    [(ConnectionRefusedError(KEY), "qwen_host_connection_refused"), (TimeoutError(KEY), "qwen_host_timeout")],
+)
+def test_connection_failure_diagnostics_do_not_leak_exception_text(failure, expected):
+    @contextmanager
+    def connect(*args, **kwargs):
+        raise failure
+        yield  # Make the failure occur at context entry.
+
+    voice = LocalVoiceClient(TOKEN, url=QWEN_HOST_URL, expected_provider="qwen_token_plan", connect=connect)
+    voice.start(kind="probe")
+    voice.thread.join(timeout=1)
+    assert voice.failed and voice.error_code == expected
+    assert voice.summary()["host_connection_stage"] == "host_connect"
+    assert KEY not in json.dumps(voice.summary())
+    voice.close()
+
+
+@pytest.mark.parametrize(
+    "status,data,expected",
+    [
+        (403, {"detail": KEY}, "qwen_host_auth_failed"),
+        (302, {"detail": KEY}, "qwen_host_status_rejected"),
+        (
+            200,
+            {"provider": provider_configuration(), "busy": True, "draining": False, "warmed": True},
+            "qwen_host_busy",
+        ),
+        (
+            200,
+            {"provider": provider_configuration(), "busy": False, "draining": True, "warmed": True},
+            "qwen_host_not_ready",
+        ),
+        (200, {"provider": {"kind": KEY}}, "qwen_voice_provider_mismatch"),
+        (200, {"provider": provider_configuration(), "busy": "false"}, "invalid_qwen_host_status"),
+        (200, {"detail": KEY * 200}, "invalid_qwen_host_status"),
+    ],
+)
+def test_doctor_is_bounded_read_only_and_redacts_host_errors(status, data, expected):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.method == "GET" and str(request.url) == "http://127.0.0.1:8092/lab/status"
+        return httpx.Response(status, json=data, headers={"Location": "https://example.com/should-not-follow"})
+
+    report = module.doctor_host(TOKEN, transport=httpx.MockTransport(handle))
+    assert report["error"] == expected and report["host_reachable"] and report["external_calls"] == 0
+    assert len(requests) == 1 and KEY not in json.dumps(report)
+
+
+def test_provider_failure_reaches_probe_cli_with_stage_and_call_count(monkeypatch, capsys):
+    from app.sip_lab import LabConfig
+
+    sent = []
+
+    class FailedHost:
+        def recv(self, timeout):
+            if not sent:
+                return json.dumps({"kind": "ready", "provider": provider_configuration()})
+            command = json.loads(sent[0])
+            return json.dumps(
+                {
+                    "kind": "error",
+                    "turn": command["turn"],
+                    "provider": provider_configuration(),
+                    "cloud_provider_calls": 2,
+                    "provider_request_state": "rejected",
+                    "provider_error": "authentication_failed",
+                    "provider_active_stage": "asr",
+                }
+            )
+
+        def send(self, raw):
+            sent.append(raw)
+
+    @contextmanager
+    def connect(*args, **kwargs):
+        yield FailedHost()
+
+    monkeypatch.setattr(
+        module, "LocalVoiceClient", lambda token, **kwargs: LocalVoiceClient(token, connect=connect, **kwargs)
+    )
+    monkeypatch.setattr(LabConfig, "from_environment", lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(module.sys, "argv", ["host", "probe", "--acknowledged"])
+    assert module.main() == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["error"] == "authentication_failed" and result["cloud_provider_calls"] == 2
+    assert result["provider_active_stage"] == "asr" and result["host_connection_stage"] == "voice_turn"
+    assert result["service_chain_completed"] is False and KEY not in json.dumps(result)
+    assert len(sent) == 1
+
+
+def test_doctor_cli_needs_no_inference_acknowledgement_or_api_key(monkeypatch, capsys):
+    from app.sip_lab import LabConfig
+
+    monkeypatch.setattr(LabConfig, "from_environment", lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(module.sys, "argv", ["host", "doctor"])
+    monkeypatch.setattr(module.getpass, "getpass", lambda _: pytest.fail("must not prompt"))
+    monkeypatch.setattr(module, "doctor_host", lambda token: {"host_ready": True, "external_calls": 0})
+    assert module.main() == 0 and json.loads(capsys.readouterr().out)["external_calls"] == 0
