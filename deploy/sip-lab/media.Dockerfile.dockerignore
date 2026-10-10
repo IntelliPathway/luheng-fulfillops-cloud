@@ -11,3 +11,6 @@
 !backend/app/sip_lab_voice.py
 !backend/app/sip_lab_voice_session.py
 !backend/app/sip_lab_voice_config.py
+!backend/app/sip_lab_qwen_voice.py
+!backend/app/sip_lab_qwen_voice_probe.py
+!backend/app/sip_lab_qwen_probe.py

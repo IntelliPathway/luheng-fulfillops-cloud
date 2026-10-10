@@ -339,16 +339,26 @@ cd backend
 
 端口/就绪修复验证：相关回归187项通过；最终socket预留强化后千问专项43项通过，覆盖真实本机HTTP/WS→UDP/PCMU、已占用端口在Key提示前失败、启动失败不输出ready且释放socket、成功服务后才输出ready。文档/部署四项和Ruff通过；未重跑全库，真实套餐电话链路仍待Mac执行。
 
-挂断已有测试通话后，在终端B启动/更新媒体容器；既有资源journal保留，重启先清理旧同一资源，不盲目重拨：
+操作者随后回传18092宿主doctor：连接/鉴权/就绪均通过；真实宿主合成探针四次调用完成，ASR短句匹配、无错误。耗时7820 ms，首音5574 ms（含source_tts 2619 ms）、ASR 982 ms、Flash 1063 ms、reply_tts 3157 ms；来源为操作者执行结果，排除电话播放，手机仍待验收。之后媒体镜像构建在Docker Hub基础镜像元数据请求返回Bad Gateway，尚未启动媒体容器。修复了media镜像漏COPY/构建上下文排除千问握手依赖的遗漏。
+
+挂断已有测试通话后，在终端B从仓库根目录更新并只重建媒体容器；以下 `--no-deps` 适用于已有asterisk服务运行的当前联调。先确认ps中asterisk为Up，再单独拉取基础镜像；任一步失败就停在该步，不继续启动。既有资源journal保留，重启先清理旧同一资源，不盲目重拨：
 
 ```bash
+git pull --ff-only
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml ps asterisk
+docker pull python:3.12-slim
 SIP_LAB_MEDIA_ACKNOWLEDGED=true SIP_LAB_MEDIA_MODE=qwen \
 SIP_LAB_QWEN_VOICE_ACKNOWLEDGED=true docker compose \
   --env-file deploy/sip-lab/generated/compose.env \
-  -f deploy/sip-lab/compose.yml --profile media up --build -d --force-recreate media
+  -f deploy/sip-lab/compose.yml --profile media up --no-deps --build -d --force-recreate media
 docker compose --env-file deploy/sip-lab/generated/compose.env \
   -f deploy/sip-lab/compose.yml --profile media logs -f media
 ```
+
+若 `docker pull` 仍返回Bad Gateway/超时，保留宿主并回传该命令错误；这时卡在镜像下载，未调用模型。没有更换注册表、导入未知镜像或切换套餐。此轮软件测试仅依据实际Dockerfile COPY与dockerignore白名单构造隔离目录，再验证媒体客户端Provider握手/音频回执；这不是实际Docker构建或OrbStack容器路由验收。
+
+媒体镜像修复验证：媒体/千问/隔离镜像专项58项通过，文档/部署四项和Ruff通过；隔离用例同时覆盖完整COPY依赖成功和缺失模块时不回退仓库导入。开发环境无Docker运行，未重跑全库；构建、容器路由和手机听音继续由操作者联调。
 
 等 `awaiting_linphone_1003`，应显示 `cloud_models_enabled=true`、`local_models_enabled=false`。使用已注册的1001账号拨1003，先用耳机：
 

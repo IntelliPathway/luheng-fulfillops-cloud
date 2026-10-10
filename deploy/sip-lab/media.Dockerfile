@@ -6,4 +6,5 @@ WORKDIR /opt/media-lab
 COPY backend/app/__init__.py backend/app/sip_lab.py backend/app/sip_lab_media.py backend/app/sip_lab_bridge.py ./app/
 COPY backend/app/sip_lab_voice.py backend/app/sip_lab_voice_session.py ./app/
 COPY backend/app/sip_lab_voice_config.py ./app/
+COPY backend/app/sip_lab_qwen_voice.py backend/app/sip_lab_qwen_voice_probe.py backend/app/sip_lab_qwen_probe.py ./app/
 CMD ["python", "-m", "app.sip_lab_bridge"]

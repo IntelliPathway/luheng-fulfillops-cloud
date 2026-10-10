@@ -543,3 +543,9 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 - 操作者确认8092由OrbStack监听并返回空HTTP响应；旧ready在绑定前输出，已修正。固定套餐宿主、doctor/probe和Docker媒体客户端统一改为18092，不接管或停止OrbStack。
 - 输入Key前预留监听socket，并把同一socket交给服务器；端口冲突直接返回 `qwen_host_port_in_use`，失败释放资源。仅在Uvicorn实际开始服务后输出 `qwen_voice_ready/host_listening=true`，保持云模型尚未验证的独立状态。
 - Mac指南显式使用 `backend/.venv`，补充重启宿主和重建media的步骤。相关回归187项通过；最终socket预留强化后千问专项43项通过，含真实本机HTTP/WS→UDP/PCMU、端口冲突、启动失败无ready及socket释放。文档/部署四项与Ruff通过；未重跑全库，无真实云电话或Mac设备验收声明。
+
+### 媒体镜像千问依赖打包修复（2026-10-10）
+
+- 操作者回传18092宿主doctor及真实四阶段合成探针通过（7820 ms、四次调用，无错误）；媒体构建随后卡在Docker Hub的python:3.12-slim元数据Bad Gateway，电话尚未验收。
+- 补齐media.Dockerfile中的千问握手模块COPY，以及对应dockerignore精确白名单。新增隔离进程回归，仅从实际镜像COPY清单取文件，核对白名单，验证Provider握手和音频回执；删除依赖时明确失败，不能从完整仓库偷用模块。不引入FastAPI/MLX或额外镜像依赖。
+- 更新指南：先单独拉取基础镜像，确认既有Asterisk为Up后使用 `--no-deps` 仅重建media。媒体/千问/镜像专项58项、文档/部署四项及Ruff通过；本环境无Docker，不声称实际镜像构建或OrbStack路由通过，未重跑全库。
