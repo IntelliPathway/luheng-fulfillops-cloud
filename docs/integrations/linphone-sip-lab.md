@@ -289,29 +289,30 @@ python -m app.sip_lab_qwen_voice_probe probe --acknowledged --play
 
 操作者回传 `qwen_token_plan_voice_probe`：四次真实调用完成，ASR/LLM/TTS 与短句核对均通过，`playback_state=completed`，无重试。总耗时6714 ms；source_tts 2491 ms（首音872 ms）、ASR 1058 ms、Flash 910 ms、reply_tts 2254 ms（首音787 ms）。来源为操作者运行结果，不是开发环境独立推理；播放器成功不代替人工听音，手机音频仍未验收。总耗时包含测试源合成；各阶段相加得到的约2755 ms ASR→回复首音包估计排除电话端点、传输和播放，不能当作真实手机延迟。
 
-新增 `app.sip_lab_qwen_voice serve`，只监听 `127.0.0.1:8092/lab/voice`，与原MLX宿主8090分开。复用同一媒体桥的固定1003分机，通过 `SIP_LAB_MEDIA_MODE=qwen` 选择套餐路径；默认仍为 echo，原 `voice` 模式仍连接MLX。1002程序回声不调用模型。Key通过Mac隐藏输入只留在进程内存，Docker仅读取独立0600的 `qwen-voice.env` 连接token；无Key文件、网页或案件数据。
+新增 `app.sip_lab_qwen_voice serve`，只监听 `127.0.0.1:18092/lab/voice`，与原MLX宿主8090分开。复用同一媒体桥的固定1003分机，通过 `SIP_LAB_MEDIA_MODE=qwen` 选择套餐路径；默认仍为 echo，原 `voice` 模式仍连接MLX。1002程序回声不调用模型。Key通过Mac隐藏输入只留在进程内存，Docker仅读取独立0600的 `qwen-voice.env` 连接token；无Key文件、网页或案件数据。
 
-终端A，从仓库根目录开始；使用已安装 `backend/requirements.txt` 的后端虚拟环境，不需要MLX权重。已有SIP配置继续复用。执行后保持进程运行，在提示框输入此前已验证的同一个完整套餐Key：
+终端A，从仓库根目录开始；为避免Homebrew系统Python的安装保护，显式使用 `backend/.venv`，不需要MLX权重。已有SIP配置继续复用。执行后保持进程运行，在提示框输入此前已验证的同一个完整套餐Key：
 
 ```bash
 git pull --ff-only
-python -m pip install -r backend/requirements.txt
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
 python3 scripts/sip-lab-qwen-voice-config.py
 . deploy/sip-lab/generated/lab.env
 . deploy/sip-lab/generated/qwen-voice.env
 cd backend
-python -m app.sip_lab_qwen_voice serve --acknowledged
+.venv/bin/python -m app.sip_lab_qwen_voice serve --acknowledged
 ```
 
-生成器复用既有合法0600文件，不替换SIP或MLX凭据；无效权限/内容、符号链接会报错。`qwen_voice_ready` 表示协议宿主配置完成，没有自动调用/预热模型，`provider_verified=false`；若端口已被占用，启动失败，不杀旧进程或接管8090/模型宿主。页面的已启用组合不会因本次启动而变化。
+生成器复用既有合法0600文件，不替换SIP或MLX凭据；无效权限/内容、符号链接会报错。`qwen_voice_ready` 只在服务器开始提供HTTP/WS服务后输出，并包含 `host_listening=true`；没有自动调用/预热模型，`provider_verified=false`。输入Key前先保留固定18092的监听socket，再将同一socket交给服务器；若端口已被占用，立即报告 `stage=host_bind/error=qwen_host_port_in_use`，不输出ready、不杀旧进程。隐藏Key输入期间端口已预留但HTTP服务尚未启动，终端B须等待ready再检查。服务使用Python asyncio/h11。页面的已启用组合不会因本次启动而变化。
 
-终端B，从仓库根目录开始，激活同一后端环境；先运行宿主的合成自测，验证独立token、模型握手和真实云请求。不在命令中粘贴Key：
+终端B，从仓库根目录开始，显式使用同一后端环境；doctor成功后再运行合成自测，验证独立token、模型握手和真实云请求。不在命令中粘贴Key：
 
 ```bash
 . deploy/sip-lab/generated/lab.env
 . deploy/sip-lab/generated/qwen-voice.env
-(cd backend && python -m app.sip_lab_qwen_voice doctor)
-(cd backend && python -m app.sip_lab_qwen_voice probe --acknowledged)
+(cd backend && .venv/bin/python -m app.sip_lab_qwen_voice doctor &&
+ .venv/bin/python -m app.sip_lab_qwen_voice probe --acknowledged)
 ```
 
 应返回 `service_chain_completed=true`、`asr_phrase_matched=true`、`provider.kind=qwen_token_plan`、`cloud_provider_calls=4`。这次合成源/回复仍只在内存消费，不自动播放、不证明电话接通。`python -m app.sip_lab_qwen_voice status` 只输出静态配置、零云调用；它不验证宿主或套餐权限。
@@ -322,8 +323,9 @@ python -m app.sip_lab_qwen_voice serve --acknowledged
 
 | 脱敏错误 | 处理 |
 |---|---|
-| `websocket_dependency_incompatible` | 在两个终端使用的后端虚拟环境执行 `python -m pip install -r backend/requirements.txt`；重启终端A宿主 |
-| `qwen_host_connection_failed/refused` | 检查终端A进程是否仍运行、同机8092是否监听；`qwen_voice_ready` 本身不保证完成绑定 |
+| `websocket_dependency_incompatible` | 仓库根目录执行 `backend/.venv/bin/python -m pip install -r backend/requirements.txt`；重启终端A宿主 |
+| `qwen_host_port_in_use` | 18092被占用，宿主在输入Key前失败；只读检查占用，保留已有服务，不自动选端口或杀进程 |
+| `qwen_host_connection_failed/refused` | 检查终端A进程是否仍运行、同机18092是否监听；新版ready证明当时已开始监听，进程后续仍须保持运行 |
 | `qwen_host_auth_failed/auth_or_session_denied` | 两终端重新加载同一个 `qwen-voice.env`；用doctor区分token拒绝和宿主占用，不重建凭据 |
 | `qwen_host_busy` | 结束旧测试，等待旧工作退出；不要重复触发探针 |
 | `qwen_host_timeout/connection_closed/handshake_rejected` | 根据连接阶段区分连接/Provider握手/轮次；回传完整脱敏JSON，不贴原始网络日志 |
@@ -332,6 +334,10 @@ python -m app.sip_lab_qwen_voice serve --acknowledged
 依赖/API不兼容、拒绝、超时与连接关闭均保留固定诊断；宿主云错误事件不再丢失Provider错误码，失败会清空未播放音频。此修复不证明操作者本次失败来自依赖或Key，仍需更新后doctor与probe结果定位。
 
 诊断修复软件验证：语音/媒体桥/模型组合专项169项与宿主专项16项通过，含真实本机WebSocket错误token拒绝、合成Provider ASR 401阶段/计数透传；文档/部署四项和Ruff通过。本轮未重跑全库，测试继续使用已记录的asyncio/h11环境，不包含真实套餐请求或操作者Mac故障复现。
+
+操作者随后用lsof确认旧8092由OrbStack监听，curl收到空响应；旧版ready在绑定前发出，误导了监听判断。已统一迁移宿主/doctor/probe/Docker媒体客户端到18092，旧8092不再是允许的套餐目标，不接管OrbStack。新版ready只在服务器真实启动后发出，端口预留覆盖隐藏Key输入直至服务结束；失败关闭socket。设备更新后需要重启终端A，电话测试前按下方命令 `up --build --force-recreate media`，让容器内客户端也使用新端口。保留凭据与journal，未改变SIP/ARI/RTP端口。
+
+端口/就绪修复验证：相关回归187项通过；最终socket预留强化后千问专项43项通过，覆盖真实本机HTTP/WS→UDP/PCMU、已占用端口在Key提示前失败、启动失败不输出ready且释放socket、成功服务后才输出ready。文档/部署四项和Ruff通过；未重跑全库，真实套餐电话链路仍待Mac执行。
 
 挂断已有测试通话后，在终端B启动/更新媒体容器；既有资源journal保留，重启先清理旧同一资源，不盲目重拨：
 

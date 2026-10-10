@@ -349,7 +349,7 @@ def test_media_qwen_mode_uses_fixed_host_and_private_token_not_cloud_key(monkeyp
     factory, extension = sip_lab_bridge.voice_factory("qwen")
     monkeypatch.setattr(LocalVoiceClient, "start", lambda _: None)
     session = factory(("127.0.0.1", 1234), time.monotonic(), 42)
-    assert extension == "1003" and session.voice.url == "ws://host.docker.internal:8092/lab/voice"
+    assert extension == "1003" and session.voice.url == "ws://host.docker.internal:18092/lab/voice"
     assert session.voice.expected_provider == "qwen_token_plan"
     assert session.summary()["mode"] == "qwen_token_plan_voice_lab" and session.summary()["cloud_provider_calls"] == 0
     session.close()
@@ -358,22 +358,12 @@ def test_media_qwen_mode_uses_fixed_host_and_private_token_not_cloud_key(monkeyp
         sip_lab_bridge.voice_factory("qwen")
 
 
-def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
-    import uvicorn
-
+def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys):
     engine, _, _, _ = make_engine()
-    server = uvicorn.Server(
-        uvicorn.Config(
-            create_app(engine, TOKEN, turn_executor=execute_qwen_turn),
-            host="127.0.0.1",
-            port=8092,
-            loop="asyncio",
-            http="h11",
-            log_level="critical",
-            access_log=False,
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
+    listener = module.reserve_host_socket()
+    server = module.create_host_server(engine, TOKEN)
+    assert capsys.readouterr().out == ""  # Binding/configuring isn't readiness.
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     session = None
 
@@ -381,7 +371,7 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
         # Read-only check; never retry inference while releasing the old session.
         until = time.monotonic() + 2
         with httpx.Client(trust_env=False) as client:
-            while client.get("http://127.0.0.1:8092/lab/status", headers={"Authorization": "Bearer " + TOKEN}).json()[
+            while client.get("http://127.0.0.1:18092/lab/status", headers={"Authorization": "Bearer " + TOKEN}).json()[
                 "busy"
             ]:
                 assert time.monotonic() < until
@@ -394,6 +384,9 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
         assert server.started
         doctor = module.doctor_host(TOKEN)
         assert doctor["host_ready"] and doctor["external_calls"] == 0 and engine.external_calls == 0
+        ready = json.loads(capsys.readouterr().out)
+        assert ready["event"] == "qwen_voice_ready" and ready["host_listening"]
+        assert ready["host"] == QWEN_HOST_URL and not ready["provider_verified"]
         assert module.doctor_host("c" * 64)["error"] == "qwen_host_auth_failed"
         with pytest.raises(module.HostProbeError, match="qwen_host_auth_or_session_denied") as denied:
             module.probe_host("c" * 64)
@@ -437,6 +430,7 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol():
             session.close()
         server.should_exit = True
         thread.join(timeout=3)
+        listener.close()
         assert not thread.is_alive()
 
 
@@ -564,7 +558,7 @@ def test_doctor_is_bounded_read_only_and_redacts_host_errors(status, data, expec
 
     def handle(request):
         requests.append(request)
-        assert request.method == "GET" and str(request.url) == "http://127.0.0.1:8092/lab/status"
+        assert request.method == "GET" and str(request.url) == "http://127.0.0.1:18092/lab/status"
         return httpx.Response(status, json=data, headers={"Location": "https://example.com/should-not-follow"})
 
     report = module.doctor_host(TOKEN, transport=httpx.MockTransport(handle))
@@ -624,3 +618,48 @@ def test_doctor_cli_needs_no_inference_acknowledgement_or_api_key(monkeypatch, c
     monkeypatch.setattr(module.getpass, "getpass", lambda _: pytest.fail("must not prompt"))
     monkeypatch.setattr(module, "doctor_host", lambda token: {"host_ready": True, "external_calls": 0})
     assert module.main() == 0 and json.loads(capsys.readouterr().out)["external_calls"] == 0
+
+
+def test_occupied_host_port_fails_before_key_prompt_without_false_ready(monkeypatch, capsys):
+    from app.sip_lab import LabConfig
+
+    monkeypatch.setattr(LabConfig, "from_environment", lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(module.sys, "argv", ["host", "serve", "--acknowledged"])
+    monkeypatch.setattr(module.getpass, "getpass", lambda _: pytest.fail("port conflict must fail before key prompt"))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+        occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        occupied.bind(("127.0.0.1", module.QWEN_HOST_PORT))
+        occupied.listen()
+        assert module.main() == 2
+        result = json.loads(capsys.readouterr().out)
+        assert result["event"] == "qwen_voice_unavailable" and result["stage"] == "host_bind"
+        assert result["error"] == "qwen_host_port_in_use"
+        assert occupied.fileno() >= 0  # Existing service remains untouched.
+
+
+def test_server_start_failure_closes_reserved_port_and_never_reports_ready(monkeypatch, capsys):
+    from app.sip_lab import LabConfig
+
+    captured = []
+
+    class FailedServer:
+        started = False
+
+        def run(self, *, sockets):
+            assert sockets[0].getsockname() == ("127.0.0.1", module.QWEN_HOST_PORT)
+            with pytest.raises(VoiceError, match="qwen_host_port_in_use"):
+                module.reserve_host_socket()
+            captured.extend(sockets)
+
+    monkeypatch.setattr(LabConfig, "from_environment", lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setenv(KEY_ENV, KEY)
+    monkeypatch.setattr(module.sys, "argv", ["host", "serve", "--acknowledged"])
+    monkeypatch.setattr(module, "create_host_server", lambda engine, token: FailedServer())
+    assert module.main() == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["event"] == "qwen_voice_unavailable" and result["error"] == "qwen_host_start_failed"
+    assert captured[0].fileno() == -1 and KEY not in json.dumps(result)
+    with module.reserve_host_socket():
+        pass  # Startup failure cannot leak the port reservation.

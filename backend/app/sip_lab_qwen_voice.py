@@ -2,11 +2,13 @@
 
 import argparse
 import base64
+import errno
 import getpass
 import importlib.metadata
 import json
 import os
 import re
+import socket
 import sys
 import time
 import uuid
@@ -27,7 +29,9 @@ from .sip_lab_qwen_voice_probe import (
     websocket,
 )
 from .sip_lab_voice import (
+    QWEN_HOST_PORT,
     QWEN_HOST_URL,
+    QWEN_STATUS_URL,
     LocalVoiceClient,
     VoiceCancelled,
     VoiceError,
@@ -122,9 +126,7 @@ def doctor_host(token, *, transport=None):
     }
     try:
         with httpx.Client(transport=transport, trust_env=False, follow_redirects=False, timeout=3) as client:
-            with client.stream(
-                "GET", "http://127.0.0.1:8092/lab/status", headers={"Authorization": "Bearer " + token}
-            ) as response:
+            with client.stream("GET", QWEN_STATUS_URL, headers={"Authorization": "Bearer " + token}) as response:
                 report["host_reachable"] = True
                 if response.status_code != 200:
                     raise VoiceError(
@@ -569,12 +571,66 @@ def probe_host(token):
         voice.close()
 
 
+def reserve_host_socket():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", QWEN_HOST_PORT))
+        listener.listen(128)
+        return listener
+    except OSError as exc:
+        listener.close()
+        raise VoiceError(
+            "qwen_host_port_in_use" if exc.errno == errno.EADDRINUSE else "qwen_host_bind_failed"
+        ) from None
+
+
+def create_host_server(engine, token):
+    import uvicorn
+
+    from .sip_lab_local_voice import create_app
+
+    class ReadyServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            if self.started:
+                print(
+                    json.dumps(
+                        {
+                            "event": "qwen_voice_ready",
+                            "provider": engine.lab_provider,
+                            "host": QWEN_HOST_URL,
+                            **websocket_dependencies(),
+                            "host_listening": True,
+                            "provider_verified": False,
+                            "business_ready": False,
+                        }
+                    ),
+                    flush=True,
+                )
+
+    return ReadyServer(
+        uvicorn.Config(
+            create_app(engine, token, turn_executor=execute_qwen_turn),
+            host="127.0.0.1",
+            port=QWEN_HOST_PORT,
+            loop="asyncio",
+            http="h11",
+            access_log=False,
+            log_level="critical",
+            ws_max_size=100000,
+            ws_max_queue=8,
+        )
+    )
+
+
 def main():
-    parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定8092端口、短句与合成对话。")
+    parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定18092端口、短句与合成对话。")
     parser.add_argument("action", choices=["status", "doctor", "serve", "probe"])
     parser.add_argument("--acknowledged", action="store_true")
     args = parser.parse_args()
     stage = "configuration"
+    listener = None
     try:
         if args.action == "status":
             print(
@@ -606,6 +662,9 @@ def main():
             stage = "synthetic_probe"
             print(json.dumps(probe_host(token)))
             return 0
+        stage = "host_bind"
+        listener = reserve_host_socket()
+        stage = "credential"
         key = os.getenv(KEY_ENV, "")
         if not key:
             if not sys.stdin.isatty():
@@ -613,32 +672,10 @@ def main():
             key = getpass.getpass("Token Plan 完整 API Key（只存本机进程内存，不回显、不保存）：")
         stage = "host_start"
         engine = TokenVoiceEngine(key)
-        import uvicorn
-
-        from .sip_lab_local_voice import create_app
-
-        print(
-            json.dumps(
-                {
-                    "event": "qwen_voice_ready",
-                    "provider": engine.lab_provider,
-                    "host": QWEN_HOST_URL,
-                    **websocket_dependencies(),
-                    "provider_verified": False,
-                    "business_ready": False,
-                }
-            ),
-            flush=True,
-        )
-        uvicorn.run(
-            create_app(engine, token, turn_executor=execute_qwen_turn),
-            host="127.0.0.1",
-            port=8092,
-            access_log=False,
-            log_level="critical",
-            ws_max_size=100000,
-            ws_max_queue=8,
-        )
+        server = create_host_server(engine, token)
+        server.run(sockets=[listener])
+        if not server.started:
+            raise VoiceError("qwen_host_start_failed")
         return 0
     except (Exception, KeyboardInterrupt) as exc:
         print(
@@ -646,6 +683,7 @@ def main():
                 {
                     "event": "qwen_voice_unavailable",
                     "stage": stage,
+                    "host": QWEN_HOST_URL,
                     "error": str(exc) if isinstance(exc, VoiceError) else "qwen_host_unavailable_or_failed",
                     **(exc.diagnostics if isinstance(exc, HostProbeError) else {}),
                     **websocket_dependencies(),
@@ -656,6 +694,9 @@ def main():
             flush=True,
         )
         return 2
+    finally:
+        if listener is not None:
+            listener.close()
 
 
 if __name__ == "__main__":

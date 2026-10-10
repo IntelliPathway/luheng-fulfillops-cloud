@@ -537,3 +537,9 @@ BoardUI 布局与键盘交互修复；线上示例指标隔离；租户级只读
 - 操作者合成宿主探针回传通用 `local_voice_service_failed`；客户端过去把连接异常过度归并，根因尚不能从旧结果确认。补充无重定向 WebSocket API 的启动前检查、实际依赖版本和只读 `doctor`，明确源码更新后还需更新同一后端虚拟环境。
 - 区分连接拒绝、超时、握手/鉴权拒绝和连接关闭；云错误事件保留固定 Provider 错误码、阶段和最后调用计数，并清空未播放音频。不输出异常原文，不重试或回退。
 - 语音、媒体桥、模型组合和宿主专项共185项通过，含真实本机 WebSocket 鉴权失败/合成ASR拒绝的诊断透传；文档/部署四项与Ruff通过。本轮未重跑后端全库；沿用已记录的asyncio/h11测试配置。没有在开发环境调用真实云模型，本次Mac故障仍需操作者用doctor/probe定位。
+
+### OrbStack端口冲突与宿主就绪修复（2026-10-10）
+
+- 操作者确认8092由OrbStack监听并返回空HTTP响应；旧ready在绑定前输出，已修正。固定套餐宿主、doctor/probe和Docker媒体客户端统一改为18092，不接管或停止OrbStack。
+- 输入Key前预留监听socket，并把同一socket交给服务器；端口冲突直接返回 `qwen_host_port_in_use`，失败释放资源。仅在Uvicorn实际开始服务后输出 `qwen_voice_ready/host_listening=true`，保持云模型尚未验证的独立状态。
+- Mac指南显式使用 `backend/.venv`，补充重启宿主和重建media的步骤。相关回归187项通过；最终socket预留强化后千问专项43项通过，含真实本机HTTP/WS→UDP/PCMU、端口冲突、启动失败无ready及socket释放。文档/部署四项与Ruff通过；未重跑全库，无真实云电话或Mac设备验收声明。

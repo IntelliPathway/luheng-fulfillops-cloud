@@ -18,8 +18,10 @@ MODELS = {
 }
 CONTAINER_URL = 'ws://host.docker.internal:8090/lab/voice'
 HOST_URL = 'ws://127.0.0.1:8090/lab/voice'
-QWEN_HOST_URL = 'ws://127.0.0.1:8092/lab/voice'
-QWEN_CONTAINER_URL = 'ws://host.docker.internal:8092/lab/voice'
+QWEN_HOST_PORT = 18092
+QWEN_HOST_URL = f'ws://127.0.0.1:{QWEN_HOST_PORT}/lab/voice'
+QWEN_CONTAINER_URL = f'ws://host.docker.internal:{QWEN_HOST_PORT}/lab/voice'
+QWEN_STATUS_URL = f'http://127.0.0.1:{QWEN_HOST_PORT}/lab/status'
 PHRASE = '今天是语音链路测试'
 GREETING = '这里是本地语音测试，请说一句测试短句。说结束测试即可结束。'
 TOKEN = re.compile(r'[a-f0-9]{64}\Z')
