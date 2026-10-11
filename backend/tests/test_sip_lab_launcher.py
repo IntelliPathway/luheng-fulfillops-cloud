@@ -508,6 +508,77 @@ def test_saved_product_configuration_rejects_symlinks_permissions_and_nonfiles(l
     path.symlink_to(elsewhere)
     with pytest.raises(launcher.LabError, match='权限或内容无效'):
         launcher.Lab(lab.root).configure()
-    with pytest.raises(OSError):
+    with pytest.raises(ValueError, match="speech_config_not_regular"):
         config.read(private)
     assert elsewhere.read_bytes() == original
+
+
+@pytest.mark.parametrize('content,code', [
+    ('<html>synthetic-secret</html>', 'speech_config_html'),
+    ('not-json synthetic-secret', 'speech_config_json'),
+    ('{"schema_version":1,"asr":{},"llm":{},"tts":{}}', 'speech_config_wrong_kind'),
+    ('{"schema_version":1,"schema_version":1}', 'speech_config_duplicate_field'),
+    ('{"schema_version":true,"usage_scope":"personal_qwen_phone_lab","speech_profile":"baseline"}', 'speech_config_version'),
+    ('{"schema_version":1,"usage_scope":"production","speech_profile":"baseline"}', 'speech_config_scope'),
+    ('{"schema_version":1,"usage_scope":"personal_qwen_phone_lab","speech_profile":"unknown"}', 'speech_config_profile'),
+    ('{"api_key":"synthetic-secret"}', 'speech_config_fields'),
+    ('x' * 2049, 'speech_config_too_large'),
+])
+def test_speech_import_diagnostics_distinguish_format_scope_and_kind_without_echoing_content(lab, content, code):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    path = lab.root / 'bad-input.json'
+    path.write_text(content)
+    with pytest.raises(config.SpeechConfigError) as error:
+        config.read(path)
+    assert error.value.code == code
+    assert 'synthetic-secret' not in config.error_message(error.value)
+    assert error.value.code in config.MESSAGES
+
+
+def test_speech_check_is_read_only_and_accepts_browser_export_with_utf8_bom(lab, monkeypatch, capsys):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    path = lab.root / 'sip-lab-speech (1).json'
+    path.write_bytes(b'\xef\xbb\xbf' + json.dumps(config.payload('warm_female')).encode())
+    monkeypatch.setattr(launcher, 'ROOT', lab.root)
+    monkeypatch.setattr(launcher.sys, 'argv', ['sip-lab.py', 'speech-check', '--speech-config', str(path)])
+    monkeypatch.setattr(launcher, 'Lab', lambda *a, **kw: pytest.fail('must not instantiate launcher'))
+    monkeypatch.setattr(launcher, 'read_environment', lambda *a: pytest.fail('must not read private environment'))
+    assert launcher.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report == {'mode': 'sip_lab_speech_config_check', 'valid': True,
+                      'speech_profile': 'warm_female', 'external_calls': 0, 'configuration_written': False}
+    assert not (lab.root / 'deploy/sip-lab/generated/speech-settings.json').exists()
+
+
+def test_missing_file_and_permission_error_are_not_reported_as_bad_json(lab, monkeypatch, capsys):
+    import errno
+
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    with pytest.raises(config.SpeechConfigError, match='speech_config_missing'):
+        config.read(lab.root / 'missing.json')
+    monkeypatch.setattr(launcher, 'ROOT', lab.root)
+    monkeypatch.setattr(launcher.sys, 'argv', ['sip-lab.py', 'start', '--speech-config', str(lab.root / 'missing.json')])
+    assert launcher.main() == 2
+    output = capsys.readouterr().err
+    assert '找不到配置文件' in output and 'JSON 格式有误' not in output
+    def denied(*a, **kw):
+        raise PermissionError(errno.EACCES, 'synthetic-secret')
+    monkeypatch.setattr(config.os, 'open', denied)
+    with pytest.raises(config.SpeechConfigError) as error:
+        config.read(lab.root / 'missing.json')
+    assert error.value.code == 'speech_config_permission_denied'
+    assert 'synthetic-secret' not in config.error_message(error.value)
+
+
+def test_speech_reader_rejects_bad_encoding_symlink_and_nonregular_without_following(lab):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    path = lab.root / 'bad-encoding.json'
+    path.write_bytes(b'\xff\xff')
+    with pytest.raises(config.SpeechConfigError, match='speech_config_encoding'):
+        config.read(path)
+    linked = lab.root / 'linked.json'
+    linked.symlink_to(path)
+    with pytest.raises(config.SpeechConfigError, match='speech_config_symlink'):
+        config.read(linked)
+    with pytest.raises(config.SpeechConfigError, match='speech_config_not_regular'):
+        config.read(lab.root)

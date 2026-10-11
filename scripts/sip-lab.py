@@ -72,9 +72,13 @@ class Lab:
         self.imported_speech = None
         if speech_config is not None:
             try:
-                self.imported_speech = helper(self.root, "sip-lab-speech-config").read(speech_config)
-            except (OSError, ValueError, TypeError):
-                raise LabError("产品音色配置无效；只接受下载的三档测试配置，未修改本机偏好。") from None
+                reader = helper(self.root, "sip-lab-speech-config")
+            except FileNotFoundError:
+                raise LabError("缺少音色导入工具；先在仓库根目录 git pull 更新代码。") from None
+            try:
+                self.imported_speech = reader.read(speech_config)
+            except (OSError, ValueError, TypeError) as error:
+                raise LabError("产品音色配置无效：" + reader.error_message(error) + " 未修改本机偏好。") from None
             self.speech_profile = self.imported_speech["speech_profile"]
         self.verification_passed = False
         self.environment = None
@@ -469,7 +473,7 @@ def display_event(event):
 
 def main():
     parser = argparse.ArgumentParser(description='个人 Linphone/千问测试：一个终端启动，API Key 只存内存。')
-    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue'))
+    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue', 'speech-check'))
     parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
@@ -478,8 +482,25 @@ def main():
                         help="本次覆盖音色；默认沿用已导入的产品配置，切换前退出旧宿主")
     speech.add_argument("--speech-config", type=Path, help="导入产品页面下载的音色 JSON，启动成功后记住")
     args = parser.parse_args()
+    if args.action == 'speech-check':
+        if args.speech_config is None or args.speech_profile is not None or args.host_address:
+            parser.error('speech-check 只接受 --speech-config <实际文件路径>')
+        try:
+            reader = helper(ROOT, 'sip-lab-speech-config')
+        except FileNotFoundError:
+            print('缺少音色导入工具；先在仓库根目录 git pull 更新代码。', file=sys.stderr)
+            return 2
+        try:
+            data = reader.read(args.speech_config)
+        except (OSError, ValueError, TypeError) as error:
+            print('音色配置检查未通过：' + reader.error_message(error), file=sys.stderr)
+            return 2
+        print(json.dumps({'mode': 'sip_lab_speech_config_check', 'valid': True,
+                          'speech_profile': data['speech_profile'], 'external_calls': 0,
+                          'configuration_written': False}, ensure_ascii=False))
+        return 0
     if (args.speech_profile is not None or args.speech_config is not None) and args.action not in {"start", "verify"}:
-        parser.error("音色参数仅用于 start/verify")
+        parser.error("音色参数仅用于 start/verify/speech-check")
     if args.action == "dialogue":
         if args.host_address:
             parser.error("dialogue 不需要 --host-address")
