@@ -45,9 +45,10 @@ git pull --ff-only
 python3 scripts/sip-lab-address-update.py --host-address 192.168.0.200
 ```
 
-输出 `update_state=updated` 或 `unchanged` 后，确认已有通话已结束、终端A仍在服务，按顺序重建容器：先Asterisk加载新配置及端口绑定，再media连接新的ARI服务。仅使用已有镜像，不重新构建或拉取：
+输出 `update_state=updated` 或 `unchanged` 后，确认已有通话已结束、终端A仍在服务，先在同一终端重新加载lab.env，避免之前export的旧SIP_LAB_BIND_ADDRESS覆盖Compose env文件。再按顺序重建容器：先Asterisk加载新配置及端口绑定，再media连接新的ARI服务。仅使用已有镜像，不重新构建或拉取：
 
 ```bash
+. deploy/sip-lab/generated/lab.env
 docker compose --env-file deploy/sip-lab/generated/compose.env \
   -f deploy/sip-lab/compose.yml \
   up --no-deps --no-build --pull never -d --force-recreate asterisk
