@@ -87,6 +87,12 @@ python3 scripts/sip-lab.py start
 
 启动器使用本项目 `backend/.venv`；缺失时自动创建并安装锁定的后端依赖，不修改Homebrew系统Python。它加载私有配置，按代码摘要复用/更新本机测试镜像，启动Asterisk，重载并核验1003拨号规则，再启动或复用已认证的18092宿主，最后启动qwen媒体桥。输入API Key仍在本机终端隐藏输入，仅留在宿主进程内存；配置、镜像上下文和Docker容器不包含套餐Key。只有宿主通过doctor、媒体出现 `awaiting_linphone_1003` 后，才显示“测试已就绪”。这两项检查本身不调用模型。
 
+### 隐藏输入显示credential_missing
+
+2026-10-11操作者运行verify后在Key提示处得到 `credential_missing`。该代码表示读取的输入去掉空格、包裹引号后为空，不是云端拒绝Key；旧版把它错误标成host_start阶段。重新运行verify，在提示处粘贴完整套餐Key再按回车；终端不显示字符或星号是正常的，不要因为看不到输入而直接按回车。不要填Base URL、Bearer前缀或打码值，也不要把Key发到聊天。
+
+新版在 `stage=credential` 做本地校验，空值或格式不合要求可在同一提示内重填，最多三次，不增加云调用。三次失败后退出并释放预留的18092端口，输出 `external_calls=0`。输入关闭或Ctrl+C分别标为 `credential_input_closed` / `credential_input_cancelled`；终端无法隐藏输入标为 `credential_hidden_input_unavailable`，不回退到可见输入。启动器仍只在宿主与媒体真正就绪后提示拨1003。
+
 准备好后，Linphone使用原1001账号拨 **1003**，说“今天是语音链路测试”。先说“结束测试”，待提示播完后说“确认结束测试”结束本通；电话结束后启动器继续显示状态，可再次**手动**拨打，不会自动重拨或重试。保持启动终端开启；Ctrl+C停止媒体桥及本次启动器创建的宿主，保留Asterisk、原账号与持久journal。复用的独立宿主由原终端管理，不会被启动器终止。私有启动器锁阻止同时运行第二个start/setup重启服务或改地址；退出自动释放锁，无须删除锁文件。每日媒体预算仍为20通；不会为再次测试重置历史计数。
 
 | 常用操作 | 命令 |

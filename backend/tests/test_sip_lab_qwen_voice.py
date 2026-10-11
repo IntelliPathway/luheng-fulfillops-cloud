@@ -681,6 +681,95 @@ def test_cli_status_zero_calls_and_serve_preflight_no_credential_leak(monkeypatc
     assert json.loads(capsys.readouterr().out)["error"] == "qwen_voice_acknowledgement_required"
 
 
+@pytest.mark.parametrize('invalid', ['', '  ', '""', 'https://synthetic-private.invalid/token',
+                                   'Bearer ' + KEY, 'sk-sp-***', 'synthetic secret with spaces', '中文秘密'])
+def test_hidden_key_reentry_recovers_locally_without_echo_or_cloud_calls(monkeypatch, capsys, invalid):
+    answers = iter([invalid, KEY])
+    prompted = []
+    monkeypatch.setattr(module.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr(module.getpass, 'getpass', lambda prompt: prompted.append(prompt) or next(answers))
+    monkeypatch.setattr(module.httpx, 'Client', lambda **kwargs: pytest.fail('key entry must not call cloud'))
+    assert module.read_host_key() == KEY
+    assert len(prompted) == 2
+    output = capsys.readouterr()
+    assert '剩余2次' in output.err and '不显示字符是正常的' in output.err
+    assert KEY not in output.out + output.err
+    if invalid.strip():
+        assert invalid not in output.out + output.err
+
+
+def test_empty_key_input_is_bounded_and_classified_before_host_start(monkeypatch, capsys):
+    from app.sip_lab import LabConfig
+
+    prompted = []
+    monkeypatch.setattr(LabConfig, 'from_environment', lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(module.sys, 'argv', ['host', 'serve', '--acknowledged'])
+    monkeypatch.setattr(module.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr(module.getpass, 'getpass', lambda prompt: prompted.append(prompt) or '')
+    monkeypatch.setattr(module, 'TokenVoiceEngine', lambda _: pytest.fail('empty input must not create engine'))
+    monkeypatch.setattr(module, 'create_host_server', lambda *args: pytest.fail('empty input must not start host'))
+    assert module.main() == 2
+    output = capsys.readouterr()
+    result = json.loads(output.out)
+    assert len(prompted) == 3 and '未收到 API Key' in output.err
+    assert result['stage'] == 'credential' and result['error'] == 'credential_missing'
+    assert result['external_calls'] == 0 and 'qwen_voice_ready' not in output.out
+    with module.reserve_host_socket():
+        pass  # Failed input must release the actual reserved port.
+
+
+@pytest.mark.parametrize('failure,code', [(EOFError(KEY), 'credential_input_closed'),
+                                         (KeyboardInterrupt(KEY), 'credential_input_cancelled'),
+                                         (OSError(KEY), 'credential_hidden_input_unavailable')])
+def test_key_input_failure_is_not_retried_or_echoed(monkeypatch, capsys, failure, code):
+    prompted = []
+
+    def fail(prompt):
+        prompted.append(prompt)
+        raise failure
+
+    monkeypatch.setattr(module.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr(module.getpass, 'getpass', fail)
+    with pytest.raises(VoiceError, match=code):
+        module.read_host_key()
+    output = capsys.readouterr()
+    assert len(prompted) == 1 and KEY not in output.out + output.err
+
+
+def test_hidden_input_warning_fails_before_getpass_can_echo_fallback(monkeypatch, capsys):
+    echoed = []
+
+    def unavailable(_):
+        module.warnings.warn('synthetic hidden-input warning', module.getpass.GetPassWarning)
+        echoed.append(KEY)  # Mirrors getpass fallback after its warning; must never execute.
+        return KEY
+
+    monkeypatch.setattr(module.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr(module.getpass, 'getpass', unavailable)
+    with pytest.raises(VoiceError, match='credential_hidden_input_unavailable'):
+        module.read_host_key()
+    assert not echoed
+    output = capsys.readouterr()
+    assert KEY not in output.out + output.err and 'synthetic hidden-input warning' not in output.err
+
+
+def test_noninteractive_key_entry_does_not_fall_back_to_visible_stdin(monkeypatch):
+    monkeypatch.setattr(module.sys.stdin, 'isatty', lambda: False)
+    monkeypatch.setattr(module.getpass, 'getpass', lambda _: pytest.fail('must not prompt'))
+    with pytest.raises(VoiceError, match='credential_missing_use_local_prompt'):
+        module.read_host_key()
+
+
+def test_injected_key_is_validated_locally_without_prompt_or_fallback(monkeypatch):
+    monkeypatch.setattr(module.getpass, 'getpass', lambda _: pytest.fail('injected keys must not prompt'))
+    monkeypatch.setenv(KEY_ENV, KEY)
+    assert module.read_host_key() == KEY
+    monkeypatch.setenv(KEY_ENV, '  ')
+    with pytest.raises(VoiceError, match='credential_missing'):
+        module.read_host_key()
+
+
 def test_probe_failure_stage_and_provider_errors_do_not_leak_private_bodies():
     engine, _, _, _ = make_engine(text="未知识别结果")
     with pytest.raises(VoiceError, match="asr_probe_phrase_mismatch"):

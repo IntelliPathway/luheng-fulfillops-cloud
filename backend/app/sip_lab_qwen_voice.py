@@ -13,6 +13,7 @@ import sys
 import time
 import unicodedata
 import uuid
+import warnings
 
 import httpx
 
@@ -684,6 +685,45 @@ def create_host_server(engine, token):
     )
 
 
+def read_host_key():
+    """Validate locally, with bounded hidden re-entry and no getpass echo fallback."""
+    configured = os.getenv(KEY_ENV, "")
+    if configured:
+        try:
+            return normalize_key(configured)
+        except QwenProbeError as exc:
+            raise VoiceError(str(exc)) from None
+    if not sys.stdin.isatty():
+        raise VoiceError("credential_missing_use_local_prompt")
+    print("粘贴完整 API Key 后按回车；输入不显示字符是正常的。不要输入 Base URL。", file=sys.stderr, flush=True)
+    messages = {
+        'credential_missing': '未收到 API Key（输入为空）。',
+        'credential_is_url': '收到的是服务地址；请改为完整 API Key。',
+        'credential_is_authorization_header': '只粘贴 Key 本身，不包含 Bearer 前缀。',
+        'credential_is_masked_or_placeholder': '请使用完整 Key，不能使用星号或占位符。',
+    }
+    for attempt in range(3):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', getpass.GetPassWarning)
+                value = getpass.getpass("Token Plan 完整 API Key（只存本机进程内存，不回显、不保存）：")
+        except (getpass.GetPassWarning, OSError):
+            raise VoiceError('credential_hidden_input_unavailable') from None
+        except EOFError:
+            raise VoiceError('credential_input_closed') from None
+        except KeyboardInterrupt:
+            raise VoiceError('credential_input_cancelled') from None
+        try:
+            return normalize_key(value)
+        except QwenProbeError as exc:
+            code = str(exc)
+            print(messages.get(code, 'API Key 格式不符合要求。'), file=sys.stderr, flush=True)
+            if attempt == 2:
+                raise VoiceError(code) from None
+            print(f'请重新粘贴后按回车（剩余{2 - attempt}次）；尚未调用云服务。', file=sys.stderr, flush=True)
+    raise VoiceError('credential_missing')  # Defensive guard; the loop always returns or raises.
+
+
 def main():
     parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定18092端口、短句与合成对话。")
     parser.add_argument("action", choices=["status", "doctor", "serve", "probe"])
@@ -725,11 +765,7 @@ def main():
         stage = "host_bind"
         listener = reserve_host_socket()
         stage = "credential"
-        key = os.getenv(KEY_ENV, "")
-        if not key:
-            if not sys.stdin.isatty():
-                raise VoiceError("credential_missing_use_local_prompt")
-            key = getpass.getpass("Token Plan 完整 API Key（只存本机进程内存，不回显、不保存）：")
+        key = read_host_key()
         stage = "host_start"
         engine = TokenVoiceEngine(key)
         server = create_host_server(engine, token)
@@ -745,6 +781,7 @@ def main():
                     "stage": stage,
                     "host": QWEN_HOST_URL,
                     "error": str(exc) if isinstance(exc, VoiceError) else "qwen_host_unavailable_or_failed",
+                    **({'external_calls': 0} if stage == 'credential' else {}),
                     **(exc.diagnostics if isinstance(exc, HostProbeError) else {}),
                     **websocket_dependencies(),
                     "phone_audio_verified": False,
