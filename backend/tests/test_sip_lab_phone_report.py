@@ -74,6 +74,30 @@ def test_barge_in_has_own_request_and_can_cancel_before_completion():
     assert report['observed_cases']['negation'] is True
 
 
+def test_report_explains_unmatched_second_turn_without_exposing_asr(capsys):
+    event = summary()
+    event['turn_observations'][2]['test_case'] = 'out_of_scope'
+    event['turn_observations'][2]['transcript'] = 'SYNTHETIC_ASR_SECRET'
+    report = reporter.make_report(event)
+    assert report['assessment'] == 'needs_retest'
+    reporter.describe(report)
+    output = capsys.readouterr().out
+    assert '数字日期缺失' in output and '存在未匹配短句' in output
+    assert 'SYNTHETIC_ASR_SECRET' not in output + json.dumps(report)
+
+
+@pytest.mark.parametrize('field,value', [('turns', None), ('turns', [{'kind': 'turn', 'completed': True, 'test_case': []}]),
+                                        ('observed_cases', {'confirm': 'SYNTHETIC_ASR_SECRET'})])
+def test_signed_report_still_validates_display_fields(tmp_path, field, value):
+    generated = tmp_path / 'generated'
+    generated.mkdir(mode=0o700)
+    report = reporter.make_report(summary())
+    report[field] = value
+    reporter.save_report(generated, report)
+    with pytest.raises(reporter.ReportError, match='invalid_private_phone_report'):
+        reporter.latest_report(generated)
+
+
 @pytest.mark.parametrize('fault', ['probe', 'no_rtp', 'silence_only', 'missing_case', 'wrong_end', 'no_interrupt',
                                  'truncated', 'legacy', 'missing_timing', 'missing_provider', 'unknown_request', 'bad_counts'])
 def test_partial_synthetic_or_unknown_results_cannot_pass_phone_acceptance(fault):

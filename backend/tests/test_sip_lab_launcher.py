@@ -157,7 +157,8 @@ def test_missing_cached_base_does_not_pull_or_build(lab, monkeypatch):
 
 
 def test_verified_existing_host_is_reused_and_never_terminated(lab, monkeypatch):
-    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_session_limit_seconds': 180})
+    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_session_limit_seconds': 180,
+                                             'voice_test_matcher_version': 2})
     monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('must reuse host'))
     lab.ensure_host()
     lab.close()
@@ -272,12 +273,23 @@ def test_duration_explicit_end_failure_and_turn_limit_have_distinct_reasons():
 
 
 def test_old_authenticated_host_cannot_silently_truncate_extended_test(lab, monkeypatch):
-    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True})
+    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_test_matcher_version': 2})
     monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('must not take over old host'))
     with pytest.raises(launcher.LabError, match='旧 60 秒'):
         lab.ensure_host()
     lab.session_seconds = 60
     lab.ensure_host()
+    assert lab.host is None
+
+
+@pytest.mark.parametrize('verifying', [False, True])
+def test_old_matcher_requires_operator_restart_without_process_takeover(lab, monkeypatch, verifying):
+    lab.verifying = verifying
+    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_session_limit_seconds': 180,
+                                             'voice_test_metadata_version': 1, 'voice_test_matcher_version': 0})
+    monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('must not take over old host'))
+    with pytest.raises(launcher.LabError, match='旧短句匹配'):
+        lab.ensure_host()
     assert lab.host is None
 
 

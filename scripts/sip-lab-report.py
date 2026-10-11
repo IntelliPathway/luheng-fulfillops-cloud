@@ -13,7 +13,7 @@ from pathlib import Path
 
 CASES = ('confirm', 'numbers_date', 'negation', 'stop')
 ATTESTATIONS = {'audible_reply': '全程能听清语音回复', 'numbers_date_correct': '测试数字1234及日期10月9日复述正确',
-                'negation_continued': '说“我不是要结束，请继续测试”后对话继续',
+                'negation_continued': '说“不要结束测试”后对话继续',
                 'barge_in_worked': '插话后旧播报停止，随后有新的回复',
                 'goodbye_completed': '说“结束测试”后结束语完整播完再挂断'}
 END_REASONS = {'duration_limit', 'turn_limit', 'dialogue_ended', 'voice_failed', 'channel_ended', 'service_stopped'}
@@ -223,6 +223,18 @@ def latest_report(generated):
             or any(report.get(key) is not False for key in ('phone_audio_verified', 'business_ready', 'billing_verified', 'pstn_enabled'))):
         raise ReportError('invalid_private_phone_report')
     latency = report.get('latency')
+    coverage, turns = report.get('observed_cases'), report.get('turns')
+    if (not isinstance(coverage, dict) or set(coverage) != set(CASES)
+            or any(type(value) is not bool for value in coverage.values())
+            or not isinstance(turns, list) or len(turns) > 8):
+        raise ReportError('invalid_private_phone_report')
+    for row in turns:
+        if (not isinstance(row, dict) or not isinstance(row.get('kind'), str)
+                or row['kind'] not in {'turn', 'greeting', 'probe'}
+                or type(row.get('completed')) is not bool
+                or row.get('test_case') is not None and (not isinstance(row['test_case'], str)
+                                                       or row['test_case'] not in {*CASES, 'greeting', 'out_of_scope'})):
+            raise ReportError('invalid_private_phone_report')
     if not isinstance(latency, dict) or not isinstance(latency.get('host_stage_ms'), dict):
         raise ReportError('invalid_private_phone_report')
     for distribution_data in [latency.get('first_reply_rtp'), *latency['host_stage_ms'].values()]:
@@ -248,6 +260,15 @@ def describe(report):
     def show(value):
         return str(value) if type(value) in {int, float} and 0 <= value <= 185000 else '未测得'
     print('电话验收：' + assessment, flush=True)
+    coverage = report.get('observed_cases', {})
+    print('完成场景：' + '，'.join(label + ('已完成' if coverage.get(case) is True else '缺失')
+                               for case, label in (('confirm', '确认'), ('numbers_date', '数字日期'),
+                                                   ('negation', '否定结束'), ('stop', '正常结束'))), flush=True)
+    unmatched = sum(row.get('kind') == 'turn' and row.get('completed') is True
+                    and row.get('test_case') == 'out_of_scope'
+                    for row in report.get('turns', []) if isinstance(row, dict))
+    if unmatched:
+        print('存在未匹配短句；请用“复述1234和10月9日”重测，单句控制在6秒内。', flush=True)
     print('句末提交→首个回复RTP：中位数 ' + show(median) + ' ms，P95 ' + show(p95) + ' ms。', flush=True)
     stages = report.get('latency', {}).get('host_stage_ms', {})
     print('宿主阶段中位数：ASR ' + show(stages.get('asr', {}).get('median_ms')) + ' ms，LLM '

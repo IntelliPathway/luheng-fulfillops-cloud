@@ -123,17 +123,20 @@ def drain(ws):
 def test_four_case_single_session_metadata_and_no_raw_asr_in_receipts():
     engine, _, _, _ = make_engine()
     original = engine.transport
-    cases = iter(CASES)
+    # Realistic ASR renderings in successive turns, rather than exact prompt strings.
+    transcripts = iter(('今天是语音链路测试', '请复述一千二百三十四和十月九号',
+                        '我不想结束测试，请继续', '请停止语音测试'))
 
     def transport(request):
         if str(request.url) == module.ASR_URL:
-            return httpx.Response(200, json={'output': {'text': CASES[next(cases)][0]}})
+            return httpx.Response(200, json={'output': {'text': next(transcripts)}})
         return original.handle_request(request)
 
     engine.transport = httpx.MockTransport(transport)
     with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
             '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
         assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_metadata_version'] == 1
+        assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_matcher_version'] == 2
         ws.receive_json()
         for number, case in enumerate(CASES, start=1):
             ws.send_json(command(turn=str(number) * 32))
@@ -171,6 +174,34 @@ def test_real_service_protocol_multiturn_synthetic_history_and_redacted_diagnost
         assert wav.getframerate() == 8000 and wav.readframes(wav.getnframes()) == PCM
 
 
+def test_unmatched_turn_does_not_trap_following_oral_turn_or_pollute_llm_history():
+    engine, _, requests, _ = make_engine()
+    original = engine.transport
+    transcripts = iter(('今天是语音链路测试', 'SYNTHETIC_ASR_SECRET', '复述一二三四和十月九号'))
+
+    def transport(request):
+        if str(request.url) == module.ASR_URL:
+            return httpx.Response(200, json={'output': {'text': next(transcripts)}})
+        return original.handle_request(request)
+
+    engine.transport = httpx.MockTransport(transport)
+    with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        ws.receive_json()
+        for number, case in enumerate(('confirm', 'out_of_scope', 'numbers_date'), start=1):
+            ws.send_json(command(turn=str(number) * 32))
+            ws.send_bytes(PCM)
+            event, audio = drain(ws)
+            assert event['test_case'] == case and event['end'] is False and audio
+            assert 'SYNTHETIC_ASR_SECRET' not in json.dumps(event)
+        assert event['cloud_provider_calls'] == 8
+    llm = [json.loads(request.content) for request in requests if str(request.url) == CHAT]
+    assert len(llm) == 2 and len(llm[1]['messages']) == 4
+    assert llm[1]['messages'][1]['content'] == CASES['confirm'][0]
+    assert llm[1]['messages'][-1]['content'] == CASES['numbers_date'][0]
+    assert 'SYNTHETIC_ASR_SECRET' not in json.dumps(llm)
+
+
 @pytest.mark.parametrize(
     "text,case,end,calls",
     [
@@ -191,6 +222,45 @@ def test_fixed_case_routing_end_negation_and_no_arbitrary_text_to_llm(text, case
     assert len(llm) == (1 if case in {"negation", "numbers_date"} else 0)
     if llm:
         assert llm[0]["messages"][-1]["content"] == CASES[case][0]
+
+
+@pytest.mark.parametrize('text,case', [
+    ('复述1234和10月9日', 'numbers_date'),
+    ('请复述测试数字一千二百三十四和测试日期十月九号，不要结束', 'numbers_date'),
+    ('麻烦你帮我念一下数字幺二三四以及日期10月九日', 'numbers_date'),
+    ('请重复１２３４和１０月９号', 'numbers_date'),
+    ('请读出测试数字1,234及日期十月9日', 'numbers_date'),
+    ('不要结束测试，请继续测试', 'negation'),
+    ('我不是要结束测试，请继续', 'negation'),
+    ('我不想结束，请继续测试', 'negation'),
+    ('请继续语音测试', 'negation'),
+    ('今天是语音链路测试，请确认一下', 'confirm'),
+    ('请换一句测试短句', 'confirm'),
+    ('请停止语音测试', 'stop'),
+    ('结束测试吧', 'stop'),
+    ('复述1235和10月9日', None),
+    ('复述12.34和10月9日', None),
+    ('复述-1234和10月9日', None),
+    ('复述1/234和10月9日', None),
+    ('复述1234和10月10日', None),
+    ('请复述1234', None),
+    ('日期10月9日', None),
+    ('客户余额1234和10月9日', None),
+    ('请复述1234和10月9日再查询客户合同', None),
+    ('不是要结束测试', None),
+    ('不要停止测试', None),
+])
+def test_oral_asr_variants_route_only_complete_reviewed_synthetic_values(text, case):
+    assert module.test_case(text) == case
+    engine, _, requests, _ = make_engine(text)
+    result = execute_qwen_turn(engine, 'turn', PCM, [], threading.Event(), lambda _: None)
+    assert result['test_case'] == (case or 'out_of_scope')
+    assert result['end'] is (case == 'stop')
+    llm = [json.loads(request.content) for request in requests if str(request.url) == CHAT]
+    assert len(llm) == int(case in {'confirm', 'numbers_date', 'negation'})
+    if llm:
+        assert llm[0]['messages'][-1]['content'] == CASES[case][0]
+        assert text not in json.dumps(llm, ensure_ascii=False)
 
 
 def test_streaming_yields_before_provider_finishes_and_closes_on_generator_cancel():

@@ -11,6 +11,7 @@ import re
 import socket
 import sys
 import time
+import unicodedata
 import uuid
 
 import httpx
@@ -84,7 +85,7 @@ SAFE_ERRORS = frozenset(
     }
 )
 GREETING = "这里是千问语音测试，请说固定测试短句。说结束测试即可结束。"
-SCOPE_REPLY = "这里只进行固定语音测试，请说今天是语音链路测试。"
+SCOPE_REPLY = "没有匹配到测试短句，请说复述1234和10月9日，或说结束测试。"
 STOP_REPLY = "测试结束，再见。"
 
 
@@ -151,6 +152,10 @@ def doctor_host(token, *, transport=None):
         if type(metadata) is not int or metadata not in {0, 1}:
             raise VoiceError('invalid_qwen_host_status')
         report['voice_test_metadata_version'] = metadata
+        matcher = data.get('voice_test_matcher_version', 0)
+        if type(matcher) is not int or matcher not in {0, 2}:
+            raise VoiceError('invalid_qwen_host_status')
+        report['voice_test_matcher_version'] = matcher
         if not report["websocket_no_redirect_api_available"]:
             raise VoiceError("websocket_dependency_incompatible")
         if data["busy"]:
@@ -200,12 +205,19 @@ def connection_token():
 
 
 def normalized(text):
-    return re.sub(r"[\W_]", "", text).replace("一二三四", "1234").replace("十月九日", "10月9日")
+    value = re.sub(r"[\W_]", "", unicodedata.normalize('NFKC', text))
+    # Only reviewed synthetic values: do not normalize arbitrary numbers or infer missing audio.
+    for spoken in ('一千二百三十四', '一二三四', '幺二三四'):
+        value = value.replace(spoken, '1234')
+    return re.sub(r'(?:十|10)月(?:九|9)(?:日|号)', '10月9日', value)
 
 
 def test_case(text):
     if not isinstance(text, str) or not 1 <= len(text) <= 120:
         raise VoiceError("invalid_asr_text")
+    # Removing sentence punctuation must not turn decimals/fractions/negative values into 1234.
+    if re.search(r'[0-9][./:][0-9]|[+−-]\s*[0-9]', unicodedata.normalize('NFKC', text)):
+        return None
     value = normalized(text)
     aliases = {
         "confirm": (CASES["confirm"][0], "今天是语音链路测试", "换一句测试短句"),
@@ -219,6 +231,22 @@ def test_case(text):
     }
     for case, phrases in aliases.items():
         if value in {normalized(phrase) for phrase in phrases}:
+            return case
+    # Full-utterance grammars tolerate ASR wording without forwarding raw speech to the LLM.
+    # Never use substring/fuzzy matching: wrong numbers, extra facts and negated stops must not pass.
+    oral = {
+        'numbers_date': (r'(?:请|请你|麻烦|麻烦你)?(?:帮我)?(?:复述|重复|读出|读一下|念一下|说一下)'
+                         r'(?:一下)?(?:测试)?(?:数字|号码)?(?:是)?1234(?:和|以及|还有|及)?'
+                         r'(?:测试)?(?:日期)?(?:是)?10月9日(?:不要结束(?:测试)?|请继续(?:测试)?)?'),
+        'negation': (r'(?:我(?:不是要|不想|不要|不需要)结束(?:测试)?(?:请)?继续(?:测试)?'
+                     r'|(?:请)?不要结束(?:测试)?(?:请继续(?:测试)?)?'
+                     r'|(?:请)?继续(?:语音)?测试)'),
+        'confirm': (r'(?:(?:今天|现在)(?:是|在进行))?语音链路测试(?:请确认(?:一下)?)?'
+                    r'|(?:请)?(?:换|再说)一句(?:测试)?短句'),
+        'stop': r'(?:请)?(?:结束|停止)(?:语音)?测试(?:吧)?|测试结束(?:请)?停止|再见',
+    }
+    for case, pattern in oral.items():
+        if re.fullmatch(pattern, value):
             return case
     return None
 

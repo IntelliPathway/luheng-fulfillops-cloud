@@ -188,6 +188,8 @@ class Lab:
                 raise LabError('现有宿主为旧 60 秒版本；请在原终端 Ctrl+C 停止后重新运行 start，或加 --session-seconds 60。')
             if self.verifying and report.get('voice_test_metadata_version') != 1:
                 raise LabError('现有宿主缺少场景验收标记；请在原终端 Ctrl+C 退出后重新运行 verify。')
+            if report.get('voice_test_matcher_version') != 2:
+                raise LabError('现有宿主仍使用旧短句匹配；请在原终端 Ctrl+C 退出后重新运行 start/verify。')
             print('复用已通过认证的 18092 宿主；退出时保留该进程。', flush=True)
             return
         with socket.socket() as connection:
@@ -279,8 +281,8 @@ class Lab:
         if self.verifying:
             print('本次为单通验收；除第4步插话外，等待回复播完再说下一句：\n'
                   '1. 今天是语音链路测试，请确认。\n'
-                  '2. 请复述测试数字1234和测试日期10月9日，不要结束。\n'
-                  '3. 我不是要结束，请继续测试。\n'
+                  '2. 复述1234和10月9日。\n'
+                  '3. 不要结束测试。\n'
                   '4. 再说：今天是语音链路测试，请确认；在这轮回复播放时插话：换一句测试短句。\n'
                   '5. 结束测试。\n'
                   '结束语播完后，本终端会收集听音确认并保存报告；不记录原始转写。', flush=True)
