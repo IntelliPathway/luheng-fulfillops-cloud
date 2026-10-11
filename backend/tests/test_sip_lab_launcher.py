@@ -20,7 +20,7 @@ spec.loader.exec_module(launcher)
 def lab(tmp_path):
     (tmp_path / 'scripts').mkdir()
     (tmp_path / 'deploy/sip-lab').mkdir(parents=True)
-    for name in ('sip-lab-config', 'sip-lab-address-update', 'sip-lab-qwen-voice-config', 'sip-lab-media-local-build'):
+    for name in ('sip-lab-config', 'sip-lab-address-update', 'sip-lab-qwen-voice-config', 'sip-lab-media-local-build', 'sip-lab-speech-config'):
         (tmp_path / 'scripts' / (name + '.py')).write_bytes((ROOT / 'scripts' / (name + '.py')).read_bytes())
     instance = launcher.Lab(tmp_path)
     instance.configure('192.168.50.10')
@@ -375,6 +375,10 @@ def test_single_entry_waits_for_dialplan_host_and_media_before_phone_ready(lab, 
 
 
 def test_media_failure_never_announces_ready_and_cleans_owned_service(lab, monkeypatch, capsys):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    original = config.save(lab.root / 'deploy/sip-lab/generated', config.payload('baseline')).read_bytes()
+    lab.imported_speech = config.payload('warm_female')
+    lab.speech_profile = 'warm_female'
     monkeypatch.setattr(lab, 'dependencies', lambda **kwargs: None)
     monkeypatch.setattr(lab, 'run', lambda *args, **kwargs: completed())
     monkeypatch.setattr(lab, 'images', lambda: None)
@@ -397,6 +401,7 @@ def test_media_failure_never_announces_ready_and_cleans_owned_service(lab, monke
         lab.start()
     lab.close()
     assert stopped == ['media']
+    assert (lab.root / 'deploy/sip-lab/generated/speech-settings.json').read_bytes() == original
     output = capsys.readouterr().out
     assert 'ari_auth_failed' in output and '测试已就绪' not in output
 
@@ -432,3 +437,77 @@ def test_phone_report_preserves_reviewed_voice_configuration_and_rejects_mixed_p
             report = reporter.make_report({'event': 'media_session_summary', 'mode': 'qwen_token_plan_voice_lab',
                                            'provider': provider | {'pitch': True}, 'session_limit_seconds': 180})
             assert report['provider'] is None
+
+
+@pytest.mark.parametrize('profile', ['baseline', 'warm_female', 'clear_male'])
+def test_product_export_is_valid_and_matches_host_voice_catalog(lab, profile):
+    from app.sip_lab_qwen_voice import provider_configuration
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    product = subprocess.run(['node', '--input-type=module', '-e',
+                             "import {speechDownload} from './src/personal-speech.js';"
+                             "console.log(speechDownload(process.argv[1]).content)", profile],
+                            cwd=ROOT, capture_output=True, text=True, check=True)
+    exported = lab.root / 'download.json'
+    exported.write_text(product.stdout)
+    assert config.read(exported) == config.payload(profile)
+    catalog = json.loads((ROOT / 'src/sip-lab-speech-catalog.json').read_text())[profile]
+    provider = provider_configuration(profile)
+    assert catalog['voice'] == provider['voice']
+    assert catalog['rate'] == provider.get('rate', 1.0) and catalog['pitch'] == provider.get('pitch', 1.0)
+
+
+def test_product_import_is_remembered_only_after_success_and_explicit_override_is_temporary(lab):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    path = lab.root / 'download.json'
+    path.write_text(json.dumps(config.payload('warm_female')))
+    imported = launcher.Lab(lab.root, speech_config=path)
+    imported.configure(exclusive=True)
+    private = lab.root / 'deploy/sip-lab/generated'
+    assert imported.speech_profile == 'warm_female' and not (private / config.FILENAME).exists()
+    # Production invokes this only after authenticated host and media readiness.
+    imported.remember_speech()
+    imported.close()
+    assert (private / config.FILENAME).stat().st_mode & 0o777 == 0o600
+    restart = launcher.Lab(lab.root)
+    restart.configure()
+    assert restart.speech_profile == 'warm_female'
+    override = launcher.Lab(lab.root, speech_profile='baseline')
+    override.configure()
+    assert override.speech_profile == 'baseline'
+    assert config.read(private / config.FILENAME, private=True)['speech_profile'] == 'warm_female'
+
+
+@pytest.mark.parametrize('content', ['{"speech_profile":"warm_female"}',
+                                    '{"schema_version":1,"schema_version":1,"usage_scope":"personal_qwen_phone_lab","speech_profile":"warm_female"}',
+                                    '{"schema_version":true,"usage_scope":"personal_qwen_phone_lab","speech_profile":"warm_female"}',
+                                    '{"schema_version":1,"usage_scope":"personal_qwen_phone_lab","speech_profile":"warm_female","api_key":"synthetic-secret"}'])
+def test_invalid_product_configuration_never_reaches_services_or_prints_content(lab, content, monkeypatch, capsys):
+    path = lab.root / 'bad.json'
+    path.write_text(content)
+    monkeypatch.setattr(launcher, 'ROOT', lab.root)
+    monkeypatch.setattr(launcher.sys, 'argv', ['sip-lab.py', 'start', '--speech-config', str(path)])
+    monkeypatch.setattr(launcher.Lab, 'configure', lambda *a, **kw: pytest.fail('must reject before configuration'))
+    assert launcher.main() == 2
+    assert '产品音色配置无效' in capsys.readouterr().err
+    assert not (lab.root / 'deploy/sip-lab/generated/speech-settings.json').exists()
+
+
+def test_saved_product_configuration_rejects_symlinks_permissions_and_nonfiles(lab):
+    config = launcher.helper(ROOT, 'sip-lab-speech-config')
+    private = lab.root / 'deploy/sip-lab/generated'
+    path = config.save(private, config.payload('clear_male'))
+    path.chmod(0o644)
+    with pytest.raises(launcher.LabError, match='权限或内容无效'):
+        launcher.Lab(lab.root).configure()
+    path.chmod(0o600)
+    original = path.read_bytes()
+    path.unlink()
+    elsewhere = lab.root / 'external.json'
+    elsewhere.write_bytes(original)
+    elsewhere.chmod(0o600)
+    path.symlink_to(elsewhere)
+    with pytest.raises(launcher.LabError, match='权限或内容无效'):
+        launcher.Lab(lab.root).configure()
+    with pytest.raises(OSError):
+        config.read(private)
+    assert elsewhere.read_bytes() == original

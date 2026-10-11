@@ -61,13 +61,21 @@ def read_environment(root):
 
 
 class Lab:
-    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False, speech_profile="baseline"):
+    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False, speech_profile=None, speech_config=None):
         self.root = Path(root)
         self.session_seconds = session_seconds
         self.verifying = verifying
-        if speech_profile not in {"baseline", "warm_female", "clear_male"}:
+        if speech_profile is not None and speech_profile not in {"baseline", "warm_female", "clear_male"}:
             raise LabError("不支持该语音档。")
-        self.speech_profile = speech_profile
+        self.requested_speech_profile = speech_profile
+        self.speech_profile = speech_profile or "baseline"
+        self.imported_speech = None
+        if speech_config is not None:
+            try:
+                self.imported_speech = helper(self.root, "sip-lab-speech-config").read(speech_config)
+            except (OSError, ValueError, TypeError):
+                raise LabError("产品音色配置无效；只接受下载的三档测试配置，未修改本机偏好。") from None
+            self.speech_profile = self.imported_speech["speech_profile"]
         self.verification_passed = False
         self.environment = None
         self.host = None
@@ -107,6 +115,14 @@ class Lab:
                 os.close(descriptor)
                 raise
             self.launcher_lock = descriptor
+        saved_speech = private / 'speech-settings.json'
+        if saved_speech.exists() or saved_speech.is_symlink():
+            try:
+                saved = helper(self.root, 'sip-lab-speech-config').read(saved_speech, private=True)
+            except (OSError, ValueError, TypeError):
+                raise LabError('已保存的音色配置权限或内容无效；未启动服务，请保留文件并检查。') from None
+            if self.imported_speech is None and self.requested_speech_profile is None:
+                self.speech_profile = saved['speech_profile']
         if address and address != self.environment['SIP_LAB_BIND_ADDRESS']:
             running = self.compose('ps', '--status', 'running', '--services')
             if running.returncode:
@@ -279,6 +295,7 @@ class Lab:
             time.sleep(0.5)
         else:
             raise LabError('等待媒体桥就绪超时。')
+        self.remember_speech()
         address = self.environment['SIP_LAB_BIND_ADDRESS']
         print('\n测试已就绪：Linphone 使用现有 1001 账号，服务器 ' + address + ':5060，拨打 1003。', flush=True)
         print('说：今天是语音链路测试。结束：先说结束测试，再说确认结束测试。每通最多 '
@@ -312,6 +329,18 @@ class Lab:
                     if len(pending) > 65536:
                         pending = b''
         raise LabError('媒体日志连接结束；请用 status 检查服务。')
+
+    def remember_speech(self):
+        if self.imported_speech is None:
+            return
+        if self.launcher_lock is None:
+            raise LabError('保存音色需要当前启动器持有配置锁。')
+        try:
+            helper(self.root, 'sip-lab-speech-config').save(
+                self.root / 'deploy/sip-lab/generated', self.imported_speech)
+        except (OSError, ValueError, TypeError):
+            raise LabError('音色已用于本次宿主，但本机偏好保存失败；未报告持久化成功。') from None
+        print('产品音色配置已应用并记住：' + self.speech_profile + '；下次直接运行 start。', flush=True)
 
     def handle_event(self, event):
         display_event(event)
@@ -444,18 +473,22 @@ def main():
     parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
-    parser.add_argument("--speech-profile", choices=("baseline", "warm_female", "clear_male"),
-                        default="baseline", help="原音色 / 温暖女声 / 清晰男声；切换前退出旧宿主")
+    speech = parser.add_mutually_exclusive_group()
+    speech.add_argument("--speech-profile", choices=("baseline", "warm_female", "clear_male"),
+                        help="本次覆盖音色；默认沿用已导入的产品配置，切换前退出旧宿主")
+    speech.add_argument("--speech-config", type=Path, help="导入产品页面下载的音色 JSON，启动成功后记住")
     args = parser.parse_args()
-    if args.speech_profile != "baseline" and args.action not in {"start", "verify"}:
-        parser.error("--speech-profile 仅用于 start/verify")
+    if (args.speech_profile is not None or args.speech_config is not None) and args.action not in {"start", "verify"}:
+        parser.error("音色参数仅用于 start/verify")
     if args.action == "dialogue":
         if args.host_address:
             parser.error("dialogue 不需要 --host-address")
         return helper(ROOT, "loan-dialogue-replay").main()
-    lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify',
-              **({'speech_profile': args.speech_profile} if args.speech_profile != 'baseline' else {}))
+    lab = None
     try:
+        lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify',
+                  **({'speech_profile': args.speech_profile} if args.speech_profile is not None else {}),
+                  **({'speech_config': args.speech_config} if args.speech_config is not None else {}))
         if args.host_address and args.action not in {'start', 'verify', 'setup'}:
             raise LabError('--host-address 仅用于 start/verify/setup；诊断和报告不修改配置。')
         if args.action in {'start', 'verify', 'setup'}:
@@ -502,7 +535,7 @@ def main():
         return 0
     except KeyboardInterrupt:
         print('\n正在停止本次测试；保留账号、Asterisk 与历史 journal。', flush=True)
-        return 130 if lab.verifying else 0
+        return 130 if lab is not None and lab.verifying else 0
     except LabError as error:
         print('未就绪：' + str(error), file=sys.stderr)
         return 2
@@ -511,7 +544,8 @@ def main():
         return 2
     finally:
         try:
-            lab.close()
+            if lab is not None:
+                lab.close()
         except (OSError, subprocess.SubprocessError):
             print('清理未能确认；请用 status 检查媒体桥与宿主，未自动重启。', file=sys.stderr)
 

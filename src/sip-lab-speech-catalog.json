@@ -1,0 +1,5 @@
+{
+  "baseline": {"label": "原音色 · 对照基线", "voice": "longanhuan_v3.6", "rate": 1.0, "pitch": 1.0, "description": "保留之前已跑通的音色，便于对照。"},
+  "warm_female": {"label": "温暖女声", "voice": "longanlingxin", "rate": 0.96, "pitch": 1.0, "description": "语速稍慢，适合比较长句听感。"},
+  "clear_male": {"label": "清晰男声", "voice": "longanlufeng", "rate": 1.0, "pitch": 1.0, "description": "正常语速，适合比较数字和日期播报。"}
+}
