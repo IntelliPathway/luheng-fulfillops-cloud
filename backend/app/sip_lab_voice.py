@@ -162,6 +162,7 @@ class LocalVoiceClient:
         self.current_observation = None
         self.last_playback_epoch = None
         self.progress = deque(maxlen=8)
+        self.dialogue_mode = 'short_phrase'
 
     def start(self, kind='greeting'):
         self.submit(None, kind=kind)
@@ -223,11 +224,13 @@ class LocalVoiceClient:
             return result
 
     def close(self):
-        self.stop.set()
         with self.lock:
+            if self.dialogue_mode == 'synthetic_loan' and (self.audio or self.active):
+                self.interruptions += 1
             self.epoch += 1
             self.pending = None
             self.audio.clear()
+            self.stop.set()
         if self.thread:
             self.thread.join(timeout=0.5)
 
@@ -266,6 +269,8 @@ class LocalVoiceClient:
         remote = None
         binary = None
         cancelled = False
+        sent_interruptions = 0
+        last_complete = None
         try:
             self.connection_stage = 'host_connect'
             with (self.connect or default_connect)(self.url, additional_headers={
@@ -278,14 +283,21 @@ class LocalVoiceClient:
                     if not isinstance(raw, str) or len(raw) > 4096:
                         raise VoiceError('invalid_qwen_provider_handshake')
                     event = json.loads(raw)
-                    if not isinstance(event, dict) or set(event) != {'kind', 'provider'} or event['kind'] != 'ready':
+                    if not isinstance(event, dict) or event.get('kind') != 'ready' or (
+                            set(event) != {'kind', 'provider'} and
+                            (set(event) != {'kind', 'provider', 'dialogue_mode'} or event['dialogue_mode'] != 'synthetic_loan')):
                         raise VoiceError('invalid_qwen_provider_handshake')
                     with self.lock:
                         self.provider = validate_provider(event['provider'])
+                        self.dialogue_mode = event.get('dialogue_mode', 'short_phrase')
                 self.connection_stage = 'voice_turn'
                 while not self.stop.is_set() and self.clock() < deadline:
                     commands = []
                     with self.lock:
+                        if (self.dialogue_mode == 'synthetic_loan' and remote is None and last_complete
+                                and self.interruptions > sent_interruptions):
+                            commands.append(json.dumps({'kind': 'playback_interrupted', 'turn': last_complete}))
+                            sent_interruptions = self.interruptions
                         if remote and remote[0] != self.epoch and not cancelled:
                             commands.append(json.dumps({'kind': 'cancel', 'turn': remote[1]}))
                             cancelled = True
@@ -293,8 +305,11 @@ class LocalVoiceClient:
                             remote, self.pending = self.pending, None
                             cancelled = False
                             _, turn, kind, pcm = remote
-                            commands.append(json.dumps({'kind': kind, 'turn': turn,
-                                                        'samples': len(pcm) // 2 if pcm else 0}))
+                            command = {'kind': kind, 'turn': turn, 'samples': len(pcm) // 2 if pcm else 0}
+                            if self.dialogue_mode == 'synthetic_loan' and kind == 'turn':
+                                command['previous_interrupted'] = self.interruptions > sent_interruptions
+                            sent_interruptions = self.interruptions
+                            commands.append(json.dumps(command))
                             if pcm:
                                 commands.append(pcm)
                     # Network writes must never hold the RTP-facing playback lock.
@@ -358,7 +373,7 @@ class LocalVoiceClient:
                                     raise VoiceError('invalid_voice_completion')
                                 case = event.get('test_case')
                                 if case is not None and (case not in {'greeting', 'confirm', 'numbers_date',
-                                                                      'negation', 'stop', 'stop_pending', 'out_of_scope'}
+                                                                      'negation', 'stop', 'stop_pending', 'out_of_scope', 'loan_dialogue'}
                                                          or (self.expected_provider and event['end'] != (case == 'stop'))):
                                     raise VoiceError('invalid_voice_completion')
                                 control, ignored, audio_ms = event.get('stop_control'), event.get('llm_end_ignored'), event.get('input_audio_ms')
@@ -391,11 +406,19 @@ class LocalVoiceClient:
                                 self.metrics.append(metrics)
                             # Generation completion is not playback completion.
                             self.active = self.pending is not None
+                            if kind == 'complete':
+                                last_complete = remote[1]
                         remote = None
                     else:
                         raise VoiceError('unexpected_voice_event')
                     if self.failed:
                         break
+                if self.dialogue_mode == 'synthetic_loan' and not self.failed and remote is None and last_complete:
+                    with self.lock:
+                        interrupted = self.interruptions > sent_interruptions or bool(self.audio or self.active)
+                    # Flush the final playback state before closing; no next ASR turn is required.
+                    ws.send(json.dumps({'kind': 'session_end', 'turn': last_complete,
+                                        'playback_interrupted': interrupted}))
         except Exception as exc:
             with self.lock:
                 self.failed = True

@@ -283,7 +283,21 @@ def create_app(engine, token, *, turn_executor=None):
             result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False,
                           voice_session_limit_seconds=180, voice_test_metadata_version=1,
                           voice_test_matcher_version=3, stop_confirmation_required=True)
+            result['dialogue_mode'] = getattr(engine, 'dialogue_mode', 'short_phrase')
         return result
+
+    @app.get('/lab/dialogue-result')
+    def dialogue_result(request: Request):
+        authorize(request)
+        if not gate.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail='local_voice_busy')
+        try:
+            dialogue = getattr(engine, 'dialogue', None)
+            if dialogue is None:
+                raise HTTPException(status_code=409, detail='synthetic_dialogue_not_enabled')
+            return dialogue.result()
+        finally:
+            gate.release()
 
     @app.post('/lab/drain')
     def drain(request: Request):
@@ -314,6 +328,8 @@ def create_app(engine, token, *, turn_executor=None):
         outgoing = queue.Queue(maxsize=8)
         outcome = {}
         active = waiting = None
+        last_complete = None
+        clean_exit = False
         turns = 0
         receive = None
         history = deque(maxlen=8)
@@ -352,7 +368,10 @@ def create_app(engine, token, *, turn_executor=None):
             await ws.accept()
             if hasattr(engine, 'lab_provider'):
                 engine.begin_session()
-                await ws.send_json({'kind': 'ready', 'provider': engine.lab_provider})
+                ready = {'kind': 'ready', 'provider': engine.lab_provider}
+                if getattr(engine, 'dialogue_mode', None) == 'synthetic_loan':
+                    ready['dialogue_mode'] = 'synthetic_loan'
+                await ws.send_json(ready)
             receive = asyncio.create_task(ws.receive())
             while time.monotonic() < until:
                 done, _ = await asyncio.wait([receive], timeout=0.01)
@@ -386,14 +405,37 @@ def create_app(engine, token, *, turn_executor=None):
                                     event.update(engine.diagnostics())
                                 await ws.send_json(event)
                                 active = None
+                        elif command.get('kind') in {'playback_interrupted', 'session_end'}:
+                            if (getattr(engine, 'dialogue_mode', None) != 'synthetic_loan'
+                                    or active is not None or command['turn'] != last_complete):
+                                raise VoiceError('invalid_voice_command')
+                            if command['kind'] == 'playback_interrupted':
+                                if set(command) != {'kind', 'turn'}:
+                                    raise VoiceError('invalid_voice_command')
+                                engine.cancel_turn_state()
+                            else:
+                                if (set(command) != {'kind', 'turn', 'playback_interrupted'}
+                                        or type(command['playback_interrupted']) is not bool):
+                                    raise VoiceError('invalid_voice_command')
+                                if command['playback_interrupted']:
+                                    engine.cancel_turn_state()
+                                clean_exit = True
+                                break
                         else:
-                            if active or turns >= 8 or set(command) != {'kind', 'turn', 'samples'}:
+                            keys = {'kind', 'turn', 'samples'}
+                            if getattr(engine, 'dialogue_mode', None) == 'synthetic_loan' and 'previous_interrupted' in command:
+                                keys.add('previous_interrupted')
+                                if type(command['previous_interrupted']) is not bool or command.get('kind') != 'turn':
+                                    raise VoiceError('invalid_voice_command')
+                            if active or turns >= 8 or set(command) != keys:
                                 raise VoiceError('voice_session_busy_or_exhausted')
                             kind, samples = command['kind'], command['samples']
                             if type(samples) is not int or (kind == 'turn' and not 1600 <= samples <= 48000):
                                 raise VoiceError('invalid_voice_samples')
                             if kind not in {'turn', 'greeting', 'probe'} or (kind != 'turn' and samples != 0):
                                 raise VoiceError('invalid_voice_kind')
+                            if command.get('previous_interrupted') is True:
+                                engine.cancel_turn_state()
                             active = command['turn']
                             turns += 1
                             if kind == 'turn':
@@ -425,6 +467,8 @@ def create_app(engine, token, *, turn_executor=None):
                             event['configuration'] = engine.configuration
                     if hasattr(engine, 'diagnostics'):
                         event.update(engine.diagnostics())
+                    if event['kind'] == 'complete':
+                        last_complete = active
                     await ws.send_json(event)
                     worker = None
                     active = None
@@ -444,10 +488,14 @@ def create_app(engine, token, *, turn_executor=None):
             if worker and worker.is_alive():
                 def release_after_worker():
                     worker.join()
+                    if getattr(engine, 'dialogue_mode', None) == 'synthetic_loan' and not clean_exit:
+                        engine.cancel_turn_state()
                     history.clear()
                     gate.release()
                 threading.Thread(target=release_after_worker, daemon=True).start()
             else:
+                if getattr(engine, 'dialogue_mode', None) == 'synthetic_loan' and not clean_exit:
+                    engine.cancel_turn_state()
                 history.clear()
                 gate.release()
     return app

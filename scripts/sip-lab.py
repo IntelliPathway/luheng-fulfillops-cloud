@@ -61,10 +61,11 @@ def read_environment(root):
 
 
 class Lab:
-    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False, speech_profile=None, speech_config=None):
+    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False, speech_profile=None, speech_config=None, synthetic_dialogue=False):
         self.root = Path(root)
         self.session_seconds = session_seconds
         self.verifying = verifying
+        self.synthetic_dialogue = synthetic_dialogue
         if speech_profile is not None and speech_profile not in {"baseline", "warm_female", "clear_male"}:
             raise LabError("不支持该语音档。")
         self.requested_speech_profile = speech_profile
@@ -207,6 +208,9 @@ class Lab:
     def ensure_host(self):
         report = self.doctor()
         if report.get('host_ready') is True:
+            mode = 'synthetic_loan' if self.synthetic_dialogue else 'short_phrase'
+            if report.get('dialogue_mode', 'short_phrase') != mode:
+                raise LabError('现有宿主对话模式不同；先挂断，在原启动终端 Ctrl+C 退出，再用本次模式启动。')
             if report.get('provider', {}).get('speech_profile', 'baseline') != self.speech_profile:
                 raise LabError('现有宿主音色不同；先挂断，在原启动终端 Ctrl+C 退出，再用所选语音档启动。')
             if report.get('voice_session_limit_seconds', 60) < self.session_seconds:
@@ -225,7 +229,8 @@ class Lab:
         print('语音档：' + self.speech_profile, flush=True)
         print('启动千问宿主；请在本终端输入 API Key（隐藏输入，仅存内存）…', flush=True)
         self.host = subprocess.Popen([str(self.python), '-m', 'app.sip_lab_qwen_voice', 'serve', '--acknowledged',
-                                     '--speech-profile', self.speech_profile],
+                                     '--speech-profile', self.speech_profile,
+                                     *(['--synthetic-dialogue'] if self.synthetic_dialogue else [])],
                                      cwd=self.root / 'backend', env=self.environment)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
@@ -235,6 +240,25 @@ class Lab:
                 return
             time.sleep(0.5)
         raise LabError('等待宿主就绪超时（180 秒）；未启动媒体测试。')
+
+    def export_dialogue_result(self):
+        result = self.run([str(self.python), '-m', 'app.sip_lab_qwen_voice', 'result'],
+                          environment=dict(self.environment, PYTHONPATH=str(self.root / 'backend')))
+        if result.returncode or len(result.stdout) > 4096:
+            raise LabError('合成结果暂不可用；请挂断，保留合成模式宿主，再执行 dialogue-result。')
+        # The child validates a closed, synthetic-only schema before emitting stdout.
+        try:
+            data = json.loads(result.stdout)
+            if data.get('mode') != 'synthetic_phone_dialogue' or data.get('candidate') is None:
+                raise ValueError()
+        except (ValueError, AttributeError):
+            raise LabError('尚无明确确认的承诺；暂停、未核验或未确认的对话不导出承诺草案。') from None
+        directory = self.root / 'deploy/sip-lab/generated'
+        descriptor, name = tempfile.mkstemp(prefix='synthetic-phone-result-', suffix='.json', dir=directory)
+        with os.fdopen(descriptor, 'w') as output:
+            json.dump(data, output, ensure_ascii=False, indent=2)
+            output.write('\n')
+        return Path(name)
 
     def status(self):
         report = self.doctor()
@@ -302,10 +326,13 @@ class Lab:
         self.remember_speech()
         address = self.environment['SIP_LAB_BIND_ADDRESS']
         print('\n测试已就绪：Linphone 使用现有 1001 账号，服务器 ' + address + ':5060，拨打 1003。', flush=True)
-        print('说：今天是语音链路测试。结束：先说结束测试，再说确认结束测试。每通最多 '
+        print(('合成案件：说“我明天还50元”，听完复述后说“确认”。' if self.synthetic_dialogue
+               else '说：今天是语音链路测试。') + '结束：先说结束测试，再说确认结束测试。每通最多 '
               + str(self.session_seconds) + ' 秒 / 8 次请求 / 24 次云调用。', flush=True)
         print(('验收本通结束后保存报告并退出；' if self.verifying else '电话结束后启动器继续运行，可再次手动拨打；')
               + 'Ctrl+C 停止媒体桥和本次启动的宿主。', flush=True)
+        if self.synthetic_dialogue:
+            print('挂断后先在另一个终端运行 python3 scripts/sip-lab.py dialogue-result，再导入机催页；退出宿主或重拨会清空内存结果。', flush=True)
         if self.verifying:
             print('本次为单通验收；除第4步插话外，等待回复播完再说下一句：\n'
                   '1. 今天是语音链路测试，请确认。\n'
@@ -433,7 +460,7 @@ def display_event(event):
         print('电话已进入媒体桥，正在处理语音。', flush=True)
     elif kind == 'voice_turn_diagnostic':
         labels = {'greeting': '开场', 'confirm': '确认', 'numbers_date': '数字日期', 'negation': '否定结束',
-                  'stop_pending': '结束待确认', 'stop': '已确认结束', 'out_of_scope': '未匹配'}
+                  'stop_pending': '结束待确认', 'stop': '已确认结束', 'out_of_scope': '未匹配', 'loan_dialogue': '合成案件对话'}
         number, audio = event.get('request_number'), event.get('input_audio_ms')
         case = event.get('test_case')
         if type(number) is int and 1 <= number <= 8 and type(audio) is int and 0 <= audio <= 6000:
@@ -473,7 +500,8 @@ def display_event(event):
 
 def main():
     parser = argparse.ArgumentParser(description='个人 Linphone/千问测试：一个终端启动，API Key 只存内存。')
-    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue', 'speech-check'))
+    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue', 'speech-check', 'dialogue-result'))
+    parser.add_argument('--synthetic-dialogue', action='store_true', help='100元合成案件对话，显式模拟核验；仅用于 start')
     parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
@@ -482,6 +510,8 @@ def main():
                         help="本次覆盖音色；默认沿用已导入的产品配置，切换前退出旧宿主")
     speech.add_argument("--speech-config", type=Path, help="导入产品页面下载的音色 JSON，启动成功后记住")
     args = parser.parse_args()
+    if args.synthetic_dialogue and args.action != 'start':
+        parser.error('--synthetic-dialogue 仅用于 start')
     if args.action == 'speech-check':
         if args.speech_config is None or args.speech_profile is not None or args.host_address:
             parser.error('speech-check 只接受 --speech-config <实际文件路径>')
@@ -508,6 +538,7 @@ def main():
     lab = None
     try:
         lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify',
+                  **({'synthetic_dialogue': True} if args.synthetic_dialogue else {}),
                   **({'speech_profile': args.speech_profile} if args.speech_profile is not None else {}),
                   **({'speech_config': args.speech_config} if args.speech_config is not None else {}))
         if args.host_address and args.action not in {'start', 'verify', 'setup'}:
@@ -520,6 +551,10 @@ def main():
             lab.start()
             if lab.verifying:
                 return 0 if lab.verification_passed else 2
+        elif args.action == 'dialogue-result':
+            lab.dependencies()
+            print('合成承诺草案已导出：' + str(lab.export_dialogue_result()))
+            print('在标准贷款机催页选择100元沙箱案件，导入JSON并人工确认；该草案不是到账或真实身份凭证。')
         elif args.action == 'report':
             reporter = helper(lab.root, 'sip-lab-report')
             try:

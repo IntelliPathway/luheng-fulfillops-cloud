@@ -582,3 +582,48 @@ def test_speech_reader_rejects_bad_encoding_symlink_and_nonregular_without_follo
         config.read(linked)
     with pytest.raises(config.SpeechConfigError, match='speech_config_not_regular'):
         config.read(lab.root)
+
+
+def test_synthetic_mode_never_reuses_short_phrase_host(lab, monkeypatch):
+    lab.synthetic_dialogue = True
+    monkeypatch.setattr(
+        lab,
+        "doctor",
+        lambda: {
+            "host_ready": True,
+            "dialogue_mode": "short_phrase",
+            "voice_session_limit_seconds": 180,
+            "voice_test_matcher_version": 3,
+            "stop_confirmation_required": True,
+        },
+    )
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("no takeover"))
+    with pytest.raises(launcher.LabError, match="对话模式"):
+        lab.ensure_host()
+
+
+
+def test_dialogue_result_export_keeps_token_out_of_arguments_and_file(lab, monkeypatch):
+    from datetime import date
+
+    from app.loan_phone_dialogue import SyntheticPhoneDialogue
+
+    dialogue = SyntheticPhoneDialogue(today=date(2026, 10, 12), verified_fixture=True)
+    dialogue.advance("明天还50元")
+    dialogue.advance("确认")
+    payload = dialogue.result()
+    calls = []
+
+    def runner(arguments, **kwargs):
+        calls.append(arguments)
+        assert arguments[-3:] == ["-m", "app.sip_lab_qwen_voice", "result"]
+        assert lab.environment["SIP_LAB_QWEN_VOICE_TOKEN"] not in " ".join(arguments)
+        return completed(stdout=json.dumps(payload))
+
+    monkeypatch.setattr(lab, "run", runner)
+    assert callable(getattr(lab, "export_dialogue_result", None)), "result export is missing"
+    path = lab.export_dialogue_result()
+    assert json.loads(path.read_text()) == payload
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert lab.environment["SIP_LAB_QWEN_VOICE_TOKEN"] not in path.read_text()
+    assert len(calls) == 1

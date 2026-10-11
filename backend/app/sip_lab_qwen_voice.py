@@ -160,6 +160,10 @@ def doctor_host(token, *, transport=None):
             raise VoiceError('invalid_qwen_host_status')
         report['voice_test_matcher_version'] = matcher
         report['stop_confirmation_required'] = data.get('stop_confirmation_required') is True
+        mode = data.get('dialogue_mode', 'short_phrase')
+        if mode not in {'short_phrase', 'synthetic_loan'}:
+            raise VoiceError('invalid_qwen_host_status')
+        report['dialogue_mode'] = mode
         if not report["websocket_no_redirect_api_available"]:
             raise VoiceError("websocket_dependency_incompatible")
         if data["busy"]:
@@ -276,7 +280,7 @@ def test_case(text):
 
 
 class TokenVoiceEngine:
-    def __init__(self, key, *, transport=None, ws_factory=websocket, clock=time.monotonic, speech_profile="baseline"):
+    def __init__(self, key, *, transport=None, ws_factory=websocket, clock=time.monotonic, speech_profile="baseline", synthetic_dialogue=False):
         if os.getenv("APP_ENV") == "production":
             raise VoiceError("production_probe_disabled")
         try:
@@ -285,6 +289,7 @@ class TokenVoiceEngine:
             raise VoiceError(str(exc)) from None
         self.transport, self.ws_factory, self.clock = transport, ws_factory, clock
         self.lab_provider = provider_configuration(speech_profile)
+        self.dialogue_mode = 'synthetic_loan' if synthetic_dialogue is True else 'short_phrase'
         self.warmed = True  # Host protocol readiness only; never an inference verification.
         self.begin_session()
 
@@ -295,6 +300,15 @@ class TokenVoiceEngine:
         self.last_error = None
         self.stop_pending = False
         self.llm_end_ignored = False
+        self.dialogue = None
+        if self.dialogue_mode == 'synthetic_loan':
+            # The media client shares validation but never runs this native controller.
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            from .loan_phone_dialogue import SyntheticPhoneDialogue
+
+            self.dialogue = SyntheticPhoneDialogue(today=datetime.now(ZoneInfo('Asia/Shanghai')).date(), verified_fixture=True)
 
     def diagnostics(self):
         return {
@@ -307,10 +321,13 @@ class TokenVoiceEngine:
 
     def cancel_turn_state(self):
         self.stop_pending = False
+        if self.dialogue is not None:
+            self.dialogue.cancel(include_confirmed=True)
 
     def record_error(self, exc):
         code = str(exc) if isinstance(exc, VoiceError) else None
         self.last_error = code if code in SAFE_ERRORS else "qwen_host_inference_failed"
+        self.cancel_turn_state()
 
     def begin(self, stage, check):
         check()
@@ -557,8 +574,11 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
     engine.llm_end_ignored = False
     stop_control, next_pending = 'none', False
     case, saved_history = None, []
+    dialogue = getattr(engine, 'dialogue', None)
+    proposed_dialogue = None
     if kind == "greeting":
-        reply, end = GREETING, False
+        reply, end = ("您好，我是AI测试助手。这是100元合成案件，已模拟核验。您打算还多少、哪天还？结束时先说结束测试，再说确认结束测试。"
+                      if dialogue is not None else GREETING), False
     else:
         if kind == "probe":
             stage = clock()
@@ -579,6 +599,13 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
         elif case == 'negation':
             reply, end, stop_control = CONTINUE_REPLY, False, 'cancelled'
             saved_history = [{'role': 'user', 'content': CASES[case][0]}, {'role': 'assistant', 'content': reply}]
+        elif dialogue is not None and kind != 'probe':
+            from copy import deepcopy
+
+            # Failed/cancelled ASR or TTS cannot commit an unheard confirmation.
+            proposed_dialogue = deepcopy(dialogue)
+            output = proposed_dialogue.advance(text)
+            reply, end, case = output['reply'], False, 'loan_dialogue'
         elif case is None:
             reply, end = SCOPE_REPLY, False
         else:
@@ -586,7 +613,13 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
             reply, end = engine.reply(case, list(history), check)
             stages["llm"] = round((clock() - stage) * 1000)
             saved_history = [{"role": "user", "content": CASES[case][0]}, {"role": "assistant", "content": reply}]
-    validate_reply({"reply": reply, "end": end})
+    if dialogue is not None and kind != 'probe':
+        if not isinstance(reply, str) or not 1 <= len(reply) <= 120 or type(end) is not bool:
+            raise VoiceError('invalid_reply_value')
+        if proposed_dialogue is None and kind != 'greeting':
+            dialogue.cancel()  # Stop/continue also disarm an unconfirmed readback.
+    else:
+        validate_reply({"reply": reply, "end": end})
     stage = clock()
     count = 0
     for block in engine.tts(reply, check):
@@ -603,6 +636,8 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
     if not count:
         raise VoiceError("empty_tts_audio")
     engine.stop_pending = next_pending
+    if proposed_dialogue is not None:
+        engine.dialogue = proposed_dialogue
     stages["reply_tts"] = round((clock() - stage) * 1000)
     return {
         "end": end,
@@ -664,6 +699,25 @@ def reserve_host_socket():
         raise VoiceError(
             "qwen_host_port_in_use" if exc.errno == errno.EADDRINUSE else "qwen_host_bind_failed"
         ) from None
+
+
+def fetch_dialogue_result(token, *, transport=None):
+    from .loan_phone_dialogue import validate_phone_result
+
+    try:
+        with httpx.Client(transport=transport, trust_env=False, follow_redirects=False, timeout=3) as client:
+            with client.stream('GET', QWEN_STATUS_URL.replace('/lab/status', '/lab/dialogue-result'),
+                               headers={'Authorization': 'Bearer ' + token}) as response:
+                if response.status_code != 200:
+                    raise VoiceError('synthetic_dialogue_result_unavailable')
+                body = bytearray()
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    if len(body) + len(chunk) > 4096:
+                        raise VoiceError('invalid_synthetic_phone_result')
+                    body.extend(chunk)
+        return validate_phone_result(json.loads(body))
+    except (ValueError, TypeError, KeyError, httpx.HTTPError):
+        raise VoiceError('synthetic_dialogue_result_unavailable') from None
 
 
 def create_host_server(engine, token):
@@ -746,10 +800,13 @@ def read_host_key():
 
 def main():
     parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定18092端口、短句与合成对话。")
-    parser.add_argument("action", choices=["status", "doctor", "serve", "probe"])
+    parser.add_argument("action", choices=["status", "doctor", "serve", "probe", "result"])
     parser.add_argument("--acknowledged", action="store_true")
     parser.add_argument("--speech-profile", choices=tuple(SPEECH_PROFILES), default="baseline")
+    parser.add_argument('--synthetic-dialogue', action='store_true', help='显式模拟核验固定100元案件；不接客户资料')
     args = parser.parse_args()
+    if args.synthetic_dialogue and args.action != 'serve':
+        parser.error('--synthetic-dialogue 仅用于 serve')
     stage = "configuration"
     listener = None
     try:
@@ -768,10 +825,13 @@ def main():
                 )
             )
             return 0
-        if args.action != "doctor" and not args.acknowledged:
+        if args.action not in {"doctor", "result"} and not args.acknowledged:
             raise VoiceError("qwen_voice_acknowledgement_required")
         LabConfig.from_environment()
         token = connection_token()
+        if args.action == 'result':
+            print(json.dumps(fetch_dialogue_result(token)))
+            return 0
         if args.action == "doctor":
             report = doctor_host(token)
             print(json.dumps(report))
@@ -788,8 +848,12 @@ def main():
         stage = "credential"
         key = read_host_key()
         stage = "host_start"
-        engine = (TokenVoiceEngine(key) if args.speech_profile == "baseline"
-                  else TokenVoiceEngine(key, speech_profile=args.speech_profile))
+        options = {}
+        if args.speech_profile != 'baseline':
+            options['speech_profile'] = args.speech_profile
+        if args.synthetic_dialogue:
+            options['synthetic_dialogue'] = True
+        engine = TokenVoiceEngine(key, **options)
         server = create_host_server(engine, token)
         server.run(sockets=[listener])
         if not server.started:

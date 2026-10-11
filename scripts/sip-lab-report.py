@@ -89,7 +89,7 @@ def make_report(event, attestations=None):
         if any(type(row.get(key)) is not bool for key in ('completed', 'interrupted')):
             raise ReportError('invalid_phone_report_turns')
         case = row.get('test_case')
-        if case is not None and (not isinstance(case, str) or case not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope'}):
+        if case is not None and (not isinstance(case, str) or case not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope', 'loan_dialogue'}):
             raise ReportError('invalid_phone_report_case')
         end = row.get('end')
         if end is not None and type(end) is not bool:
@@ -321,7 +321,7 @@ def latest_report(generated):
                 or row['kind'] not in {'turn', 'greeting', 'probe'}
                 or type(row.get('completed')) is not bool
                 or row.get('test_case') is not None and (not isinstance(row['test_case'], str)
-                                                       or row['test_case'] not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope'})):
+                                                       or row['test_case'] not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope', 'loan_dialogue'})):
             raise ReportError('invalid_private_phone_report')
     if not isinstance(latency, dict) or not isinstance(latency.get('host_stage_ms'), dict):
         raise ReportError('invalid_private_phone_report')

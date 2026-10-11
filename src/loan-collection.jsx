@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {loanCollectionApi as api} from './api';
-import {loanRequestKey as key,loanPolicyPayload,loanPolicyTime} from './loan-collection-state';
+import {loanRequestKey as key,loanPolicyPayload,loanPolicyTime,parseSyntheticPhoneResult,canApplySyntheticPhoneDraft} from './loan-collection-state';
 import {useApp} from './context';
 import {useRemoteResource} from './remote-resource';
 import {Button,Empty,PageHead} from './ui';
@@ -15,17 +15,33 @@ export function LoanCollection(){
  const a=useApp(),connected=a.backendStatus==='connected',admin=a.identity.role==='admin',operator=['admin','operator'].includes(a.identity.role);
  const [caseId,setCase]=useState(''),[form,setForm]=useState(empty),[ack,setAck]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[amount,setAmount]=useState(''),[due,setDue]=useState(''),[sipAck,setSipAck]=useState(false);
  const mutation=useRef(0),requestKey=useRef(key());
+ const [phoneDraft,setPhoneDraft]=useState(null),[phoneError,setPhoneError]=useState('');
+ const importGeneration=useRef(0);
  const [policyForm,setPolicyForm]=useState(emptyPolicy),[policyAck,setPolicyAck]=useState(false);
  const policy=useRemoteResource(connected,a.tenant,()=>api.policy(a.tenant));
  const overview=useRemoteResource(connected,a.tenant,()=>api.overview(a.tenant));
  const profile=useRemoteResource(connected&&!!caseId,`${a.tenant}:${caseId}`,()=>api.profile(a.tenant,caseId));
  const gate=useRemoteResource(connected&&!!caseId,`${a.tenant}:${caseId}`,()=>api.preflight(a.tenant,caseId));
  useEffect(()=>{mutation.current++;setForm(empty);setBusy(false);setAck(false);setError('');setAmount('');setDue('');setSipAck(false);requestKey.current=key();return()=>{mutation.current++}},[a.tenant,caseId,connected]);
+ useEffect(()=>{importGeneration.current++;setPhoneDraft(null);setPhoneError('');return()=>{importGeneration.current++}},[a.tenant,caseId,connected,a.identity.role]);
  useEffect(()=>{if(profile.data)setForm({...empty,...profile.data})},[profile.data]);
  useEffect(()=>{setPolicyForm(emptyPolicy());setPolicyAck(false)},[a.tenant,connected]);
  useEffect(()=>{const p=policy.data?.policy;if(p)setPolicyForm({...p,start:loanPolicyTime(p.window_start_minute),end:loanPolicyTime(p.window_end_minute),valid_until:/(Z|[+-]\d{2}:\d{2})$/.test(p.valid_until)?p.valid_until:`${p.valid_until}Z`})},[policy.data]);
  const run=async (fn,after)=>{const generation=mutation.current;setBusy(true);setError('');try{await fn();if(generation===mutation.current){after?.();overview.refresh();gate.refresh();profile.refresh()}}catch(e){if(generation===mutation.current)setError(e.message)}finally{if(generation===mutation.current)setBusy(false)}};
  const event=(row,intent)=>run(()=>api.event(a.tenant,row.id,{event_key:key(),expected_version:row.version,intent,acknowledged:ack,...(intent==='promise'?{confirmed:true,amount_cents:Number(amount),due_date:due}:{})}));
+ const importPhone=async e=>{
+  const file=e.target.files?.[0],generation=++importGeneration.current;e.target.value='';setPhoneDraft(null);setPhoneError('');
+  if(!file)return;
+  try{if(file.size>4096)throw new Error('电话结果文件超过4KB，请使用启动器导出的JSON。');
+   const draft=parseSyntheticPhoneResult(await file.text());
+   if(generation===importGeneration.current)setPhoneDraft(draft);
+  }catch(err){if(generation===importGeneration.current)setPhoneError(err.message)}
+ };
+ const applyPhone=row=>{
+  if(!canApplySyntheticPhoneDraft(phoneDraft,row,{caseId,amount_cents:profile.data?.amount_cents,connected,operator,acknowledged:ack})||profile.busy||profile.error)return;
+  const draft=phoneDraft;
+  run(()=>api.event(a.tenant,row.id,{event_key:`phone-${draft.session_id}-${row.id}`,expected_version:row.version,intent:'promise',acknowledged:true,confirmed:true,amount_cents:draft.amount_cents,due_date:draft.due_date}),()=>setPhoneDraft(null));
+ };
  const scoped=overview.data?.tenant_id===a.tenant?overview.data:null;
  const rows=scoped?.sessions||[],dispatches=scoped?.sip_dispatches||[],jobs=scoped?.execution_jobs||[];
  return <>
@@ -55,6 +71,10 @@ export function LoanCollection(){
     </>}
    </section>
    <section className="governance-panel"><h2>对话与履约记录</h2><p className="muted">最近 100 个会话。所有记录来自服务端；模拟异常只暂停当前会话，不改变真实案件。</p>
+    <label>导入合成电话结果（JSON）<input type="file" accept=".json,application/json" disabled={!operator||busy||!caseId} onChange={importPhone}/></label>
+    <p className="muted">仅用于当前100元沙箱案件。文件是人工提供的草案，不证明真实身份或手机听音；导入后请核对金额、日期和案件，再点击该会话的“确认电话草案”。</p>
+    {phoneDraft&&<p role="status">电话草案：{(phoneDraft.amount_cents/100).toFixed(2)} 元 · {phoneDraft.due_date}。尚未写入业务记录。</p>}
+    {phoneError&&<p role="alert" className="form-error">{phoneError}</p>}
     <div className="loan-form-grid"><label>承诺金额（分）<input type="number" value={amount} onChange={e=>setAmount(e.target.value)}/></label><label>承诺日期（北京时间）<input type="date" value={due} onChange={e=>setDue(e.target.value)}/></label></div>
     {!ack&&<p className="muted">选择案件并勾选确认后，才能提交事件或核验履约。</p>}
     {overview.busy&&<p role="status">正在读取会话…</p>}{overview.error&&<p role="alert" className="form-error">{overview.error}</p>}
@@ -67,6 +87,7 @@ export function LoanCollection(){
       <Button disabled={!admin||busy||!ack||caseId!==row.case_id} onClick={()=>run(()=>api.dispatchCheck(a.tenant,row.id,row.version))}>排队检查执行门禁</Button>
       <Button disabled={!admin||busy||!ack||!sipAck||caseId!==row.case_id||!scoped?.internal_sip_echo_configured||dispatches.some(item=>item.session_id===row.id)} onClick={()=>run(()=>api.sipEcho(a.tenant,row.id,row.version))}>呼叫我的 Linphone 测试分机</Button>
      </>}{['identity_pending','debt_explained'].includes(row.state)&&<>
+      {phoneDraft&&row.case_id===caseId&&<Button disabled={busy||profile.busy||!!profile.error||!canApplySyntheticPhoneDraft(phoneDraft,row,{caseId,amount_cents:profile.data?.amount_cents,connected,operator,acknowledged:ack})} onClick={()=>applyPhone(row)}>确认电话草案</Button>}
       {row.state==='identity_pending'?<Button disabled={!operator||busy||!ack||caseId!==row.case_id} onClick={()=>event(row,'identity_verified')}>模拟本人核验通过</Button>:<><Button disabled={!operator||busy||!ack||caseId!==row.case_id||!amount||!due} onClick={()=>event(row,'promise')}>确认还款承诺</Button><Button disabled={!operator||busy||!ack||caseId!==row.case_id} onClick={()=>event(row,'paid_claimed')}>模拟自述已还款</Button></>}
       {['wrong_person','dispute','complaint','hardship','human_requested','end'].map((intent,i)=><Button key={intent} disabled={!operator||busy||!ack||caseId!==row.case_id} onClick={()=>event(row,intent)}>{['错人','债务异议','投诉','困难','请求人工','结束'][i]}</Button>)}
      </>}{row.promise?.status&&<Button disabled={!operator||busy||!ack||caseId!==row.case_id} onClick={()=>run(()=>api.reconcile(a.tenant,row.id))}>核验承诺履约</Button>}</div>
