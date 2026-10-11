@@ -174,5 +174,7 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 可选 `python -m app.sip_lab_model_host --acknowledged` 仅在 Mac 原生语音环境运行，管理已缓存模型子进程，不下载、不拨号。业务 API 的 `SIP_LAB_MODEL_HOST_ENABLED=true` 和私有 `SIP_LAB_MODEL_HOST_TOKEN` 只适用于同机 development/test，固定连接 127.0.0.1:8091，不接受浏览器 URL/凭据，生产 profile 禁止此路径。准备与接入见 [实验室指南](../docs/integrations/linphone-sip-lab.md#在-ai-与渠道接入中管理模型组合)。
 
+语音会话断开或任务取消时，即使异步连接清理被取消，也必须完成会话门禁清理；仍在运行的推理线程退出后才释放门禁。在此之前，新会话与 drain 继续被阻断。该清理行为不改变认证、租户权限或模型启用条件。
+
 
 `GET /api/v1/voice-combinations/host-status` 新增管理员只读诊断：固定同机宿主、短超时、响应限长与白名单状态，I/O 后重新核对权限；不修改组合/报告、不挂断或加载模型。Mac 原生环境先运行 `python -m app.sip_lab_model_host doctor --profile baseline`；只检查配置、已安装依赖元数据和缓存 manifest，退出 0/2，不输出私有凭据。生产禁止访问实验室宿主。

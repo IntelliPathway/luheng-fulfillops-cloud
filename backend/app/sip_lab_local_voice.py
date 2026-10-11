@@ -475,24 +475,27 @@ def create_app(engine, token, *, turn_executor=None):
             pass
         finally:
             cancel.set()
-            if receive:
-                receive.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await receive
-            with contextlib.suppress(Exception):
-                await ws.close()
-            # A cancelled MLX kernel may still be running. Keep the gate until it exits.
-            if worker and worker.is_alive():
+            try:
+                if receive:
+                    receive.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await receive
+                with contextlib.suppress(Exception):
+                    await ws.close()
+            finally:
+                # Task cancellation during socket cleanup must not leak the session gate.
+                # A cancelled MLX kernel may still be running. Keep the gate until it exits.
+                if worker and worker.is_alive():
 
-                def release_after_worker():
-                    worker.join()
+                    def release_after_worker():
+                        worker.join()
+                        history.clear()
+                        gate.release()
+
+                    threading.Thread(target=release_after_worker, daemon=True).start()
+                else:
                     history.clear()
                     gate.release()
-
-                threading.Thread(target=release_after_worker, daemon=True).start()
-            else:
-                history.clear()
-                gate.release()
 
     return app
 
