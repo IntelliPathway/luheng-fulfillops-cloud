@@ -41,9 +41,14 @@ def create_contact_attempt(
 ) -> ContactAttempt:
     # Acquire the same case write lock before counting on PostgreSQL and SQLite.
     # The enclosing transaction rolls this back if any subsequent gate fails.
-    db.execute(update(CaseRecord).where(
-        CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id,
-    ).values(version=CaseRecord.version + 1))
+    db.execute(
+        update(CaseRecord)
+        .where(
+            CaseRecord.tenant_id == tenant_id,
+            CaseRecord.case_id == case_id,
+        )
+        .values(version=CaseRecord.version + 1)
+    )
     case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == tenant_id, CaseRecord.case_id == case_id))
     if not case:
         raise ContactOrchestrationError("case_not_found", "案件不存在", 404)

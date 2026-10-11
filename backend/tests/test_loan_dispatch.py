@@ -14,8 +14,11 @@ from app.worker import DatabaseWorker
 def queued(client):
     enroll(client)
     row = start(client).json()
-    response = client.post(BASE + f"/sessions/{row['id']}/dispatch-check", headers=H,
-                           json={"expected_version": row["version"], "acknowledged": True})
+    response = client.post(
+        BASE + f"/sessions/{row['id']}/dispatch-check",
+        headers=H,
+        json={"expected_version": row["version"], "acknowledged": True},
+    )
     assert response.status_code == 202, response.text
     return row, response.json()["job"]
 
@@ -30,8 +33,11 @@ def run(client, job):
 
 def test_persistent_worker_check_never_dials_and_duplicate_does_not_enqueue(client):
     row, job = queued(client)
-    repeat = client.post(BASE + f"/sessions/{row['id']}/dispatch-check", headers=H,
-                         json={"expected_version": row["version"], "acknowledged": True}).json()
+    repeat = client.post(
+        BASE + f"/sessions/{row['id']}/dispatch-check",
+        headers=H,
+        json={"expected_version": row["version"], "acknowledged": True},
+    ).json()
     assert not repeat["created"] and repeat["job"]["id"] == job["id"]
     result = run(client, job)
     assert result["gate_passed"] and not result["external_execution"] and not result["provider_ready"]
@@ -52,8 +58,11 @@ def test_worker_rechecks_changes_after_enqueue(client, change):
         elif change == "expiry":
             session.authorization_expires_at = utcnow() - timedelta(seconds=1)
         elif change == "role":
-            db.scalar(select(TenantMembership).where(TenantMembership.tenant_id == "TENANT_A",
-                                                   TenantMembership.user_id == "Terry")).role = "operator"
+            db.scalar(
+                select(TenantMembership).where(
+                    TenantMembership.tenant_id == "TENANT_A", TenantMembership.user_id == "Terry"
+                )
+            ).role = "operator"
         else:
             session.version += 1
             session.state = "ended"
@@ -68,7 +77,10 @@ def test_dispatch_check_is_tenant_scoped_and_requires_admin(client):
     body = {"expected_version": row["version"], "acknowledged": True}
     assert client.post(url, headers={"X-Tenant-ID": "TENANT_B", "X-Actor-ID": "Terry"}, json=body).status_code == 404
     with client.app.state.Session() as db:
-        db.scalar(select(TenantMembership).where(TenantMembership.tenant_id == "TENANT_A",
-                                               TenantMembership.user_id == "Terry")).role = "operator"
+        db.scalar(
+            select(TenantMembership).where(
+                TenantMembership.tenant_id == "TENANT_A", TenantMembership.user_id == "Terry"
+            )
+        ).role = "operator"
         db.commit()
     assert client.post(url, headers=H, json=body).status_code == 403

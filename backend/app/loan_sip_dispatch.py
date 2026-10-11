@@ -1,4 +1,5 @@
 """Business queue association for isolated SIP echo only. No debt/media/model flow."""
+
 import hashlib
 import os
 from datetime import UTC
@@ -26,26 +27,40 @@ def lab_config(tenant):
 
 
 def dispatch_view(row):
-    return {"id": row.id, "session_id": row.session_id, "state": row.state,
-            "mode": "internal_sip_echo", "target": "linphone_1001",
-            "audio_verified": False, "ai_dialogue_ready": False, "pstn_enabled": False,
-            "customer_contact": False, "observation": row.observation}
+    return {
+        "id": row.id,
+        "session_id": row.session_id,
+        "state": row.state,
+        "mode": "internal_sip_echo",
+        "target": "linphone_1001",
+        "audio_verified": False,
+        "ai_dialogue_ready": False,
+        "pstn_enabled": False,
+        "customer_contact": False,
+        "observation": row.observation,
+    }
 
 
 def reserve_dispatch(db, context, session_id, expected_version):
     config = lab_config(context.tenant_id)
     lock_policy_scope(db, context.tenant_id)
-    session = db.scalar(select(LoanSession).where(
-        LoanSession.tenant_id == context.tenant_id, LoanSession.id == session_id,
-    ))
+    session = db.scalar(
+        select(LoanSession).where(
+            LoanSession.tenant_id == context.tenant_id,
+            LoanSession.id == session_id,
+        )
+    )
     if not session:
         raise HTTPException(404, "会话不存在或不属于当前租户")
     lock_case(db, context.tenant_id, session.case_id)
     if session.version != expected_version:
         raise HTTPException(409, "会话版本已变化")
-    existing = db.scalar(select(LoanSipDispatch).where(
-        LoanSipDispatch.tenant_id == context.tenant_id, LoanSipDispatch.session_id == session_id,
-    ))
+    existing = db.scalar(
+        select(LoanSipDispatch).where(
+            LoanSipDispatch.tenant_id == context.tenant_id,
+            LoanSipDispatch.session_id == session_id,
+        )
+    )
     if existing:
         if existing.instance_id != config.instance:
             raise HTTPException(409, "实验室实例已变化，请核对原呼叫；不得重新派发")
@@ -54,21 +69,48 @@ def reserve_dispatch(db, context, session_id, expected_version):
     if reasons:
         raise HTTPException(409, "；".join(reasons))
     now = utcnow()
-    day_start = now.replace(tzinfo=UTC).astimezone(ZoneInfo("Asia/Shanghai")).replace(
-        hour=0, minute=0, second=0, microsecond=0,
-    ).astimezone(UTC).replace(tzinfo=None)
-    tenant_count = db.scalar(select(func.count()).select_from(LoanSipDispatch).where(
-        LoanSipDispatch.tenant_id == context.tenant_id, LoanSipDispatch.created_at >= day_start,
-    ))
-    case_count = db.scalar(select(func.count()).select_from(LoanSipDispatch).join(LoanSession,
-        (LoanSession.tenant_id == LoanSipDispatch.tenant_id) & (LoanSession.id == LoanSipDispatch.session_id),
-    ).where(LoanSipDispatch.tenant_id == context.tenant_id, LoanSession.case_id == session.case_id,
-            LoanSipDispatch.created_at >= day_start))
+    day_start = (
+        now.replace(tzinfo=UTC)
+        .astimezone(ZoneInfo("Asia/Shanghai"))
+        .replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
+    tenant_count = db.scalar(
+        select(func.count())
+        .select_from(LoanSipDispatch)
+        .where(
+            LoanSipDispatch.tenant_id == context.tenant_id,
+            LoanSipDispatch.created_at >= day_start,
+        )
+    )
+    case_count = db.scalar(
+        select(func.count())
+        .select_from(LoanSipDispatch)
+        .join(
+            LoanSession,
+            (LoanSession.tenant_id == LoanSipDispatch.tenant_id) & (LoanSession.id == LoanSipDispatch.session_id),
+        )
+        .where(
+            LoanSipDispatch.tenant_id == context.tenant_id,
+            LoanSession.case_id == session.case_id,
+            LoanSipDispatch.created_at >= day_start,
+        )
+    )
     if tenant_count >= 20 or case_count >= policy_for(db, context.tenant_id).daily_session_limit:
         raise HTTPException(409, "内部 SIP 测试日预留配额已达上限；未知及阻断结果不释放配额")
-    row = LoanSipDispatch(tenant_id=context.tenant_id, session_id=session.id,
-                          session_version=session.version, instance_id=config.instance,
-                          authorized_by=context.actor_id)
+    row = LoanSipDispatch(
+        tenant_id=context.tenant_id,
+        session_id=session.id,
+        session_version=session.version,
+        instance_id=config.instance,
+        authorized_by=context.actor_id,
+    )
     db.add(row)
     db.flush()
     return row, True
@@ -94,17 +136,23 @@ def channel_id(row):
 
 
 def http_client(config):
-    return httpx.Client(base_url=ORIGIN, auth=("repayguard_lab", config.password),
-                        timeout=5, follow_redirects=False, trust_env=False)
+    return httpx.Client(
+        base_url=ORIGIN, auth=("repayguard_lab", config.password), timeout=5, follow_redirects=False, trust_env=False
+    )
 
 
 def dispatch_job(db, job):
     # The job lease + tenant lock serializes transitions. A committed dispatching
     # intent is never sent again, even if a process crashes before the HTTP call.
     lock_policy_scope(db, job.tenant_id)
-    row = db.scalar(select(LoanSipDispatch).where(
-        LoanSipDispatch.tenant_id == job.tenant_id, LoanSipDispatch.id == job.payload.get("dispatch_id"),
-    ).execution_options(populate_existing=True))
+    row = db.scalar(
+        select(LoanSipDispatch)
+        .where(
+            LoanSipDispatch.tenant_id == job.tenant_id,
+            LoanSipDispatch.id == job.payload.get("dispatch_id"),
+        )
+        .execution_options(populate_existing=True)
+    )
     if not row:
         raise HTTPException(404, "派发记录不存在或不属于任务租户")
     config = lab_config(job.tenant_id)
@@ -121,15 +169,24 @@ def dispatch_job(db, job):
         with http_client(config) as client:
             try:
                 response = client.delete(f"/channels/{channel_id(row)}")
-                outcome = "requested" if response.status_code == 204 else "not_found_or_ended" if response.status_code == 404 else "unknown"
+                outcome = (
+                    "requested"
+                    if response.status_code == 204
+                    else "not_found_or_ended"
+                    if response.status_code == 404
+                    else "unknown"
+                )
             except httpx.HTTPError:
                 pass
         row.state = "stop_requested"
         row.observation = {"hangup_state": outcome, "retry_allowed": False}
         return dispatch_view(row)
-    session = db.scalar(select(LoanSession).where(
-        LoanSession.tenant_id == job.tenant_id, LoanSession.id == row.session_id,
-    ))
+    session = db.scalar(
+        select(LoanSession).where(
+            LoanSession.tenant_id == job.tenant_id,
+            LoanSession.id == row.session_id,
+        )
+    )
     lock_case(db, job.tenant_id, session.case_id)
     send = row.state == "prepared" and not job.payload.get("lookup_only")
     if row.state == "prepared" and not send:
@@ -151,7 +208,13 @@ def dispatch_job(db, job):
         db.refresh(session)
         db.refresh(job)
         blockers = execution_blockers(db, session, row.authorized_by, row.session_version)
-        if job.status != "running" or job.lease_owner != owner or not job.lease_expires_at or job.lease_expires_at <= utcnow() or job.cancel_requested_at:
+        if (
+            job.status != "running"
+            or job.lease_owner != owner
+            or not job.lease_expires_at
+            or job.lease_expires_at <= utcnow()
+            or job.cancel_requested_at
+        ):
             blockers.append("任务租约失效或已请求取消，不发送呼叫")
         if blockers:
             row.state = "blocked"
@@ -163,10 +226,17 @@ def dispatch_job(db, job):
     with http_client(config) as client:
         try:
             if send:
-                response = client.post(f"/channels/{channel_id(row)}", params={
-                    "endpoint": "PJSIP/1001", "context": "lab-echo", "extension": "1000",
-                    "priority": 1, "callerId": "RepayGuard SIP Lab <1000>", "timeout": 20,
-                })
+                response = client.post(
+                    f"/channels/{channel_id(row)}",
+                    params={
+                        "endpoint": "PJSIP/1001",
+                        "context": "lab-echo",
+                        "extension": "1000",
+                        "priority": 1,
+                        "callerId": "RepayGuard SIP Lab <1000>",
+                        "timeout": 20,
+                    },
+                )
                 row.state = "unknown"
                 if response.status_code in {200, 201} and response.json().get("id") == channel_id(row):
                     row.state = "submitted"

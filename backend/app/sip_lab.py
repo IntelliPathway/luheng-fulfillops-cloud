@@ -1,4 +1,5 @@
 """Host-side SIP lab tool. Fixed local gateway/extension, never customer collection."""
+
 from __future__ import annotations
 
 import argparse
@@ -42,15 +43,18 @@ class LabConfig:
 
 class CallJournal:
     """Reserve before I/O; lost responses and restarts cannot resend the same intent."""
+
     def __init__(self, path):
         path = Path(path)
         if not path.exists():
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             os.close(fd)
         self.db = sqlite3.connect(path, timeout=10)
-        self.db.execute("CREATE TABLE IF NOT EXISTS sip_lab_calls (instance TEXT NOT NULL, request_key TEXT NOT NULL, "
-                        "channel_id TEXT NOT NULL, state TEXT NOT NULL, created_day TEXT NOT NULL, "
-                        "PRIMARY KEY(instance, request_key))")
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS sip_lab_calls (instance TEXT NOT NULL, request_key TEXT NOT NULL, "
+            "channel_id TEXT NOT NULL, state TEXT NOT NULL, created_day TEXT NOT NULL, "
+            "PRIMARY KEY(instance, request_key))"
+        )
         self.db.commit()
 
     def reserve(self, instance, key):
@@ -64,8 +68,9 @@ class CallJournal:
             if row:
                 self.db.commit()
                 return row, False
-            count = self.db.execute("SELECT count(*) FROM sip_lab_calls WHERE instance=? AND created_day=?",
-                                    (instance, day)).fetchone()[0]
+            count = self.db.execute(
+                "SELECT count(*) FROM sip_lab_calls WHERE instance=? AND created_day=?", (instance, day)
+            ).fetchone()[0]
             if count >= 20:
                 raise SIPLabError("同一实验室 UTC 日测试上限 20 次；未知结果也占用次数")
             self.db.execute("INSERT INTO sip_lab_calls VALUES (?,?,?,?,?)", (instance, key, channel, "reserved", day))
@@ -76,8 +81,9 @@ class CallJournal:
             raise
 
     def lookup(self, instance, key):
-        row = self.db.execute("SELECT channel_id,state FROM sip_lab_calls WHERE instance=? AND request_key=?",
-                              (instance, key)).fetchone()
+        row = self.db.execute(
+            "SELECT channel_id,state FROM sip_lab_calls WHERE instance=? AND request_key=?", (instance, key)
+        ).fetchone()
         return {"channel_id": row[0], "dispatch_state": row[1]} if row else None
 
     def mark(self, instance, key, state):
@@ -92,13 +98,25 @@ class SIPLab:
     def __init__(self, config, journal, transport=None):
         self.config = config
         self.journal = journal
-        self.http = httpx.Client(base_url=ORIGIN, auth=("repayguard_lab", config.password),
-                                 timeout=5, follow_redirects=False, trust_env=False, transport=transport)
+        self.http = httpx.Client(
+            base_url=ORIGIN,
+            auth=("repayguard_lab", config.password),
+            timeout=5,
+            follow_redirects=False,
+            trust_env=False,
+            transport=transport,
+        )
 
     @staticmethod
     def view(**values):
-        return {"mode": "sip_lab", "target": "linphone_1001", "audio_verified": False,
-                "ai_dialogue_ready": False, "pstn_enabled": False, **values}
+        return {
+            "mode": "sip_lab",
+            "target": "linphone_1001",
+            "audio_verified": False,
+            "ai_dialogue_ready": False,
+            "pstn_enabled": False,
+            **values,
+        }
 
     def endpoint_status(self):
         try:
@@ -109,7 +127,12 @@ class SIPLab:
             if data.get("technology") != "PJSIP" or data.get("resource") != "1001":
                 raise ValueError("scope")
             state = data.get("state")
-            return self.view(gateway_reachable=True, endpoint_state=state if isinstance(state, str) and state in {"online", "offline", "unknown"} else "unknown")
+            return self.view(
+                gateway_reachable=True,
+                endpoint_state=state
+                if isinstance(state, str) and state in {"online", "offline", "unknown"}
+                else "unknown",
+            )
         except (httpx.HTTPError, ValueError, AttributeError):
             return self.view(gateway_reachable=False, endpoint_state="unknown")
 
@@ -125,7 +148,11 @@ class SIPLab:
                 data = response.json()
                 if data.get("id") == row["channel_id"]:
                     state = data.get("state")
-                    return self.view(**row, channel_state=state if isinstance(state, str) and state in CHANNEL_STATES else "unknown", retry_allowed=False)
+                    return self.view(
+                        **row,
+                        channel_state=state if isinstance(state, str) and state in CHANNEL_STATES else "unknown",
+                        retry_allowed=False,
+                    )
         except (httpx.HTTPError, ValueError, AttributeError):
             pass
         return self.view(**row, channel_state="unknown", retry_allowed=False)
@@ -137,10 +164,17 @@ class SIPLab:
         if not created:
             return self.inspect(key)
         try:
-            response = self.http.post(f"/channels/{row['channel_id']}", params={
-                "endpoint": "PJSIP/1001", "context": "lab-echo", "extension": "1000",
-                "priority": 1, "callerId": "RepayGuard SIP Lab <1000>", "timeout": 20,
-            })
+            response = self.http.post(
+                f"/channels/{row['channel_id']}",
+                params={
+                    "endpoint": "PJSIP/1001",
+                    "context": "lab-echo",
+                    "extension": "1000",
+                    "priority": 1,
+                    "callerId": "RepayGuard SIP Lab <1000>",
+                    "timeout": 20,
+                },
+            )
             state = "rejected" if response.status_code in {400, 401, 403, 404} else "unknown"
             if response.status_code in {200, 201} and response.json().get("id") == row["channel_id"]:
                 state = "submitted"
@@ -191,10 +225,11 @@ def main():
             result = lab.endpoint_status()
         elif args.action == "doctor":
             from .sip_lab_diagnostics import configuration_checks
+
             result = {**lab.endpoint_status(), **configuration_checks(args.config_dir)}
-            result["ready_for_echo_attempt"] = bool(result["configuration_ready"]
-                                                   and result["gateway_reachable"]
-                                                   and result["endpoint_state"] == "online")
+            result["ready_for_echo_attempt"] = bool(
+                result["configuration_ready"] and result["gateway_reachable"] and result["endpoint_state"] == "online"
+            )
         elif args.action == "call":
             result = lab.call(args.request_key, acknowledged=args.acknowledged)
         elif args.action == "hangup":
@@ -213,7 +248,11 @@ def main():
         return 0 if result["channel_state"] in CHANNEL_STATES else 2
     except (SIPLabError, OSError, sqlite3.Error):
         # Do not echo config, HTTP exceptions, file contents or credentials.
-        print(json.dumps({"error": "SIP 实验室操作被阻断，请检查开发模式、生成配置、请求键及实验室日上限"}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"error": "SIP 实验室操作被阻断，请检查开发模式、生成配置、请求键及实验室日上限"}, ensure_ascii=False
+            )
+        )
         return 1
     finally:
         if lab:

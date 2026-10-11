@@ -1,4 +1,5 @@
 """Isolated standard-loan MVP storage; no new financial ledger."""
+
 from datetime import date, datetime
 
 from sqlalchemy import (
@@ -22,7 +23,9 @@ from .models import new_id, utcnow
 class LoanContactPolicy(Base):
     __tablename__ = "loan_contact_policies"
     __table_args__ = (
-        CheckConstraint("window_start_minute >= 0 AND window_start_minute < window_end_minute AND window_end_minute <= 1440"),
+        CheckConstraint(
+            "window_start_minute >= 0 AND window_start_minute < window_end_minute AND window_end_minute <= 1440"
+        ),
         CheckConstraint("daily_session_limit BETWEEN 1 AND 3"),
         CheckConstraint("snapshot_max_hours BETWEEN 1 AND 24"),
         CheckConstraint("promise_max_days BETWEEN 1 AND 30"),
@@ -105,6 +108,7 @@ class LoanEvent(Base):
 
 class LoanSipDispatch(Base):
     """Internal fixed-extension echo tests; never a customer contact receipt."""
+
     __tablename__ = "loan_sip_dispatches"
     __table_args__ = (
         UniqueConstraint("tenant_id", "session_id"),

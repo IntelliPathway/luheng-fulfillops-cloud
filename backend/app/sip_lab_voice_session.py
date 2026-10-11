@@ -1,4 +1,5 @@
 """Fixed 1003 inbound lab audio adapter, independent from business dispatch."""
+
 from .sip_lab_bridge import MediaSession, pcmu
 from .sip_lab_voice import LocalVoiceClient, Utterance, VoiceError
 
@@ -18,7 +19,7 @@ class VoiceMediaSession(MediaSession):
             return
         try:
             for kind, audio in self.vad.feed(pcm):
-                if kind == 'speech_start':
+                if kind == "speech_start":
                     self.voice.interrupt()
                     self.queue.clear()
                 else:
@@ -44,8 +45,13 @@ class VoiceMediaSession(MediaSession):
             super().close()
 
     def summary(self):
-        cloud = getattr(self.voice, 'expected_provider', None) == 'qwen_token_plan'
-        return {**super().summary(), 'cloud_provider_calls': 0, **self.voice.summary(),
-                'mode': 'qwen_token_plan_voice_lab' if cloud else 'local_voice_lab',
-                'voice_session_failed': self.failed,
-                'ai_dialogue_ready': False, 'business_ready': False}
+        cloud = getattr(self.voice, "expected_provider", None) == "qwen_token_plan"
+        return {
+            **super().summary(),
+            "cloud_provider_calls": 0,
+            **self.voice.summary(),
+            "mode": "qwen_token_plan_voice_lab" if cloud else "local_voice_lab",
+            "voice_session_failed": self.failed,
+            "ai_dialogue_ready": False,
+            "business_ready": False,
+        }

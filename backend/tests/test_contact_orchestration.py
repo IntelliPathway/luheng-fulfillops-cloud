@@ -211,8 +211,15 @@ def test_same_case_concurrent_attempts_cannot_exceed_daily_limit(tmp_path, monke
             with app.state.Session() as db:
                 barrier.wait()
                 try:
-                    create_contact_attempt(db, "TENANT_A", "Terry", case_id="C004", activity_id=None,
-                                           contact_reference=f"REF-{index}", scheduled_at=datetime(2026, 9, 20, 6))
+                    create_contact_attempt(
+                        db,
+                        "TENANT_A",
+                        "Terry",
+                        case_id="C004",
+                        activity_id=None,
+                        contact_reference=f"REF-{index}",
+                        scheduled_at=datetime(2026, 9, 20, 6),
+                    )
                     db.commit()
                     return "created"
                 except ContactOrchestrationError as exc:

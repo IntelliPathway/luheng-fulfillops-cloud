@@ -3,6 +3,7 @@
 Timeouts are ambiguous: reconcile the same dispatch key, never redial blindly.
 The future persistent Worker adapter must commit this state before sending.
 """
+
 from enum import StrEnum
 from typing import Literal, Protocol
 
@@ -54,8 +55,12 @@ class TelephonyProvider(Protocol):
 
 
 def receipt_state(
-    request: DispatchRequest, current: CallState, receipt: CallReceipt,
-    *, last_sequence: int = 0, provider_call_id: str | None = None,
+    request: DispatchRequest,
+    current: CallState,
+    receipt: CallReceipt,
+    *,
+    last_sequence: int = 0,
+    provider_call_id: str | None = None,
 ) -> CallState:
     """Validate correlation and monotonic progress before persisting a receipt.
 
