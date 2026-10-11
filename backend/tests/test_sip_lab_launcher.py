@@ -158,11 +158,23 @@ def test_missing_cached_base_does_not_pull_or_build(lab, monkeypatch):
 
 def test_verified_existing_host_is_reused_and_never_terminated(lab, monkeypatch):
     monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_session_limit_seconds': 180,
-                                             'voice_test_matcher_version': 2})
+                                             'voice_test_matcher_version': 3, 'stop_confirmation_required': True})
     monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('must reuse host'))
     lab.ensure_host()
     lab.close()
     assert lab.host is None
+
+
+def test_live_turn_and_failure_diagnostics_never_display_raw_fields(capsys):
+    launcher.display_event({'event': 'voice_turn_diagnostic', 'request_number': 3, 'input_audio_ms': 780,
+                            'test_case': 'stop_pending', 'stop_control': 'requested', 'transcript': 'SYNTHETIC_SECRET'})
+    launcher.display_event({'event': 'media_session_summary', 'end_reason': 'voice_failed',
+                            'local_voice_error': 'numbers_date_mismatch', 'provider_active_stage': 'llm',
+                            'transcript': 'SYNTHETIC_SECRET'})
+    output = capsys.readouterr().out
+    assert '结束待确认' in output and '780ms' in output
+    assert 'numbers_date_mismatch' in output and '最后云调用阶段：llm' in output
+    assert 'SYNTHETIC_SECRET' not in output
 
 
 def test_occupied_unready_host_is_not_taken_over(lab, monkeypatch):
@@ -273,7 +285,8 @@ def test_duration_explicit_end_failure_and_turn_limit_have_distinct_reasons():
 
 
 def test_old_authenticated_host_cannot_silently_truncate_extended_test(lab, monkeypatch):
-    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_test_matcher_version': 2})
+    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'voice_test_matcher_version': 3,
+                                             'stop_confirmation_required': True})
     monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *args, **kwargs: pytest.fail('must not take over old host'))
     with pytest.raises(launcher.LabError, match='旧 60 秒'):
         lab.ensure_host()

@@ -351,7 +351,11 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1
                     except BlockingIOError:
                         break
                     session.receive(data, peer)
-                if not session.tick(udp, time.monotonic()):
+                continuing = session.tick(udp, time.monotonic())
+                if hasattr(session, 'progress_events'):
+                    for diagnostic in session.progress_events():
+                        print(json.dumps(diagnostic), flush=True)
+                if not continuing:
                     print(json.dumps(session.summary()), flush=True)
                     session.close()
                     if not cleanup(client, journal, active_phone):

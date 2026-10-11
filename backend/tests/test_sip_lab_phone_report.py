@@ -24,16 +24,19 @@ reporter = module('sip-lab-report')
 
 
 def summary():
-    cases = ['greeting', 'confirm', 'numbers_date', 'negation', 'confirm', 'stop']
+    cases = ['greeting', 'confirm', 'numbers_date', 'negation', 'confirm', 'stop_pending', 'stop']
     observations = [{'request_number': index + 1, 'kind': 'greeting' if index == 0 else 'turn', 'completed': True,
                      'interrupted': index == 3, 'test_case': case, 'end': case == 'stop',
+                     'stop_control': 'confirmed' if case == 'stop' else 'requested' if case == 'stop_pending' else 'none',
+                     'input_audio_ms': 1800, 'llm_end_ignored': False,
                      'first_audio_received_ms': 1000 + index * 100, 'first_reply_rtp_ms': 1020 + index * 100}
                     for index, case in enumerate(cases)]
     return {'event': 'media_session_summary', 'mode': 'qwen_token_plan_voice_lab',
             'voice_test_metadata_version': 1, 'session_limit_seconds': 180, 'end_reason': 'dialogue_ended',
+            'stop_confirmation_required': True,
             'received_packets': 1200, 'decoded_samples': 192000, 'sent_packets': 1700,
             'reply_rtp_packets': 400, 'invalid_packets': 0, 'foreign_packets': 0, 'queue_drops': 0,
-            'local_turns_submitted': 6, 'local_turns_completed': 6, 'interruptions': 1, 'cloud_provider_calls': 15,
+            'local_turns_submitted': 7, 'local_turns_completed': 7, 'interruptions': 1, 'cloud_provider_calls': 16,
             'local_voice_failed': False, 'voice_session_failed': False,
             'provider_request_state': 'completed', 'provider_error': None,
             'provider': {'kind': 'qwen_token_plan', 'models': {'asr': 'qwen-audio-3.0-asr-flash',
@@ -52,8 +55,8 @@ def test_measurements_require_separate_operator_hearing_attestation():
     assert accepted['assessment'] == 'passed_with_operator_attestation'
     assert accepted['phone_audio_verified'] is False and accepted['business_ready'] is False
     assert all(value == 'operator_reported_pass' for value in accepted['operator_attestations'].values())
-    assert accepted['latency']['first_reply_rtp'] == {'samples': 5, 'min_ms': 1120, 'median_ms': 1320,
-                                                    'p95_ms': 1520, 'max_ms': 1520}
+    assert accepted['latency']['first_reply_rtp'] == {'samples': 6, 'min_ms': 1120, 'median_ms': 1370,
+                                                    'p95_ms': 1620, 'max_ms': 1620}
 
 
 def test_barge_in_has_own_request_and_can_cancel_before_completion():
@@ -65,12 +68,12 @@ def test_barge_in_has_own_request_and_can_cancel_before_completion():
     event['turn_observations'].insert(4, {'request_number': 5, 'kind': 'turn', 'completed': False,
                                         'interrupted': True, 'test_case': None, 'end': None,
                                         'first_audio_received_ms': 1400, 'first_reply_rtp_ms': 1420})
-    event['local_turns_submitted'] = 7
+    event['local_turns_submitted'] = 8
     event['cloud_provider_calls'] = 18
     report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
     assert report['assessment'] == 'passed_with_operator_attestation'
     assert report['latency']['incomplete_phone_turns'] == 1
-    assert report['latency']['first_reply_rtp']['samples'] == 5
+    assert report['latency']['first_reply_rtp']['samples'] == 6
     assert report['observed_cases']['negation'] is True
 
 
@@ -84,6 +87,21 @@ def test_report_explains_unmatched_second_turn_without_exposing_asr(capsys):
     output = capsys.readouterr().out
     assert '数字日期缺失' in output and '存在未匹配短句' in output
     assert 'SYNTHETIC_ASR_SECRET' not in output + json.dumps(report)
+
+
+@pytest.mark.parametrize('fault', ['legacy_stop', 'unconfirmed_stop', 'missing_prompt', 'model_end_conflict'])
+def test_single_step_or_model_end_conflict_cannot_pass_new_confirmation_acceptance(fault):
+    event = summary()
+    if fault == 'legacy_stop':
+        event.pop('stop_confirmation_required')
+    elif fault == 'unconfirmed_stop':
+        event['turn_observations'][-1]['stop_control'] = 'none'
+    elif fault == 'missing_prompt':
+        event['turn_observations'][-2]['test_case'] = 'out_of_scope'
+    else:
+        event['turn_observations'][1]['llm_end_ignored'] = True
+    report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert report['assessment'] == 'needs_retest'
 
 
 @pytest.mark.parametrize('field,value', [('turns', None), ('turns', [{'kind': 'turn', 'completed': True, 'test_case': []}]),

@@ -282,7 +282,7 @@ def create_app(engine, token, *, turn_executor=None):
         if hasattr(engine, 'lab_provider'):
             result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False,
                           voice_session_limit_seconds=180, voice_test_metadata_version=1,
-                          voice_test_matcher_version=2)
+                          voice_test_matcher_version=3, stop_confirmation_required=True)
         return result
 
     @app.post('/lab/drain')
@@ -378,6 +378,8 @@ def create_app(engine, token, *, turn_executor=None):
                                 raise VoiceError('cancel_turn_mismatch')
                             cancel.set()
                             if waiting:
+                                if hasattr(engine, 'cancel_turn_state'):
+                                    engine.cancel_turn_state()
                                 waiting = None
                                 event = {'kind': 'cancelled', 'turn': active}
                                 if hasattr(engine, 'diagnostics'):
@@ -410,6 +412,8 @@ def create_app(engine, token, *, turn_executor=None):
                         await ws.send_bytes(audio)
                 if worker and not worker.is_alive() and outgoing.empty():
                     if cancel.is_set() or outcome.get('cancelled'):
+                        if hasattr(engine, 'cancel_turn_state'):
+                            engine.cancel_turn_state()
                         event = {'kind': 'cancelled', 'turn': active}
                     elif outcome.get('error'):
                         event = {'kind': 'error', 'turn': active}

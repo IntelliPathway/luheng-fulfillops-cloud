@@ -254,6 +254,17 @@ def test_vad_preroll_minimum_speech_endpoint_and_six_second_bound():
     assert len([e[1] for e in events if e[0] == 'utterance'][0]) == 96000
 
 
+def test_vad_keeps_weak_prefix_before_louder_word_without_increasing_utterance_cap():
+    weak = pack('<160h', *([150] * 160))
+    loud = pack('<160h', *([1000] * 160))
+    vad = Utterance()
+    events = []
+    for frame in [*([weak] * 10), *([loud] * 15), *([b'\0' * 320] * 30)]:
+        events.extend(vad.feed(frame))
+    audio = next(audio for kind, audio in events if kind == 'utterance')
+    assert audio.startswith(weak * 10) and len(audio) <= 96000
+
+
 def test_vad_short_noise_is_not_transcribed_and_partial_frames_are_reassembled():
     vad = Utterance()
     loud = pack('<160h', *([1000] * 160))

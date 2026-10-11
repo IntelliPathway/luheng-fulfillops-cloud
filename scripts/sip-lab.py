@@ -21,7 +21,7 @@ LABEL = 'org.repayguard.sip-lab.source'
 ENV_KEYS = {'APP_ENV', 'ENABLE_SIP_LAB', 'SIP_LAB_INSTANCE_ID', 'SIP_LAB_ARI_PASSWORD',
             'SIP_LAB_BIND_ADDRESS', 'SIP_LAB_QWEN_VOICE_TOKEN'}
 REASONS = {'duration_limit': '达到本通时长上限', 'turn_limit': '达到 8 次语音请求上限（含开场和打断）',
-           'dialogue_ended': '语音对话发出结束标记；千问路径仅明确结束短句可触发',
+           'dialogue_ended': '语音对话发出结束标记；千问路径需两步结束确认',
            'voice_failed': '语音服务失败，请查看错误码', 'channel_ended': '电话或网关结束了通道',
            'service_stopped': '测试服务已停止'}
 
@@ -188,8 +188,8 @@ class Lab:
                 raise LabError('现有宿主为旧 60 秒版本；请在原终端 Ctrl+C 停止后重新运行 start，或加 --session-seconds 60。')
             if self.verifying and report.get('voice_test_metadata_version') != 1:
                 raise LabError('现有宿主缺少场景验收标记；请在原终端 Ctrl+C 退出后重新运行 verify。')
-            if report.get('voice_test_matcher_version') != 2:
-                raise LabError('现有宿主仍使用旧短句匹配；请在原终端 Ctrl+C 退出后重新运行 start/verify。')
+            if report.get('voice_test_matcher_version') != 3 or report.get('stop_confirmation_required') is not True:
+                raise LabError('现有宿主仍使用旧短句匹配/单步结束；请在原终端 Ctrl+C 退出后重新运行 start/verify。')
             print('复用已通过认证的 18092 宿主；退出时保留该进程。', flush=True)
             return
         with socket.socket() as connection:
@@ -274,7 +274,7 @@ class Lab:
             raise LabError('等待媒体桥就绪超时。')
         address = self.environment['SIP_LAB_BIND_ADDRESS']
         print('\n测试已就绪：Linphone 使用现有 1001 账号，服务器 ' + address + ':5060，拨打 1003。', flush=True)
-        print('说：今天是语音链路测试。结束：结束测试。每通最多 '
+        print('说：今天是语音链路测试。结束：先说结束测试，再说确认结束测试。每通最多 '
               + str(self.session_seconds) + ' 秒 / 8 次请求 / 24 次云调用。', flush=True)
         print(('验收本通结束后保存报告并退出；' if self.verifying else '电话结束后启动器继续运行，可再次手动拨打；')
               + 'Ctrl+C 停止媒体桥和本次启动的宿主。', flush=True)
@@ -285,6 +285,7 @@ class Lab:
                   '3. 不要结束测试。\n'
                   '4. 再说：今天是语音链路测试，请确认；在这轮回复播放时插话：换一句测试短句。\n'
                   '5. 结束测试。\n'
+                  '6. 等确认提示播完，再说：确认结束测试。\n'
                   '结束语播完后，本终端会收集听音确认并保存报告；不记录原始转写。', flush=True)
         self.logs = subprocess.Popen(self.compose_command_logs(), cwd=self.root, env=self.environment,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -390,6 +391,17 @@ def display_event(event):
     kind = event.get('event')
     if kind == 'program_media_connected':
         print('电话已进入媒体桥，正在处理语音。', flush=True)
+    elif kind == 'voice_turn_diagnostic':
+        labels = {'greeting': '开场', 'confirm': '确认', 'numbers_date': '数字日期', 'negation': '否定结束',
+                  'stop_pending': '结束待确认', 'stop': '已确认结束', 'out_of_scope': '未匹配'}
+        number, audio = event.get('request_number'), event.get('input_audio_ms')
+        case = event.get('test_case')
+        if type(number) is int and 1 <= number <= 8 and type(audio) is int and 0 <= audio <= 6000:
+            print('第{}次请求：{}，输入音频{}ms。'.format(number, labels.get(case, '未知场景') if isinstance(case, str) else '未知场景', audio), flush=True)
+            if event.get('stop_control') == 'requested':
+                print('尚未挂断；若刚才说的是不要结束，请说继续测试；确需结束再说确认结束测试。', flush=True)
+            if event.get('llm_end_ignored') is True:
+                print('模型结束标记已忽略；通话由确定性结束控制器管理。', flush=True)
     elif kind == 'media_session_summary':
         print('本通结束：' + REASONS.get(event.get('end_reason'), '原因未记录（旧媒体镜像或未分类退出）'), flush=True)
         if event.get('session_limit_seconds') in {60, 180}:
@@ -403,8 +415,15 @@ def display_event(event):
         code = event.get('local_voice_error')
         if code in {'qwen_host_connection_refused', 'qwen_host_auth_failed', 'qwen_host_busy',
                     'voice_turn_budget_exhausted', 'voice_session_timeout', 'provider_call_budget_exhausted',
-                    'voice_turn_failed', 'voice_turn_timeout', 'local_voice_service_failed'}:
+                    'voice_turn_failed', 'voice_turn_timeout', 'local_voice_service_failed',
+                    'end_intent_mismatch', 'numbers_date_mismatch', 'invalid_model_json', 'off_scope_reply',
+                    'turn_deadline_exceeded', 'qwen_session_call_budget_exceeded',
+                    'speech_provider_unavailable_result_unknown', 'invalid_voice_completion',
+                    'voice_playback_budget_exceeded', 'qwen_host_inference_failed'}:
             print('语音错误码：' + code, flush=True)
+        stage = event.get('provider_active_stage')
+        if isinstance(stage, str) and stage in {'asr', 'llm', 'tts'}:
+            print('最后云调用阶段：' + stage, flush=True)
     elif kind in {'media_lab_unavailable', 'media_setup_failed'}:
         for key in ('stage', 'error'):
             value = event.get(key)

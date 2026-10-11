@@ -71,10 +71,10 @@ def validate_reply(value):
 
 
 class Utterance:
-    """Energy VAD on accepted 8 kHz PCM: 100 ms preroll, 600 ms endpoint, 6 s cap."""
+    """Energy VAD on accepted 8 kHz PCM: 300 ms preroll, 600 ms endpoint, 6 s cap."""
     def __init__(self):
         self.remainder = bytearray()
-        self.preroll = deque(maxlen=5)
+        self.preroll = deque(maxlen=15)
         self.audio = bytearray()
         self.voiced = self.silence = 0
         self.started = False
@@ -161,6 +161,7 @@ class LocalVoiceClient:
         self.observations = deque(maxlen=8)
         self.current_observation = None
         self.last_playback_epoch = None
+        self.progress = deque(maxlen=8)
 
     def start(self, kind='greeting'):
         self.submit(None, kind=kind)
@@ -214,6 +215,12 @@ class LocalVoiceClient:
     def finished(self):
         with self.lock:
             return self.failed or (self.ended and not self.audio and not self.active)
+
+    def progress_events(self):
+        with self.lock:
+            result = list(self.progress)
+            self.progress.clear()
+            return result
 
     def close(self):
         self.stop.set()
@@ -351,9 +358,16 @@ class LocalVoiceClient:
                                     raise VoiceError('invalid_voice_completion')
                                 case = event.get('test_case')
                                 if case is not None and (case not in {'greeting', 'confirm', 'numbers_date',
-                                                                      'negation', 'stop', 'out_of_scope'}
+                                                                      'negation', 'stop', 'stop_pending', 'out_of_scope'}
                                                          or (self.expected_provider and event['end'] != (case == 'stop'))):
                                     raise VoiceError('invalid_voice_completion')
+                                control, ignored, audio_ms = event.get('stop_control'), event.get('llm_end_ignored'), event.get('input_audio_ms')
+                                if self.expected_provider:
+                                    if (control not in {'none', 'requested', 'confirmed', 'cancelled'}
+                                            or type(ignored) is not bool or type(audio_ms) is not int or not 0 <= audio_ms <= 6000
+                                            or (case == 'stop') != (control == 'confirmed')
+                                            or (case == 'stop_pending') != (control == 'requested')):
+                                        raise VoiceError('invalid_voice_completion')
                                 self.completed += 1
                                 self.ended = event['end']
                                 metrics = {'elapsed_ms': bounded_ms(event.get('elapsed_ms')),
@@ -361,7 +375,13 @@ class LocalVoiceClient:
                                            'request_number': self.submitted, 'kind': remote[2],
                                            'test_case': case, 'end': event['end']}
                                 if self.current_observation is not None:
-                                    self.current_observation.update(completed=True, test_case=case, end=event['end'])
+                                    self.current_observation.update(completed=True, test_case=case, end=event['end'],
+                                                                    stop_control=control, input_audio_ms=audio_ms,
+                                                                    llm_end_ignored=ignored)
+                                if self.expected_provider:
+                                    self.progress.append({'event': 'voice_turn_diagnostic', 'request_number': self.submitted,
+                                                          'test_case': case, 'stop_control': control, 'input_audio_ms': audio_ms,
+                                                          'llm_end_ignored': ignored})
                                 stages = event.get('stage_ms')
                                 if stages is not None:
                                     if not isinstance(stages, dict) or set(stages) != {
@@ -384,7 +404,8 @@ class LocalVoiceClient:
                     'local_voice_configuration_changed', 'local_voice_configuration_mismatch',
                     'local_voice_revision_mismatch', 'invalid_service_configuration',
                     'qwen_voice_provider_mismatch', 'invalid_qwen_provider_handshake',
-                    'invalid_qwen_provider_event', 'websocket_dependency_incompatible'} else 'local_voice_service_failed'
+                    'invalid_qwen_provider_event', 'websocket_dependency_incompatible',
+                    'invalid_voice_completion', 'invalid_voice_timing'} else 'local_voice_service_failed'
                 if self.expected_provider and self.error_code == 'local_voice_service_failed':
                     from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
                     if isinstance(exc, ConnectionRefusedError):

@@ -58,6 +58,7 @@ class Host:
             json.dumps({
                 "kind": "complete", "turn": command["turn"], "end": False, "reply_digest": "a" * 64,
                 "elapsed_ms": 1, "first_audio_ms": 1, "provider": provider,
+                "test_case": "greeting", "stop_control": "none", "input_audio_ms": 0, "llm_end_ignored": False,
                 "cloud_provider_calls": 0, "provider_request_state": "not_sent",
                 "provider_error": None, "provider_active_stage": None,
             }),

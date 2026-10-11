@@ -56,10 +56,14 @@ class VoiceMediaSession(MediaSession):
             self.voice.close()
             super().close()
 
+    def progress_events(self):
+        return self.voice.progress_events() if hasattr(self.voice, 'progress_events') else []
+
     def summary(self):
         cloud = getattr(self.voice, 'expected_provider', None) == 'qwen_token_plan'
         return {**super().summary(), 'cloud_provider_calls': 0, **self.voice.summary(),
                 'mode': 'qwen_token_plan_voice_lab' if cloud else 'local_voice_lab',
                 'voice_session_failed': self.failed,
                 'reply_rtp_packets': self.reply_rtp_packets, 'voice_test_metadata_version': 1,
+                'stop_confirmation_required': cloud,
                 'ai_dialogue_ready': False, 'business_ready': False}

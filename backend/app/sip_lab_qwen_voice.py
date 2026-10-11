@@ -84,9 +84,11 @@ SAFE_ERRORS = frozenset(
         "qwen_host_inference_failed",
     }
 )
-GREETING = "这里是千问语音测试，请说固定测试短句。说结束测试即可结束。"
+GREETING = "这里是千问语音测试。结束测试需再说确认结束测试，才能挂断。"
 SCOPE_REPLY = "没有匹配到测试短句，请说复述1234和10月9日，或说结束测试。"
 STOP_REPLY = "测试结束，再见。"
+STOP_PROMPT = "需要挂断，请说确认结束测试；否则说继续测试。"
+CONTINUE_REPLY = "好的，继续语音测试，不会挂断。"
 
 
 class HostProbeError(VoiceError):
@@ -153,9 +155,10 @@ def doctor_host(token, *, transport=None):
             raise VoiceError('invalid_qwen_host_status')
         report['voice_test_metadata_version'] = metadata
         matcher = data.get('voice_test_matcher_version', 0)
-        if type(matcher) is not int or matcher not in {0, 2}:
+        if type(matcher) is not int or matcher not in {0, 2, 3}:
             raise VoiceError('invalid_qwen_host_status')
         report['voice_test_matcher_version'] = matcher
+        report['stop_confirmation_required'] = data.get('stop_confirmation_required') is True
         if not report["websocket_no_redirect_api_available"]:
             raise VoiceError("websocket_dependency_incompatible")
         if data["busy"]:
@@ -219,6 +222,8 @@ def test_case(text):
     if re.search(r'[0-9][./:][0-9]|[+−-]\s*[0-9]', unicodedata.normalize('NFKC', text)):
         return None
     value = normalized(text)
+    if value in {'确认结束测试', '请确认结束测试'}:
+        return 'stop_confirm'
     aliases = {
         "confirm": (CASES["confirm"][0], "今天是语音链路测试", "换一句测试短句"),
         "numbers_date": (
@@ -269,6 +274,8 @@ class TokenVoiceEngine:
         self.request_state = "not_sent"
         self.active_stage = None
         self.last_error = None
+        self.stop_pending = False
+        self.llm_end_ignored = False
 
     def diagnostics(self):
         return {
@@ -278,6 +285,9 @@ class TokenVoiceEngine:
             "provider_error": self.last_error,
             "provider_active_stage": self.active_stage,
         }
+
+    def cancel_turn_state(self):
+        self.stop_pending = False
 
     def record_error(self, exc):
         code = str(exc) if isinstance(exc, VoiceError) else None
@@ -413,11 +423,10 @@ class TokenVoiceEngine:
             ):
                 raise VoiceError("invalid_usage")
             reply, end = validate_reply(json.loads(choice["message"]["content"]))
-            if end is not False:
-                raise VoiceError("end_intent_mismatch")
+            self.llm_end_ignored = end
             if case == "numbers_date" and not all(value in reply for value in ("1234", "10月9日")):
                 raise VoiceError("numbers_date_mismatch")
-            return reply, end
+            return reply, False  # Only the deterministic confirmation controller may end a phone call.
         except (ValueError, KeyError, IndexError, TypeError):
             raise VoiceError("invalid_model_json") from None
 
@@ -522,6 +531,10 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
             raise VoiceError("turn_deadline_exceeded")
 
     check()
+    pending = engine.stop_pending
+    engine.stop_pending = False  # Cancellation/failure cannot leave an armed stop behind.
+    engine.llm_end_ignored = False
+    stop_control, next_pending = 'none', False
     case, saved_history = None, []
     if kind == "greeting":
         reply, end = GREETING, False
@@ -536,8 +549,15 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
         if kind == "probe" and normalized(text) != normalized(CASES["confirm"][0]):
             raise VoiceError("asr_probe_phrase_mismatch")
         case = test_case(text)
-        if case == "stop":
-            reply, end = STOP_REPLY, True
+        if case == "stop_confirm" and pending:
+            case, reply, end, stop_control = 'stop', STOP_REPLY, True, 'confirmed'
+        elif case == 'stop_confirm':
+            case, reply, end = None, '尚未收到结束请求。需要结束时，先说结束测试，再说确认结束测试。', False
+        elif case == 'stop':
+            case, reply, end, stop_control, next_pending = 'stop_pending', STOP_PROMPT, False, 'requested', True
+        elif case == 'negation':
+            reply, end, stop_control = CONTINUE_REPLY, False, 'cancelled'
+            saved_history = [{'role': 'user', 'content': CASES[case][0]}, {'role': 'assistant', 'content': reply}]
         elif case is None:
             reply, end = SCOPE_REPLY, False
         else:
@@ -561,10 +581,13 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
     check()
     if not count:
         raise VoiceError("empty_tts_audio")
+    engine.stop_pending = next_pending
     stages["reply_tts"] = round((clock() - stage) * 1000)
     return {
         "end": end,
         "test_case": 'greeting' if kind == 'greeting' else case or 'out_of_scope',
+        'stop_control': stop_control, 'llm_end_ignored': engine.llm_end_ignored,
+        'input_audio_ms': len(pcm) // 16 if pcm else 0,
         "reply_digest": digest(reply),
         "elapsed_ms": round((clock() - start) * 1000),
         "first_audio_ms": round((first - start) * 1000),

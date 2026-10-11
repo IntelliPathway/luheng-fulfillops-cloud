@@ -15,7 +15,7 @@ CASES = ('confirm', 'numbers_date', 'negation', 'stop')
 ATTESTATIONS = {'audible_reply': '全程能听清语音回复', 'numbers_date_correct': '测试数字1234及日期10月9日复述正确',
                 'negation_continued': '说“不要结束测试”后对话继续',
                 'barge_in_worked': '插话后旧播报停止，随后有新的回复',
-                'goodbye_completed': '说“结束测试”后结束语完整播完再挂断'}
+                'goodbye_completed': '说“结束测试”后未挂断，再说“确认结束测试”才播放结束语并挂断'}
 END_REASONS = {'duration_limit', 'turn_limit', 'dialogue_ended', 'voice_failed', 'channel_ended', 'service_stopped'}
 COUNTERS = ('received_packets', 'decoded_samples', 'sent_packets', 'reply_rtp_packets', 'invalid_packets',
             'foreign_packets', 'queue_drops', 'local_turns_submitted', 'local_turns_completed', 'interruptions',
@@ -73,7 +73,7 @@ def make_report(event, attestations=None):
         if any(type(row.get(key)) is not bool for key in ('completed', 'interrupted')):
             raise ReportError('invalid_phone_report_turns')
         case = row.get('test_case')
-        if case is not None and (not isinstance(case, str) or case not in {*CASES, 'greeting', 'out_of_scope'}):
+        if case is not None and (not isinstance(case, str) or case not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope'}):
             raise ReportError('invalid_phone_report_case')
         end = row.get('end')
         if end is not None and type(end) is not bool:
@@ -82,6 +82,15 @@ def make_report(event, attestations=None):
                       'interrupted': row['interrupted'], 'test_case': case, 'end': end,
                       'first_audio_received_ms': optional_ms(row.get('first_audio_received_ms')),
                       'first_reply_rtp_ms': optional_ms(row.get('first_reply_rtp_ms'))})
+        control = row.get('stop_control')
+        if control is not None and (not isinstance(control, str) or control not in {'none', 'requested', 'confirmed', 'cancelled'}):
+            raise ReportError('invalid_phone_report_case')
+        audio = row.get('input_audio_ms')
+        ignored = row.get('llm_end_ignored')
+        if ignored is not None and type(ignored) is not bool:
+            raise ReportError('invalid_phone_report_case')
+        turns[-1].update(stop_control=control, input_audio_ms=None if audio is None else integer(audio, 6000),
+                         llm_end_ignored=ignored)
     safe_metrics, measured_numbers = [], set()
     for row in metrics:
         if not isinstance(row, dict):
@@ -111,9 +120,17 @@ def make_report(event, attestations=None):
     phone_numbers = {row['request_number']: row for row in actual_turns}
     phone_metrics = [row for row in safe_metrics if row['request_number'] in phone_numbers]
     stage_distributions = {stage: distribution([row['stage_ms'].get(stage) for row in phone_metrics
-                                               if stage != 'llm' or phone_numbers[row['request_number']]['test_case'] != 'stop'])
+                                               if stage != 'llm' or phone_numbers[row['request_number']]['test_case']
+                                               not in {'stop', 'stop_pending', 'negation'}])
                            for stage in ('asr', 'llm', 'reply_tts')}
     media_checks = {'inbound_rtp_observed': (counters['received_packets'] or 0) > 0,
+                    'confirmed_stop_observed': event.get('stop_confirmation_required') is True and any(
+                        row['test_case'] == 'stop' and row['end'] is True and row['stop_control'] == 'confirmed'
+                        and any(prior['test_case'] == 'stop_pending' and prior['completed']
+                                and prior['stop_control'] == 'requested' and prior['first_reply_rtp_ms'] is not None
+                                and prior['request_number'] < row['request_number'] for prior in actual_turns)
+                        for row in actual_turns),
+                    'no_model_end_conflict': bool(actual_turns) and all(row['llm_end_ignored'] is False for row in actual_turns),
                     'reply_rtp_sent': (counters['reply_rtp_packets'] or 0) > 0,
                     'four_case_multiturn_observed': all(covered.values()),
                     'interruption_detected': (counters['interruptions'] or 0) > 0,
@@ -144,7 +161,7 @@ def make_report(event, attestations=None):
             safe_provider = {'kind': 'qwen_token_plan', 'models': reviewed, 'voice': 'longanhuan_v3.6', 'sample_rate': 8000}
     if safe_provider is None:
         assessment = 'needs_retest' if assessment != 'issues_found' else assessment
-    return {'schema_version': 1, 'mode': 'personal_qwen_phone_verification', 'report_id': uuid.uuid4().hex,
+    return {'schema_version': 2, 'mode': 'personal_qwen_phone_verification', 'report_id': uuid.uuid4().hex,
             'created_at': datetime.now(UTC).isoformat(), 'source': 'current_launcher_media_session_summary',
             'assessment': assessment, 'provider': safe_provider, 'session_limit_seconds': limit,
             'end_reason': reason, 'counters': counters, 'observed_cases': covered, 'measured_media_checks': media_checks,
@@ -216,7 +233,7 @@ def latest_report(generated):
     actual = hashlib.sha256(encode(report).encode()).hexdigest()
     if claimed != actual:
         raise ReportError('phone_report_digest_mismatch')
-    if (type(report.get('schema_version')) is not int or report['schema_version'] != 1
+    if (type(report.get('schema_version')) is not int or report['schema_version'] != 2
             or report.get('mode') != 'personal_qwen_phone_verification' or report.get('report_id') != path.stem
             or not isinstance(report.get('assessment'), str) or report['assessment'] not in {
                 'needs_retest', 'needs_operator_review', 'issues_found', 'passed_with_operator_attestation'}
@@ -233,7 +250,7 @@ def latest_report(generated):
                 or row['kind'] not in {'turn', 'greeting', 'probe'}
                 or type(row.get('completed')) is not bool
                 or row.get('test_case') is not None and (not isinstance(row['test_case'], str)
-                                                       or row['test_case'] not in {*CASES, 'greeting', 'out_of_scope'})):
+                                                       or row['test_case'] not in {*CASES, 'greeting', 'stop_pending', 'out_of_scope'})):
             raise ReportError('invalid_private_phone_report')
     if not isinstance(latency, dict) or not isinstance(latency.get('host_stage_ms'), dict):
         raise ReportError('invalid_private_phone_report')

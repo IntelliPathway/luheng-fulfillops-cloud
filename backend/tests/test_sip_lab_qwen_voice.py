@@ -125,7 +125,7 @@ def test_four_case_single_session_metadata_and_no_raw_asr_in_receipts():
     original = engine.transport
     # Realistic ASR renderings in successive turns, rather than exact prompt strings.
     transcripts = iter(('今天是语音链路测试', '请复述一千二百三十四和十月九号',
-                        '我不想结束测试，请继续', '请停止语音测试'))
+                        '我不想结束测试，请继续', '请停止语音测试', '确认结束测试'))
 
     def transport(request):
         if str(request.url) == module.ASR_URL:
@@ -136,15 +136,15 @@ def test_four_case_single_session_metadata_and_no_raw_asr_in_receipts():
     with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
             '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
         assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_metadata_version'] == 1
-        assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_matcher_version'] == 2
+        assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_matcher_version'] == 3
         ws.receive_json()
-        for number, case in enumerate(CASES, start=1):
+        for number, case in enumerate(('confirm', 'numbers_date', 'negation', 'stop_pending', 'stop'), start=1):
             ws.send_json(command(turn=str(number) * 32))
             ws.send_bytes(PCM)
             event, audio = drain(ws)
             assert event['test_case'] == case and event['end'] is (case == 'stop')
-            assert audio and CASES[case][0] not in json.dumps(event, ensure_ascii=False)
-        assert event['cloud_provider_calls'] == 11
+            assert audio and '请停止语音测试' not in json.dumps(event, ensure_ascii=False)
+        assert event['cloud_provider_calls'] == 12
 
 
 def test_real_service_protocol_multiturn_synthetic_history_and_redacted_diagnostics():
@@ -172,6 +172,115 @@ def test_real_service_protocol_multiturn_synthetic_history_and_redacted_diagnost
     uri = asr["input"]["messages"][0]["content"][0]["input_audio"]["data"]
     with wave.open(io.BytesIO(module.base64.b64decode(uri.split(",", 1)[1])), "rb") as wav:
         assert wav.getframerate() == 8000 and wav.readframes(wav.getnframes()) == PCM
+
+
+def test_lost_negation_only_prompts_and_continue_disarms_confirmation_in_same_phone_session():
+    engine, _, requests, _ = make_engine()
+    original = engine.transport
+    # First ASR result deliberately drops "不要", reproducing the dangerous interpretation.
+    transcripts = iter(('结束测试', '不要结束测试', '确认结束测试', '结束测试', '确认结束测试'))
+
+    def transport(request):
+        if str(request.url) == module.ASR_URL:
+            return httpx.Response(200, json={'output': {'text': next(transcripts)}})
+        return original.handle_request(request)
+
+    engine.transport = httpx.MockTransport(transport)
+    with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        ws.receive_json()
+        for number, case in enumerate(('stop_pending', 'negation', 'out_of_scope', 'stop_pending', 'stop'), start=1):
+            ws.send_json(command(turn=str(number) * 32))
+            ws.send_bytes(PCM)
+            event, audio = drain(ws)
+            assert event['kind'] == 'complete' and event['test_case'] == case
+            assert event['end'] is (case == 'stop') and audio
+            assert event['input_audio_ms'] == 200
+        assert event['stop_control'] == 'confirmed' and event['cloud_provider_calls'] == 10
+    assert not any(str(request.url) == CHAT for request in requests)
+
+
+def test_llm_end_true_cannot_hang_up_or_fail_a_non_stop_turn():
+    engine, _, _, _ = make_engine(llm_response=httpx.Response(200, json={
+        'model': MODELS[0], 'choices': [{'finish_reason': 'stop', 'message': {
+            'content': json.dumps({'reply': '继续语音测试。', 'end': True})}}]}))
+    with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        ws.receive_json()
+        for number in (1, 2):
+            ws.send_json(command(turn=str(number) * 32))
+            ws.send_bytes(PCM)
+            event, audio = drain(ws)
+            assert event['kind'] == 'complete' and event['end'] is False and audio
+            assert event['llm_end_ignored'] is True and event['provider_error'] is None
+
+
+def test_cancelled_stop_prompt_and_new_session_cannot_leave_stop_armed():
+    engine, _, _, _ = make_engine(text='结束测试')
+    cancel = threading.Event()
+    with pytest.raises(VoiceCancelled):
+        execute_qwen_turn(engine, 'turn', PCM, [], cancel, lambda _: cancel.set())
+    assert engine.stop_pending is False
+    engine.asr = lambda pcm, check: '确认结束测试'
+    result = execute_qwen_turn(engine, 'turn', PCM, [], threading.Event(), lambda _: None)
+    assert result['end'] is False and result['test_case'] == 'out_of_scope'
+    engine.stop_pending = True
+    engine.begin_session()
+    result = execute_qwen_turn(engine, 'turn', PCM, [], threading.Event(), lambda _: None)
+    assert result['end'] is False
+
+
+def test_full_eight_request_suite_fits_existing_budget_with_stop_confirmation():
+    engine, _, _, _ = make_engine()
+    original = engine.transport
+    transcripts = iter(('今天是语音链路测试', '复述1234和10月9日', '不要结束测试',
+                        '今天是语音链路测试', '换一句测试短句', '结束测试', '确认结束测试'))
+
+    def transport(request):
+        if str(request.url) == module.ASR_URL:
+            return httpx.Response(200, json={'output': {'text': next(transcripts)}})
+        return original.handle_request(request)
+
+    engine.transport = httpx.MockTransport(transport)
+    with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        ws.receive_json()
+        ws.send_json(command(kind='greeting', samples=0))
+        event, _ = drain(ws)
+        assert event['end'] is False
+        for number in range(1, 8):
+            ws.send_json(command(turn=str(number) * 32))
+            ws.send_bytes(PCM)
+            event, audio = drain(ws)
+            assert audio and event['end'] is (number == 7)
+        assert event['cloud_provider_calls'] == 19 and event['provider_error'] is None
+
+
+def test_cancel_after_stop_generation_before_host_completion_disarms_pending_state():
+    engine, _, _, _ = make_engine(text='结束测试')
+    generated = threading.Event()
+
+    def executor(*args):
+        result = execute_qwen_turn(*args)
+        if result['test_case'] == 'stop_pending':
+            generated.set()
+            assert args[4].wait(2)  # Host must observe cancellation before this worker exits.
+        return result
+
+    with TestClient(create_app(engine, TOKEN, turn_executor=executor)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        ws.receive_json()
+        ws.send_json(command())
+        ws.send_bytes(PCM)
+        assert generated.wait(1) and engine.stop_pending is True
+        ws.send_json({'kind': 'cancel', 'turn': TURN})
+        event, _ = drain(ws)
+        assert event['kind'] == 'cancelled' and engine.stop_pending is False
+        engine.asr = lambda pcm, check: '确认结束测试'
+        ws.send_json(command('c' * 32))
+        ws.send_bytes(PCM)
+        event, audio = drain(ws)
+        assert event['kind'] == 'complete' and event['end'] is False and audio
 
 
 def test_unmatched_turn_does_not_trap_following_oral_turn_or_pollute_llm_history():
@@ -205,9 +314,9 @@ def test_unmatched_turn_does_not_trap_following_oral_turn_or_pollute_llm_history
 @pytest.mark.parametrize(
     "text,case,end,calls",
     [
-        ("我不是要结束测试。", "negation", False, 3),
-        ("不要结束测试", "negation", False, 3),
-        ("请结束测试", "stop", True, 2),
+        ("我不是要结束测试。", "negation", False, 2),
+        ("不要结束测试", "negation", False, 2),
+        ("请结束测试", "stop", False, 2),
         ("客户合同信息", None, False, 2),
         ("请复述数字一二三四和日期十月九日", "numbers_date", False, 3),
         ("PRIVATE_CUSTOMER_FACT", None, False, 2),
@@ -219,7 +328,7 @@ def test_fixed_case_routing_end_negation_and_no_arbitrary_text_to_llm(text, case
     result = execute_qwen_turn(engine, "turn", PCM, [], threading.Event(), emitted.append)
     assert module.test_case(text) == case and result["end"] is end and engine.external_calls == calls
     llm = [json.loads(request.content) for request in requests if str(request.url) == CHAT]
-    assert len(llm) == (1 if case in {"negation", "numbers_date"} else 0)
+    assert len(llm) == (1 if case == "numbers_date" else 0)
     if llm:
         assert llm[0]["messages"][-1]["content"] == CASES[case][0]
 
@@ -254,10 +363,10 @@ def test_oral_asr_variants_route_only_complete_reviewed_synthetic_values(text, c
     assert module.test_case(text) == case
     engine, _, requests, _ = make_engine(text)
     result = execute_qwen_turn(engine, 'turn', PCM, [], threading.Event(), lambda _: None)
-    assert result['test_case'] == (case or 'out_of_scope')
-    assert result['end'] is (case == 'stop')
+    assert result['test_case'] == ('stop_pending' if case == 'stop' else case or 'out_of_scope')
+    assert result['end'] is False
     llm = [json.loads(request.content) for request in requests if str(request.url) == CHAT]
-    assert len(llm) == int(case in {'confirm', 'numbers_date', 'negation'})
+    assert len(llm) == int(case in {'confirm', 'numbers_date'})
     if llm:
         assert llm[0]['messages'][-1]['content'] == CASES[case][0]
         assert text not in json.dumps(llm, ensure_ascii=False)
@@ -533,6 +642,11 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, mo
             assert greeting['kind'] == 'greeting' and greeting['test_case'] == 'greeting'
             assert greeting['first_audio_received_ms'] is not None
             assert greeting['first_reply_rtp_ms'] >= greeting['first_audio_received_ms']
+            progress = session.progress_events()
+            assert progress[0]['test_case'] == 'greeting' and progress[0]['input_audio_ms'] == 0
+            assert session.progress_events() == []
+            assert KEY not in json.dumps(progress) and TOKEN not in json.dumps(progress)
+            assert all('turn' not in row and 'reply_digest' not in row for row in progress)
             for _ in range(3):
                 session.process_audio(pack("<160h", *([1500] * 160)))
             assert voice.summary()["interruptions"] == 1 and voice.pop() is None
