@@ -34,6 +34,34 @@ python scripts/sip-lab-config.py --host-address 192.168.1.20
 
 示例地址须替换为主机真实地址。生成器不接受公网、0.0.0.0、IPv6 或组播地址；默认 SIP/RTP 只绑定本机。LAN 模式仅绑定指定私有地址，ARI 始终映射 127.0.0.1:8088。端口为 UDP 5060 和 UDP 10000–10019；Docker Desktop、防火墙、设备隔离及 NAT 仍需按实际环境验证。配置了 force_rport、rewrite_contact、rtp_symmetric、外部媒体地址和 direct_media=no，不保证任意网络都可用。
 
+### 已有实验室的Mac局域网地址变化
+
+2026-10-11操作者确认Mac地址已变化；此前服务器无1001联系人，Linphone显示连接中或账号/密码错误。1003拨号规则已确认加载，媒体缓存镜像已由操作者构建成功；当前尚不能把手机无声归因于模型，也未完成云电话验收。
+
+在仓库根目录运行地址更新工具，将下面示例替换为当前Mac真实私有IPv4。它只更新 `pjsip.conf` 的信令/媒体地址、`lab.env`、`compose.env` 和账号说明中的地址；旧模板缺失endpoint media_address时补齐。SIP/ARI密码、实例ID、千问token和journal保留，输出不含凭据；只接受已有0700目录和0600文件，拒绝符号链接、重复或缺失字段。不要重新运行首次生成器覆盖已有实验室。
+
+```bash
+git pull --ff-only
+python3 scripts/sip-lab-address-update.py --host-address 192.168.0.200
+```
+
+输出 `update_state=updated` 或 `unchanged` 后，确认已有通话已结束、终端A仍在服务，按顺序重建容器：先Asterisk加载新配置及端口绑定，再media连接新的ARI服务。仅使用已有镜像，不重新构建或拉取：
+
+```bash
+docker compose --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml \
+  up --no-deps --no-build --pull never -d --force-recreate asterisk
+SIP_LAB_MEDIA_ACKNOWLEDGED=true SIP_LAB_MEDIA_MODE=qwen \
+SIP_LAB_QWEN_VOICE_ACKNOWLEDGED=true docker compose \
+  --env-file deploy/sip-lab/generated/compose.env \
+  -f deploy/sip-lab/compose.yml --profile media \
+  up --no-deps --no-build --pull never -d --force-recreate media
+```
+
+Linphone的SIP身份、服务器/域名和已有代理地址均改为新Mac地址，用户名和认证用户名仍为1001，密码沿用当前账号文件，UDP/5060。Mac终端重新加载 `lab.env` 后再运行宿主CLI诊断；当前运行的套餐宿主因token未变可继续保留。用 `pjsip show contacts` 确认1001为Avail，先拨1000回声，再等media日志出现 `awaiting_linphone_1003` 后拨1003。修改手机地址不更新Docker端口或SDP媒体地址，因此三个位置须同步。可在路由器为Mac配置DHCP地址保留，减少重复迁移。
+
+工具预检全部四个文件后再写入，正常写入失败尝试恢复已替换文件；若恢复也失败，返回 `address_update_rollback_failed_backup_retained` 并保留generated中私有 `.sip-address-update-*` 备份，此时不要启动容器。它不是跨文件断电事务，更新时应避免同时编辑配置。地址更新15项、连同SIP诊断56项通过，1项UID/GID环境能力跳过；文档/部署四项及Ruff通过。覆盖保留凭据、旧模板升级、重复执行、非法地址、缺失/重复字段、权限/符号链接与写入恢复；无外部调用，实际Mac新地址和注册仍待操作者验证。
+
 Docker 启动入口仅以 root 读取/复制私有挂载配置并调整所有权，随后 Asterisk 使用 asterisk 用户运行；启动仅保留 CHOWN/DAC_OVERRIDE/SETUID/SETGID 能力。generated 目录由 .dockerignore 排除，随机密码不发送到构建上下文或进入镜像构建层。
 
 ## 测试呼叫与查账式恢复
