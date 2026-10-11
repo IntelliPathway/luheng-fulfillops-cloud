@@ -1,5 +1,6 @@
 """Opt-in internal ARI/UDP media echo lab. No customer data, ASR, LLM or TTS calls."""
 import base64
+import errno
 import hashlib
 import json
 import math
@@ -28,6 +29,54 @@ ID = re.compile(r'[A-Za-z0-9_.:-]{1,80}\Z')
 
 class BridgeError(RuntimeError):
     pass
+
+
+SAFE_BRIDGE_ERRORS = frozenset({
+    'invalid_channel_identifier', 'existing_intent_cleanup_only', 'media_daily_reservation_limit',
+    'ari_request_failed', 'ari_auth_failed', 'ari_identity_mismatch', 'ari_invalid_response',
+    'invalid_rtp_destination', 'untrusted_rtp_destination', 'recovery_cleanup_unconfirmed',
+    'invalid_lab_extension', 'setup_cleanup_unconfirmed', 'end_cleanup_unconfirmed',
+    'timeout_cleanup_unconfirmed', 'invalid_media_mode', 'qwen_voice_acknowledgement_required',
+    'local_voice_acknowledgement_required', 'invalid_voice_connection_config', 'event_stream_unavailable',
+})
+
+
+def media_failure_code(error, stage):
+    """Only fixed reviewed codes may leave a failing startup or media setup."""
+    if isinstance(error, ImportError):
+        return 'media_dependency_unavailable'
+    from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
+
+    if isinstance(error, BridgeError) and str(error) in SAFE_BRIDGE_ERRORS:
+        return str(error)
+    if isinstance(error, SIPLabError):
+        return str(error) if str(error) in {
+            'own_test_phone_acknowledgement_required', 'ambiguous_lab_config'
+        } else 'invalid_lab_configuration'
+    if isinstance(error, PermissionError):
+        return 'media_permission_denied'
+    if isinstance(error, FileNotFoundError):
+        return {'voice_config': 'voice_connection_config_missing', 'lab_config': 'lab_config_missing',
+                'journal_open': 'media_journal_directory_missing'}.get(stage, 'media_file_missing')
+    if isinstance(error, socket.gaierror):
+        return 'asterisk_dns_failed'
+    if isinstance(error, sqlite3.Error):
+        return 'media_journal_storage_failed'
+    if isinstance(error, InvalidStatus):
+        return 'ari_auth_failed' if error.response.status_code in {401, 403} else 'ari_event_handshake_rejected'
+    if isinstance(error, InvalidHandshake):
+        return 'ari_event_handshake_rejected'
+    if isinstance(error, ConnectionClosed):
+        return 'ari_event_stream_closed'
+    if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        return 'ari_network_timeout'
+    if isinstance(error, (ConnectionRefusedError, httpx.ConnectError)):
+        return 'ari_connection_failed'
+    if isinstance(error, httpx.HTTPError):
+        return 'ari_network_failed'
+    if isinstance(error, OSError):
+        return 'media_udp_port_in_use' if stage == 'udp_bind' and error.errno == errno.EADDRINUSE else 'media_os_failed'
+    return 'media_internal_failed'
 
 
 def pcmu(pcm):
@@ -165,7 +214,7 @@ class MediaSession:
 def request(client, method, path, *, params=None, identity=None):
     response = client.request(method, path, params=params)
     if response.status_code not in {200, 201, 204}:
-        raise BridgeError('ari_request_failed')
+        raise BridgeError('ari_auth_failed' if response.status_code in {401, 403} else 'ari_request_failed')
     if identity is not None:
         try:
             if response.json().get('id') != identity:
@@ -264,11 +313,12 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1
                             session = prepare_session(client, journal, phone, gateway_ip, current_factory)
                             print(json.dumps({'event': 'program_media_connected', 'model_calls_enabled': incoming_voice,
                                               'business_ready': False}), flush=True)
-                        except (BridgeError, httpx.HTTPError):
+                        except (BridgeError, httpx.HTTPError) as error:
                             if not cleanup(client, journal, phone):
                                 raise BridgeError('setup_cleanup_unconfirmed') from None
                             active_phone = None
-                            print(json.dumps({'event': 'media_setup_failed'}), flush=True)
+                            print(json.dumps({'event': 'media_setup_failed', 'stage': 'media_setup',
+                                              'error': media_failure_code(error, 'media_setup')}), flush=True)
                 elif event.get('type') in {'StasisEnd', 'ChannelDestroyed'} and active_phone:
                     channel = event.get('channel', {})
                     if isinstance(channel, dict) and channel.get('id') in {active_phone, owned_ids(journal.instance, active_phone)[0]}:
@@ -325,12 +375,15 @@ def load_container_config():
                 values[name] = line[len(prefix):]
     os.environ.update(values)
     config = LabConfig.from_environment()
+    return config
+
+
+def drop_media_privileges():
     if os.geteuid() == 0:
         user = pwd.getpwnam('media_lab')
         os.setgroups([])
         os.setgid(user.pw_gid)
         os.setuid(user.pw_uid)
-    return config
 
 
 def voice_factory(mode):
@@ -361,10 +414,10 @@ def voice_factory(mode):
 
 
 def main():
-    from websockets.sync.client import connect
-
     journal = None
     stopped = False
+    stage = 'dependency_load'
+    mode = os.getenv('SIP_LAB_MEDIA_MODE', 'echo')
 
     def stop(*_):
         nonlocal stopped
@@ -373,22 +426,33 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        mode = os.getenv('SIP_LAB_MEDIA_MODE', 'echo')
+        from websockets.sync.client import connect
+
+        stage = 'voice_config'
         factory, extension = voice_factory(mode)
+        stage = 'lab_config'
         config = load_container_config()
+        stage = 'privilege_drop'
+        drop_media_privileges()
+        stage = 'gateway_dns'
         gateway_ip = socket.gethostbyname('asterisk')
+        stage = 'journal_open'
         journal = ResourceJournal('/var/lib/media-lab/calls.db', config.instance)
         authorization = base64.b64encode(f'repayguard_lab:{config.password}'.encode()).decode()
+        stage = 'transport_setup'
         with httpx.Client(base_url=ORIGIN, auth=('repayguard_lab', config.password), timeout=3,
                           trust_env=False, follow_redirects=False) as client, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            stage = 'udp_bind'
             udp.bind(('0.0.0.0', 60000))
             udp.setblocking(False)
             # Startup wait only; once connected, a disconnect exits for journal recovery.
             deadline = time.monotonic() + 30
             while not stopped:
                 try:
+                    stage = 'ari_connect'
                     with connect(EVENTS, additional_headers={'Authorization': 'Basic ' + authorization},
                                  proxy=None, open_timeout=3, close_timeout=2, max_size=65536, max_queue=16) as events:
+                        stage = 'media_loop'
                         run_loop(client, events, udp, journal, gateway_ip, lambda: stopped,
                                  extension=extension, session_factory=factory,
                                  voice_provider='qwen_token_plan' if mode == 'qwen' else 'local')
@@ -398,9 +462,12 @@ def main():
                         raise BridgeError('event_stream_unavailable') from None
                     time.sleep(0.5)
         return 0
-    except Exception:
+    except Exception as error:
         # No exception/body/URL trace: they can contain credentials or channel details.
-        print(json.dumps({'event': 'media_lab_unavailable', 'ai_dialogue_ready': False}), flush=True)
+        print(json.dumps({'event': 'media_lab_unavailable', 'stage': stage,
+                          'error': media_failure_code(error, stage),
+                          'media_mode': mode if mode in {'echo', 'voice', 'qwen'} else 'unsupported',
+                          'ai_dialogue_ready': False}), flush=True)
         return 2
     finally:
         if journal:

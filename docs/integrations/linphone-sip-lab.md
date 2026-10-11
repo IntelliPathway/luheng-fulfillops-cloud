@@ -414,6 +414,26 @@ Compose显式使用 `sip-lab-media:latest`，配合 `--no-build --pull never` �
 
 此为联调临时路径，Docker已弃用Linux旧构建器；不修改全局Docker/OrbStack设置，网络恢复后可继续使用上面的正常构建命令。官方依据：[旧构建器及DOCKER_BUILDKIT](https://docs.docker.com/reference/cli/docker/image/build/)、[Compose启动参数](https://docs.docker.com/reference/cli/docker/compose/up/)。缓存构建/媒体/千问专项64项、文档/部署四项与Ruff通过，覆盖缓存缺失不构建、失败不重试、临时上下文清理和固定诊断；Docker进程由测试替身验证，本环境无Docker，实际OrbStack构建与手机听音仍待执行。
 
+#### media启动后Exited (2)
+
+2026-10-11操作者回传新LAN地址下Asterisk已Up且回声恢复，media却启动即Exited (2)，只有 `media_lab_unavailable`。这证明媒体进程不可用，旧日志不足以确定配置、权限、journal或ARI连接中的哪一层失败；不是手机云对话验收。新增启动阶段及固定错误码，不输出异常原文、路径、密码、Authorization或token；会话创建失败也附固定错误码。
+
+从仓库根目录更新并运行前节的缓存构建脚本；只有 `build_state=completed` 后，按同一节的qwen环境参数以 `--no-build --pull never --no-deps --force-recreate` 仅替换media。保持已恢复回声的Asterisk和终端A，再读取media日志。启动失败现在应含 `stage`、`error` 和受限 `media_mode`，成功仍输出 `awaiting_linphone_1003`。
+
+| 阶段／固定错误 | 定位方向 |
+|---|---|
+| voice_config / voice_connection_config_missing、invalid_voice_connection_config | 检查同一generated目录中的qwen-voice.env及已挂载token格式 |
+| voice_config / qwen_voice_acknowledgement_required | 用指南中的完整qwen启动参数重新创建media |
+| lab_config / own_test_phone_acknowledgement_required、invalid_lab_configuration | 核对lab.env与media测试开关，不生成新凭据 |
+| privilege_drop / media_permission_denied | 检查容器保留SETUID/SETGID能力与media_lab用户；不改为特权容器 |
+| journal_open / media_permission_denied、media_journal_storage_failed | 核对持久volume的UID/GID、目录与数据库权限；保留原journal |
+| gateway_dns / asterisk_dns_failed | 检查Compose服务与网络上的asterisk名称解析 |
+| udp_bind / media_udp_port_in_use | 检查同一容器60000/UDP占用 |
+| ari_connect / ari_auth_failed、ari_event_handshake_rejected | 核对运行中Asterisk的ARI服务与同一实验室凭据；不贴原始认证头 |
+| media_loop / recovery_cleanup_unconfirmed、ari_event_stream_closed | 旧资源清理或ARI连接中断；不以删除journal或盲目重拨恢复 |
+
+专项80项及文档/部署四项、Ruff通过，包含12类启动阶段故障、缺依赖时诊断不二次导入失败、ARI认证分类及现有真实本机WS→UDP/PCMU合成回归。当前环境无Docker，不声称复现了操作者的OrbStack退出根因，完整云电话与实际镜像启动仍待设备验证。
+
 等 `awaiting_linphone_1003`，应显示 `cloud_models_enabled=true`、`local_models_enabled=false`。使用已注册的1001账号拨1003，先用耳机：
 
 | 操作 | 应检查 |
