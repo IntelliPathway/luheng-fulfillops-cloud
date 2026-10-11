@@ -96,14 +96,22 @@ def accept_telephony_webhook(
     if attempt:
         if payload.case_id != attempt.case_id or payload.activity_id != attempt.activity_id:
             raise TelephonyError("attempt_scope_mismatch", "电话回执与任务案件或活动不匹配")
-        allowed = [state for state, rank in ranks.items()
-                   if state not in {"completed", "failed"} and rank <= ranks[payload.event_type]]
+        allowed = [
+            state
+            for state, rank in ranks.items()
+            if state not in {"completed", "failed"} and rank <= ranks[payload.event_type]
+        ]
         # Conditional write preserves concurrent cancellation and terminal callbacks.
-        db.execute(update(ContactAttempt).where(
-            ContactAttempt.id == attempt.id, ContactAttempt.tenant_id == tenant_id,
-            ContactAttempt.status.in_(allowed),
-            or_(ContactAttempt.last_event_at.is_(None), ContactAttempt.last_event_at <= event.occurred_at),
-        ).values(status=payload.event_type, last_event_at=event.occurred_at))
+        db.execute(
+            update(ContactAttempt)
+            .where(
+                ContactAttempt.id == attempt.id,
+                ContactAttempt.tenant_id == tenant_id,
+                ContactAttempt.status.in_(allowed),
+                or_(ContactAttempt.last_event_at.is_(None), ContactAttempt.last_event_at <= event.occurred_at),
+            )
+            .values(status=payload.event_type, last_event_at=event.occurred_at)
+        )
     db.commit()
     db.refresh(event)
     return AcceptedTelephonyEvent(event, False)

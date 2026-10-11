@@ -72,8 +72,11 @@ def test_enabled_deployment_switch_cannot_fabricate_live_delivery(monkeypatch):
     monkeypatch.setenv("COMMUNICATION_LIVE_PROVIDER_TESTS_ENABLED", "true")
     with TestClient(create_app("sqlite:///:memory:")) as client:
         created = client.put("/api/v1/channel-providers/phone", headers=headers(), json=config("live")).json()
-        response = client.post("/api/v1/channel-providers/phone/test", headers=headers(),
-                               json={"expected_version": created["version"], "acknowledged": True})
+        response = client.post(
+            "/api/v1/channel-providers/phone/test",
+            headers=headers(),
+            json={"expected_version": created["version"], "acknowledged": True},
+        )
         assert response.status_code == 503
         row = client.get("/api/v1/channel-providers", headers=headers()).json()[0]
         assert row["status"] == "configured" and row["evidence_digest"] is None
@@ -84,6 +87,7 @@ def test_legacy_live_summary_is_blocked_and_cannot_be_approved():
     from sqlalchemy import select
 
     from app.models import ChannelProviderPilot
+
     with TestClient(create_app("sqlite:///:memory:")) as client:
         created = client.put("/api/v1/channel-providers/phone", headers=headers(), json=config("live")).json()
         with client.app.state.Session() as db:
@@ -94,6 +98,9 @@ def test_legacy_live_summary_is_blocked_and_cannot_be_approved():
             db.commit()
         view = client.get("/api/v1/channel-providers", headers=headers()).json()[0]
         assert view["status"] == "blocked" and view["stored_status"] == "tested"
-        response = client.post("/api/v1/channel-providers/phone/approve", headers=headers("Terry"),
-                               json={"expected_version": created["version"], "acknowledged": True})
+        response = client.post(
+            "/api/v1/channel-providers/phone/approve",
+            headers=headers("Terry"),
+            json={"expected_version": created["version"], "acknowledged": True},
+        )
         assert response.status_code == 503

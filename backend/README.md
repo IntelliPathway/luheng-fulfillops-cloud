@@ -139,7 +139,12 @@ DeepSeek Harness 同时支持 `sandbox-contract` 与显式启用的 `python-sdk`
 
 ## 测试
 
+本地与 CI 均使用 `requirements.txt` 和 `pyproject.toml` 中锁定的 Ruff `0.16.7`，配置由本目录的 `pyproject.toml` 提供。提交前先格式化，再运行相同的 lint、格式门禁和测试；格式门禁通过不代表后续业务测试通过。
+
 ```bash
+.venv/bin/python -m ruff format app tests
+.venv/bin/python -m ruff check app tests
+.venv/bin/python -m ruff format --check app tests
 .venv/bin/python -m pytest
 ```
 

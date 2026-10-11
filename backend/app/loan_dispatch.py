@@ -1,4 +1,5 @@
 """Persistent Worker execution-gate rehearsal; never calls a phone Provider."""
+
 from sqlalchemy import select
 
 from .domain import utcnow
@@ -10,12 +11,20 @@ from .loan_policy import lock_policy_scope
 def dispatch_check_job(db, job):
     tenant = job.tenant_id
     lock_policy_scope(db, tenant)
-    row = db.scalar(select(LoanSession).where(
-        LoanSession.tenant_id == tenant, LoanSession.id == job.payload.get("session_id"),
-    ))
-    result = {"mode": "sandbox_dispatch_check", "external_execution": False,
-              "provider_ready": False, "session_id": job.payload.get("session_id"),
-              "gate_passed": False, "blockers": []}
+    row = db.scalar(
+        select(LoanSession).where(
+            LoanSession.tenant_id == tenant,
+            LoanSession.id == job.payload.get("session_id"),
+        )
+    )
+    result = {
+        "mode": "sandbox_dispatch_check",
+        "external_execution": False,
+        "provider_ready": False,
+        "session_id": job.payload.get("session_id"),
+        "gate_passed": False,
+        "blockers": [],
+    }
     if not row:
         result["blockers"] = ["会话不存在或不属于任务租户"]
         return result
@@ -36,6 +45,7 @@ def dispatch_check_job(db, job):
         reasons.append("资料版本已变化")
     if row.policy_version != gate["policy_version"]:
         reasons.append("政策版本已变化")
-    result.update(gate_passed=not reasons, blockers=reasons,
-                  detail="只完成执行门禁检查；尚未连接真实派发、配额和媒体适配器")
+    result.update(
+        gate_passed=not reasons, blockers=reasons, detail="只完成执行门禁检查；尚未连接真实派发、配额和媒体适配器"
+    )
     return result

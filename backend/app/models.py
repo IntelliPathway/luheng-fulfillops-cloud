@@ -1218,8 +1218,11 @@ class VoiceCombination(Base):
 
 class VoiceBenchmark(Base):
     __tablename__ = "voice_benchmarks"
-    __table_args__ = (ForeignKeyConstraint(["tenant_id", "combination_id"],
-                                         ["voice_combinations.tenant_id", "voice_combinations.id"]),)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "combination_id"], ["voice_combinations.tenant_id", "voice_combinations.id"]
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("VB"))
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)

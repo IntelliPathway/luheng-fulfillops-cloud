@@ -1,4 +1,5 @@
 """Tenant sandbox policy: explicit configuration, no implicit execution approval."""
+
 from datetime import UTC
 from zoneinfo import ZoneInfo
 
@@ -17,23 +18,37 @@ def lock_policy_scope(db, tenant):
 
 
 def policy_for(db, tenant):
-    return db.scalar(select(LoanContactPolicy).where(LoanContactPolicy.tenant_id == tenant)
-                     .execution_options(populate_existing=True))
+    return db.scalar(
+        select(LoanContactPolicy).where(LoanContactPolicy.tenant_id == tenant).execution_options(populate_existing=True)
+    )
 
 
 def policy_view(row):
     if not row:
         return None
-    return {name: getattr(row, name) for name in (
-        "tenant_id", "timezone", "window_start_minute", "window_end_minute", "daily_session_limit",
-        "snapshot_max_hours", "promise_max_days", "authorization_minutes", "paused",
-        "authority_reference", "valid_until", "version", "updated_by", "updated_at",
-    )} | {"mode": "sandbox", "source_status": "administrator_assertion", "production_ready": False}
+    return {
+        name: getattr(row, name)
+        for name in (
+            "tenant_id",
+            "timezone",
+            "window_start_minute",
+            "window_end_minute",
+            "daily_session_limit",
+            "snapshot_max_hours",
+            "promise_max_days",
+            "authorization_minutes",
+            "paused",
+            "authority_reference",
+            "valid_until",
+            "version",
+            "updated_by",
+            "updated_at",
+        )
+    } | {"mode": "sandbox", "source_status": "administrator_assertion", "production_ready": False}
 
 
 def policy_snapshot(row):
-    return {**policy_view(row), "valid_until": row.valid_until.isoformat(),
-            "updated_at": row.updated_at.isoformat()}
+    return {**policy_view(row), "valid_until": row.valid_until.isoformat(), "updated_at": row.updated_at.isoformat()}
 
 
 def policy_blockers(row, now):

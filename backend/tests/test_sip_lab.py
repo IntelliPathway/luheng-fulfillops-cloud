@@ -86,7 +86,9 @@ def test_crash_after_reservation_never_reissues(config, tmp_path):
         journal.close()
 
 
-@pytest.mark.parametrize("code,expected", [(400, "rejected"), (401, "rejected"), (409, "unknown"), (500, "unknown"), (302, "unknown")])
+@pytest.mark.parametrize(
+    "code,expected", [(400, "rejected"), (401, "rejected"), (409, "unknown"), (500, "unknown"), (302, "unknown")]
+)
 def test_failed_or_redirected_submission_does_not_retry(config, tmp_path, code, expected):
     requests = []
     lab_journal = CallJournal(tmp_path / "calls.db")
@@ -107,7 +109,11 @@ def test_failed_or_redirected_submission_does_not_retry(config, tmp_path, code, 
 
 def test_bad_response_and_unknown_state_cannot_claim_success(config, tmp_path):
     journal = CallJournal(tmp_path / "calls.db")
-    lab = SIPLab(config, journal, httpx.MockTransport(lambda r: httpx.Response(200, json={"id": "wrong", "state": "secret-content"})))
+    lab = SIPLab(
+        config,
+        journal,
+        httpx.MockTransport(lambda r: httpx.Response(200, json={"id": "wrong", "state": "secret-content"})),
+    )
     try:
         assert lab.call("mismatch", acknowledged=True)["dispatch_state"] == "unknown"
         assert lab.inspect("mismatch")["channel_state"] == "unknown"
@@ -147,8 +153,9 @@ def test_deployment_defaults_fail_closed(monkeypatch, environment, enabled):
         LabConfig.from_environment()
 
 
-@pytest.mark.parametrize("code,outcome", [(204, "requested"), (404, "not_found_or_ended"),
-                                        (500, "unknown"), (302, "unknown")])
+@pytest.mark.parametrize(
+    "code,outcome", [(204, "requested"), (404, "not_found_or_ended"), (500, "unknown"), (302, "unknown")]
+)
 def test_hangup_is_scoped_and_never_releases_redial_reservation(config, tmp_path, code, outcome):
     journal = CallJournal(tmp_path / "calls.db")
     row, _ = journal.reserve(config.instance, "stop-test")
@@ -202,8 +209,9 @@ def test_private_generated_config_is_readable_by_entrypoint_and_never_overwritte
     assert "-m 600" in entrypoint and "-U asterisk -G asterisk" in entrypoint
 
 
-@pytest.mark.parametrize("address", ["0.0.0.0", "8.8.8.8", "::1", "224.0.0.1", "bad\naddress",
-                                     "169.254.1.1", "192.0.2.1", "240.0.0.1"])
+@pytest.mark.parametrize(
+    "address", ["0.0.0.0", "8.8.8.8", "::1", "224.0.0.1", "bad\naddress", "169.254.1.1", "192.0.2.1", "240.0.0.1"]
+)
 def test_generator_denies_public_unspecified_or_invalid_binding(tmp_path, address):
     with pytest.raises(ValueError):
         generator().generate(tmp_path / "generated", address)
@@ -235,44 +243,47 @@ def test_startup_copies_private_config_with_only_compose_capabilities(tmp_path):
     import shutil
     import subprocess
 
-    if os.geteuid() != 0 or not shutil.which('setpriv'):
-        pytest.skip('requires Linux root and setpriv for capability regression')
-    source = tmp_path / 'source'
-    target = tmp_path / 'target'
+    if os.geteuid() != 0 or not shutil.which("setpriv"):
+        pytest.skip("requires Linux root and setpriv for capability regression")
+    source = tmp_path / "source"
+    target = tmp_path / "target"
     source.mkdir(mode=0o700)
     target.mkdir()
-    for name in ('pjsip.conf', 'ari.conf'):
-        (source / name).write_text('synthetic private config')
+    for name in ("pjsip.conf", "ari.conf"):
+        (source / name).write_text("synthetic private config")
         (source / name).chmod(0o600)
-        (target / name).write_text('previous config')
+        (target / name).write_text("previous config")
         try:
             os.chown(target / name, 65534, 65534)
         except OSError as exc:
             if exc.errno == 22:
                 pytest.skip("container user namespace does not map service UID/GID")
             raise
-    script = (ROOT / 'deploy/sip-lab/start.sh').read_text().split('exec asterisk', 1)[0]
-    script = script.replace('/run/sip-lab/', str(source) + '/')
-    script = script.replace('/etc/asterisk/', str(target) + '/')
-    script = script.replace('asterisk:asterisk', '65534:65534')
+    script = (ROOT / "deploy/sip-lab/start.sh").read_text().split("exec asterisk", 1)[0]
+    script = script.replace("/run/sip-lab/", str(source) + "/")
+    script = script.replace("/etc/asterisk/", str(target) + "/")
+    script = script.replace("asterisk:asterisk", "65534:65534")
     for _ in range(2):
-        result = subprocess.run(['setpriv', '--bounding-set=-all,+chown,+dac_override,+setuid,+setgid',
-                                 'sh', '-c', script], capture_output=True, text=True)
+        result = subprocess.run(
+            ["setpriv", "--bounding-set=-all,+chown,+dac_override,+setuid,+setgid", "sh", "-c", script],
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode == 0, result.stderr
-        for name in ('pjsip.conf', 'ari.conf'):
+        for name in ("pjsip.conf", "ari.conf"):
             path = target / name
-            assert path.read_text() == 'synthetic private config'
+            assert path.read_text() == "synthetic private config"
             assert path.stat().st_mode & 0o777 == 0o600
             assert path.stat().st_uid == 65534 and path.stat().st_gid == 65534
 
 
-@pytest.mark.parametrize('address', ['127.0.0.1', '192.168.0.199'])
+@pytest.mark.parametrize("address", ["127.0.0.1", "192.168.0.199"])
 def test_generator_explicitly_advertises_host_media_without_binding_container(address, tmp_path):
-    destination = tmp_path / 'generated'
+    destination = tmp_path / "generated"
     generator().generate(destination, address)
-    content = (destination / 'pjsip.conf').read_text()
-    endpoint = content.split('type=endpoint', 1)[1].split('[auth-1001]', 1)[0]
-    assert f'media_address={address}\n' in endpoint
-    assert 'bind_rtp_to_media_address=no' in endpoint
-    assert 'media_encryption=no' in endpoint
-    assert 'allow=ulaw,alaw' in endpoint
+    content = (destination / "pjsip.conf").read_text()
+    endpoint = content.split("type=endpoint", 1)[1].split("[auth-1001]", 1)[0]
+    assert f"media_address={address}\n" in endpoint
+    assert "bind_rtp_to_media_address=no" in endpoint
+    assert "media_encryption=no" in endpoint
+    assert "allow=ulaw,alaw" in endpoint
