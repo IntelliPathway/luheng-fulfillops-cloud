@@ -4,7 +4,7 @@
 
 最新联调：操作者确认旧8092被OrbStack占用并返回空响应；旧ready在绑定前发出，已修复。宿主/doctor/probe/媒体客户端统一迁移到18092，输入Key前先保留端口，只有真实开始监听才输出 `host_listening=true`。使用同一 `backend/.venv` 更新依赖、重启宿主并执行doctor/probe；电话测试前重建media客户端。保留OrbStack、SIP凭据与业务边界；真实云电话尚待验收。具体排障表见SIP指南。
 
-最新设备进展：操作者已回传缓存媒体镜像构建成功，Asterisk的1003规则已加载；手机注册仍失败，服务器无联系人。2026-10-11操作者确认Mac地址变化，新增保留密码/实例ID/token/journal的地址更新工具，同步SIP信令和音频、Compose端口绑定及账号说明，再按Asterisk→media顺序重建已有镜像。地址更新15项、连同SIP诊断56项通过，1项UID/GID环境能力跳过，文档/部署四项及Ruff通过；本环境无Docker，真实新地址注册及手机云对话仍待验证。此前18092宿主doctor与真实四阶段合成探针通过（7820 ms、四次云调用，无错误），该证据不替代电话验收。命令与恢复步骤见SIP指南。
+最新设备进展：操作者已回传缓存媒体镜像构建成功、1003规则加载，Mac地址迁移后Asterisk为Up且回声恢复；media启动即Exited (2)，旧日志仅media_lab_unavailable，云电话仍未验收。新增启动阶段/固定错误码，区分语音配置、lab配置、降权、DNS、journal、UDP与ARI；会话创建失败也保留脱敏分类。媒体/千问/隔离镜像专项80项、文档/部署四项及Ruff通过；本环境无Docker，真实退出根因仍须新日志定位，保持已工作的SIP账号及Asterisk。此前保留凭据的地址迁移工具15项、连同SIP诊断56项通过，1项UID/GID环境能力跳过。18092真实合成探针通过（7820 ms、四次调用）的操作者证据不替代电话验收；重建media与诊断步骤见SIP指南。
 
 云验证安排：操作者回传真实套餐LLM四场景与合成语音链路通过，后者6714 ms含测试源生成，排除电话和播放。`app.sip_lab_qwen_voice serve`复用已验证的ASR/Flash/TTS，在Mac只持有内存Key，以独立token连接1003；`SIP_LAB_MEDIA_MODE=qwen`显式选择，原MLX voice与默认echo保留。ASR音频仅为本人测试，LLM只收到固定合成句/上下文，未接客户资料或业务动作。开发环境没有真实Key，软件验证不冒充云电话验收；按量付费Key保护、活动组合批准和业务就绪保持原状。启动与验收步骤见 [SIP/模型指南](integrations/linphone-sip-lab.md#千问套餐接入手机测试2026-10-10)。
 
