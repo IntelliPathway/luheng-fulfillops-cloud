@@ -21,6 +21,22 @@ COUNTERS = ('received_packets', 'decoded_samples', 'sent_packets', 'reply_rtp_pa
             'foreign_packets', 'queue_drops', 'local_turns_submitted', 'local_turns_completed', 'interruptions',
             'cloud_provider_calls')
 SCOPE = 'vad_utterance_submission_to_first_reply_rtp_send_excludes_endpoint_wait_and_device_playback'
+ACCEPTANCE_RULES_VERSION = 1
+CHECK_LABELS = {
+    'inbound_rtp_observed': '收到手机RTP',
+    'confirmed_stop_observed': '相邻结束请求及确认，提示未被打断',
+    'no_model_end_conflict': '没有模型结束标记冲突',
+    'reply_rtp_sent': '生成回复RTP已发送',
+    'four_case_multiturn_observed': '四类固定场景完成',
+    'interruption_detected': '插话计数已记录',
+    'playback_interruption_recovered': '播音中插话后完成下一句回复',
+    'normal_dialogue_end': '确认结束后的正常终止',
+    'no_voice_failure_reported': '语音服务没有失败',
+    'provider_completed': '云调用完成',
+    'current_capture_consistent': '本通请求及完成计数一致',
+    'phone_turn_timing_available': '完成请求的首回复RTP时间完整',
+    'host_stage_timing_available': '完成请求的宿主阶段时间完整',
+}
 
 
 class ReportError(ValueError):
@@ -114,11 +130,41 @@ def make_report(event, attestations=None):
         raise ReportError('invalid_operator_attestation')
     human = {key: ('operator_reported_pass' if attestations.get(key) is True else
                    'operator_reported_fail' if attestations.get(key) is False else 'not_reviewed') for key in ATTESTATIONS}
+    turns.sort(key=lambda row: row['request_number'])
+    by_number = {row['request_number']: row for row in turns}
     actual_turns = [row for row in turns if row['kind'] == 'turn' and row['completed']]
     covered = {case: any(row['test_case'] == case and row['end'] is (case == 'stop') for row in actual_turns) for case in CASES}
     rtp_values = [row['first_reply_rtp_ms'] for row in actual_turns]
     phone_numbers = {row['request_number']: row for row in actual_turns}
     phone_metrics = [row for row in safe_metrics if row['request_number'] in phone_numbers]
+    metrics_by_number = {row['request_number']: row for row in phone_metrics}
+
+    def prompt_precedes(row):
+        prior = by_number.get(row['request_number'] - 1)
+        return (prior is not None and prior['kind'] == 'turn' and prior['completed'] and not prior['interrupted']
+                and prior['test_case'] == 'stop_pending' and prior['end'] is False
+                and prior['stop_control'] == 'requested' and prior['first_reply_rtp_ms'] is not None)
+
+    def playback_recovered(row):
+        following = by_number.get(row['request_number'] + 1)
+        return (row['kind'] == 'turn' and row['interrupted'] and row['end'] is not True
+                and row['first_audio_received_ms'] is not None and row['first_reply_rtp_ms'] is not None
+                and row['first_audio_received_ms'] <= row['first_reply_rtp_ms']
+                and following is not None and following['kind'] == 'turn' and following['completed']
+                and not following['interrupted'] and following['end'] is False
+                and following['test_case'] in {'confirm', 'numbers_date', 'negation'}
+                and following['first_reply_rtp_ms'] is not None)
+
+    def host_timing_complete(row):
+        metric = metrics_by_number.get(row['request_number'])
+        if metric is None or metric['host_elapsed_ms'] is None or metric['host_first_audio_ms'] is None:
+            return False
+        required = {'asr', 'reply_tts'}
+        if row['test_case'] in {'confirm', 'numbers_date'}:
+            required.add('llm')
+        return (all(metric['stage_ms'].get(stage) is not None for stage in required)
+                and metric['host_first_audio_ms'] <= metric['host_elapsed_ms'])
+
     stage_distributions = {stage: distribution([row['stage_ms'].get(stage) for row in phone_metrics
                                                if stage != 'llm' or phone_numbers[row['request_number']]['test_case']
                                                not in {'stop', 'stop_pending', 'negation'}])
@@ -126,23 +172,26 @@ def make_report(event, attestations=None):
     media_checks = {'inbound_rtp_observed': (counters['received_packets'] or 0) > 0,
                     'confirmed_stop_observed': event.get('stop_confirmation_required') is True and any(
                         row['test_case'] == 'stop' and row['end'] is True and row['stop_control'] == 'confirmed'
-                        and any(prior['test_case'] == 'stop_pending' and prior['completed']
-                                and prior['stop_control'] == 'requested' and prior['first_reply_rtp_ms'] is not None
-                                and prior['request_number'] < row['request_number'] for prior in actual_turns)
+                        and not row['interrupted'] and prompt_precedes(row)
                         for row in actual_turns),
                     'no_model_end_conflict': bool(actual_turns) and all(row['llm_end_ignored'] is False for row in actual_turns),
                     'reply_rtp_sent': (counters['reply_rtp_packets'] or 0) > 0,
                     'four_case_multiturn_observed': all(covered.values()),
                     'interruption_detected': (counters['interruptions'] or 0) > 0,
+                    'playback_interruption_recovered': any(playback_recovered(row) for row in turns),
                     'normal_dialogue_end': reason == 'dialogue_ended',
                     'no_voice_failure_reported': event.get('local_voice_failed') is False and event.get('voice_session_failed') is False,
                     'provider_completed': event.get('provider_request_state') == 'completed' and event.get('provider_error') is None
                                           and (counters['cloud_provider_calls'] or 0) > 0,
                     'current_capture_consistent': type(event.get('voice_test_metadata_version')) is int
                                                   and event['voice_test_metadata_version'] == 1
+                                                  and [row['request_number'] for row in turns] == list(range(1, len(turns) + 1))
                                                   and counters['local_turns_submitted'] == len(turns)
                                                   and counters['local_turns_completed'] == sum(row['completed'] for row in turns),
-                    'phone_turn_timing_available': bool(actual_turns) and all(value is not None for value in rtp_values)}
+                    'phone_turn_timing_available': bool(actual_turns) and all(
+                        row['first_audio_received_ms'] is not None and row['first_reply_rtp_ms'] is not None
+                        and row['first_audio_received_ms'] <= row['first_reply_rtp_ms'] for row in actual_turns),
+                    'host_stage_timing_available': bool(actual_turns) and all(host_timing_complete(row) for row in actual_turns)}
     if ('operator_reported_fail' in human.values() or reason == 'voice_failed'
             or event.get('local_voice_failed') is True or event.get('voice_session_failed') is True
             or event.get('provider_error') is not None):
@@ -161,7 +210,8 @@ def make_report(event, attestations=None):
             safe_provider = {'kind': 'qwen_token_plan', 'models': reviewed, 'voice': 'longanhuan_v3.6', 'sample_rate': 8000}
     if safe_provider is None:
         assessment = 'needs_retest' if assessment != 'issues_found' else assessment
-    return {'schema_version': 2, 'mode': 'personal_qwen_phone_verification', 'report_id': uuid.uuid4().hex,
+    return {'schema_version': 2, 'acceptance_rules_version': ACCEPTANCE_RULES_VERSION,
+            'mode': 'personal_qwen_phone_verification', 'report_id': uuid.uuid4().hex,
             'created_at': datetime.now(UTC).isoformat(), 'source': 'current_launcher_media_session_summary',
             'assessment': assessment, 'provider': safe_provider, 'session_limit_seconds': limit,
             'end_reason': reason, 'counters': counters, 'observed_cases': covered, 'measured_media_checks': media_checks,
@@ -239,6 +289,15 @@ def latest_report(generated):
                 'needs_retest', 'needs_operator_review', 'issues_found', 'passed_with_operator_attestation'}
             or any(report.get(key) is not False for key in ('phone_audio_verified', 'business_ready', 'billing_verified', 'pstn_enabled'))):
         raise ReportError('invalid_private_phone_report')
+    if (type(report.get('acceptance_rules_version')) is not int
+            or report['acceptance_rules_version'] != ACCEPTANCE_RULES_VERSION):
+        raise ReportError('phone_report_legacy_acceptance_rules')
+    checks = report.get('measured_media_checks')
+    if (not isinstance(checks, dict) or set(checks) != set(CHECK_LABELS)
+            or any(type(value) is not bool for value in checks.values())
+            or report['assessment'] in {'needs_operator_review', 'passed_with_operator_attestation'}
+            and not all(checks.values())):
+        raise ReportError('invalid_private_phone_report')
     latency = report.get('latency')
     coverage, turns = report.get('observed_cases'), report.get('turns')
     if (not isinstance(coverage, dict) or set(coverage) != set(CASES)
@@ -276,7 +335,20 @@ def describe(report):
     # Only bounded scalars enter terminal output, even when a local report was tampered with.
     def show(value):
         return str(value) if type(value) in {int, float} and 0 <= value <= 185000 else '未测得'
+
+    def count(value):
+        return str(value) if type(value) is int and 0 <= value <= 8 else '未测得'
     print('电话验收：' + assessment, flush=True)
+    checks = report.get('measured_media_checks', {})
+    if isinstance(checks, dict):
+        missing = [label for key, label in CHECK_LABELS.items() if checks.get(key) is not True]
+        if missing:
+            print('未通过的程序检查：' + '；'.join(missing) + '。', flush=True)
+    human = report.get('operator_attestations', {})
+    if isinstance(human, dict):
+        failed = [label for key, label in ATTESTATIONS.items() if human.get(key) == 'operator_reported_fail']
+        if failed:
+            print('操作者报告的问题：' + '；'.join(failed) + '。', flush=True)
     coverage = report.get('observed_cases', {})
     print('完成场景：' + '，'.join(label + ('已完成' if coverage.get(case) is True else '缺失')
                                for case, label in (('confirm', '确认'), ('numbers_date', '数字日期'),
@@ -287,8 +359,18 @@ def describe(report):
     if unmatched:
         print('存在未匹配短句；请用“复述1234和10月9日”重测，单句控制在6秒内。', flush=True)
     print('句末提交→首个回复RTP：中位数 ' + show(median) + ' ms，P95 ' + show(p95) + ' ms。', flush=True)
+    print('首回复RTP样本：' + count(timing.get('samples')) + '；未完成电话请求：'
+          + count(report.get('latency', {}).get('incomplete_phone_turns')) + '。', flush=True)
     stages = report.get('latency', {}).get('host_stage_ms', {})
     print('宿主阶段中位数：ASR ' + show(stages.get('asr', {}).get('median_ms')) + ' ms，LLM '
           + show(stages.get('llm', {}).get('median_ms')) + ' ms，TTS '
           + show(stages.get('reply_tts', {}).get('median_ms')) + ' ms。', flush=True)
+    available = [(label, stages.get(stage, {}).get('median_ms'))
+                 for stage, label in (('asr', 'ASR'), ('llm', 'LLM'), ('reply_tts', 'TTS'))]
+    available = [(label, value) for label, value in available
+                 if type(value) in {int, float} and math.isfinite(value) and 0 <= value <= 185000]
+    if available:
+        longest = max(value for _, value in available)
+        print('已测宿主阶段中位数最高：' + '、'.join(label for label, value in available if value == longest)
+              + '；TTS为整段生成耗时，不能据此认定首音频瓶颈。', flush=True)
     print('该时间不包含VAD句末等待和手机播放；听音结论为操作者反馈，业务就绪仍为否。', flush=True)

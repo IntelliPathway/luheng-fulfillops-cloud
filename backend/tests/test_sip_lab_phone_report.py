@@ -75,6 +75,144 @@ def test_barge_in_has_own_request_and_can_cancel_before_completion():
     assert report['latency']['incomplete_phone_turns'] == 1
     assert report['latency']['first_reply_rtp']['samples'] == 6
     assert report['observed_cases']['negation'] is True
+    # Even an incomplete interrupted request needs a physically possible playback timeline.
+    event['turn_observations'][4]['first_audio_received_ms'] = 1500
+    rejected = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert rejected['measured_media_checks']['playback_interruption_recovered'] is False
+    assert rejected['assessment'] == 'needs_retest'
+
+
+@pytest.mark.parametrize('fault', ['counter_only', 'greeting_only', 'before_playback', 'no_recovery',
+                                  'recovery_unmatched', 'recovery_interrupted'])
+def test_interrupt_counter_cannot_substitute_for_playback_and_recovery(fault):
+    event = summary()
+    interrupted, following = event['turn_observations'][3:5]
+    if fault == 'counter_only':
+        interrupted['interrupted'] = False
+    elif fault == 'greeting_only':
+        interrupted['interrupted'] = False
+        event['turn_observations'][0]['interrupted'] = True
+    elif fault == 'before_playback':
+        interrupted['first_reply_rtp_ms'] = None
+    elif fault == 'no_recovery':
+        following['completed'] = False
+        event['local_turns_completed'] -= 1
+    elif fault == 'recovery_unmatched':
+        following['test_case'] = 'out_of_scope'
+    else:
+        following['interrupted'] = True
+    report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert report['measured_media_checks']['interruption_detected'] is True
+    assert report['measured_media_checks']['playback_interruption_recovered'] is False
+    assert report['assessment'] == 'needs_retest'
+
+
+@pytest.mark.parametrize('fault', ['interrupted_prompt', 'intervening_turn', 'intervening_cancelled_turn'])
+def test_confirmation_needs_immediately_preceding_uninterrupted_prompt(fault):
+    event = summary()
+    if fault == 'interrupted_prompt':
+        event['turn_observations'][-2]['interrupted'] = True
+    else:
+        event['turn_observations'][-1]['request_number'] = 8
+        event['turn_metrics'][-1]['request_number'] = 8
+        inserted = dict(event['turn_observations'][1], request_number=7,
+                        completed=fault != 'intervening_cancelled_turn',
+                        interrupted=fault == 'intervening_cancelled_turn')
+        event['turn_observations'].insert(-1, inserted)
+        event['local_turns_submitted'] = 8
+        event['local_turns_completed'] += int(inserted['completed'])
+        if inserted['completed']:
+            event['turn_metrics'].insert(-1, dict(event['turn_metrics'][1], request_number=7))
+    report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert report['measured_media_checks']['confirmed_stop_observed'] is False
+    assert report['assessment'] == 'needs_retest'
+
+
+@pytest.mark.parametrize('fault', ['missing_metrics', 'missing_asr', 'missing_llm', 'missing_tts',
+                                  'missing_elapsed', 'first_audio_after_completion', 'rtp_before_audio', 'request_gap'])
+def test_incomplete_or_inconsistent_timing_cannot_pass_phone_acceptance(fault):
+    event = summary()
+    metric = event['turn_metrics'][1]
+    if fault == 'missing_metrics':
+        event['turn_metrics'] = []
+    elif fault.startswith('missing_'):
+        key = fault.removeprefix('missing_')
+        if key == 'elapsed':
+            metric.pop('elapsed_ms')
+        else:
+            metric['stage_ms'].pop('reply_tts' if key == 'tts' else key)
+    elif fault == 'first_audio_after_completion':
+        metric['first_audio_ms'] = metric['elapsed_ms'] + 1
+    elif fault == 'rtp_before_audio':
+        event['turn_observations'][1]['first_reply_rtp_ms'] = 1
+    else:
+        event['turn_observations'][-1]['request_number'] = 8
+        event['turn_metrics'][-1]['request_number'] = 8
+    report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert report['assessment'] == 'needs_retest'
+
+
+def test_deterministic_stop_and_negation_do_not_require_invented_llm_timings():
+    event = summary()
+    for observation, metric in zip(event['turn_observations'], event['turn_metrics'], strict=True):
+        if observation['test_case'] in {'negation', 'stop_pending', 'stop'}:
+            metric['stage_ms'].pop('llm')
+    report = reporter.make_report(event, {key: True for key in reporter.ATTESTATIONS})
+    assert report['assessment'] == 'passed_with_operator_attestation'
+    assert report['latency']['host_stage_ms']['llm']['samples'] == 3
+
+
+def test_diagnostics_show_failed_evidence_and_stage_scope_without_untrusted_text(capsys):
+    event = summary()
+    event['turn_metrics'] = []
+    event['secret'] = 'SYNTHETIC_DIAGNOSTIC_SECRET'
+    report = reporter.make_report(event, {'barge_in_worked': False})
+    report['measured_media_checks']['SYNTHETIC_DIAGNOSTIC_SECRET'] = False
+    reporter.describe(report)
+    output = capsys.readouterr().out
+    assert '宿主阶段时间完整' in output and '操作者报告的问题' in output
+    assert 'SYNTHETIC_DIAGNOSTIC_SECRET' not in output
+    reporter.describe(reporter.make_report(summary()))
+    output = capsys.readouterr().out
+    assert '中位数最高：TTS' in output and '不能据此认定首音频瓶颈' in output
+    assert '首回复RTP样本：6；未完成电话请求：0' in output
+
+
+@pytest.mark.parametrize('fault', ['legacy_rules', 'unknown_rules', 'incomplete_checks', 'failed_check_as_pass'])
+def test_saved_report_cannot_claim_current_acceptance_using_old_or_missing_checks(tmp_path, fault):
+    generated = tmp_path / 'generated'
+    generated.mkdir(mode=0o700)
+    report = reporter.make_report(summary(), {key: True for key in reporter.ATTESTATIONS})
+    if fault == 'legacy_rules':
+        report.pop('acceptance_rules_version')
+    elif fault == 'unknown_rules':
+        report['acceptance_rules_version'] = True
+    elif fault == 'incomplete_checks':
+        report['measured_media_checks'].pop('playback_interruption_recovered')
+    else:
+        report['measured_media_checks']['host_stage_timing_available'] = False
+    reporter.save_report(generated, report)
+    with pytest.raises(reporter.ReportError):
+        reporter.latest_report(generated)
+
+
+def test_legacy_report_diagnosis_preserves_file_without_calls_or_upgrading_it(tmp_path, monkeypatch, capsys):
+    launcher = module('sip-lab')
+    generated = tmp_path / 'deploy/sip-lab/generated'
+    generated.mkdir(mode=0o700, parents=True)
+    report = reporter.make_report(summary(), {key: True for key in reporter.ATTESTATIONS})
+    report.pop('acceptance_rules_version')
+    path = reporter.save_report(generated, report)
+    original = path.read_bytes()
+    lab = launcher.Lab(tmp_path)
+    monkeypatch.setattr(launcher, 'Lab', lambda **kwargs: lab)
+    monkeypatch.setattr(launcher, 'read_environment', lambda _: {})
+    monkeypatch.setattr(launcher, 'helper', lambda *args: reporter)
+    monkeypatch.setattr(launcher.sys, 'argv', ['sip-lab.py', 'report'])
+    monkeypatch.setattr(lab, 'run', lambda *args, **kwargs: pytest.fail('read-only report must not call services'))
+    assert launcher.main() == 2
+    assert '旧报告已保留' in capsys.readouterr().err
+    assert path.read_bytes() == original
 
 
 def test_report_explains_unmatched_second_turn_without_exposing_asr(capsys):

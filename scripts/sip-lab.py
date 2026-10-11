@@ -456,7 +456,9 @@ def main():
                 reporter.describe(reporter.latest_report(lab.root / 'deploy/sip-lab/generated'))
             except FileNotFoundError:
                 raise LabError('尚无电话报告；先运行 verify，或在新版 start 下完成一通电话。') from None
-            except reporter.ReportError:
+            except reporter.ReportError as error:
+                if str(error) == 'phone_report_legacy_acceptance_rules':
+                    raise LabError('旧报告已保留，但缺少新版插话/耗时验收规则；运行 verify 生成当前报告，不能补写旧结果。') from None
                 raise LabError('报告缺失或权限/摘要/结构检查未通过；保留原文件，运行 verify 生成新报告。') from None
         elif args.action == 'setup':
             lab.dependencies(install=True)
