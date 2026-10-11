@@ -147,6 +147,10 @@ def doctor_host(token, *, transport=None):
         if type(limit) is not int or limit not in {60, 180}:
             raise VoiceError('invalid_qwen_host_status')
         report['voice_session_limit_seconds'] = limit
+        metadata = data.get('voice_test_metadata_version', 0)
+        if type(metadata) is not int or metadata not in {0, 1}:
+            raise VoiceError('invalid_qwen_host_status')
+        report['voice_test_metadata_version'] = metadata
         if not report["websocket_no_redirect_api_available"]:
             raise VoiceError("websocket_dependency_incompatible")
         if data["busy"]:
@@ -532,6 +536,7 @@ def execute_qwen_turn(engine, kind, pcm, history, cancel, emit, clock=time.monot
     stages["reply_tts"] = round((clock() - stage) * 1000)
     return {
         "end": end,
+        "test_case": 'greeting' if kind == 'greeting' else case or 'out_of_scope',
         "reply_digest": digest(reply),
         "elapsed_ms": round((clock() - start) * 1000),
         "first_audio_ms": round((first - start) * 1000),

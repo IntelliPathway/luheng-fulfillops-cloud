@@ -281,7 +281,7 @@ def create_app(engine, token, *, turn_executor=None):
                 'configuration': getattr(engine, 'configuration', None), 'business_ready': False}
         if hasattr(engine, 'lab_provider'):
             result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False,
-                          voice_session_limit_seconds=180)
+                          voice_session_limit_seconds=180, voice_test_metadata_version=1)
         return result
 
     @app.post('/lab/drain')

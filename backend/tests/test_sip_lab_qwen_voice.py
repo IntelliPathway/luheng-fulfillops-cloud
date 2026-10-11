@@ -120,6 +120,30 @@ def drain(ws):
         audio.extend(value)
 
 
+def test_four_case_single_session_metadata_and_no_raw_asr_in_receipts():
+    engine, _, _, _ = make_engine()
+    original = engine.transport
+    cases = iter(CASES)
+
+    def transport(request):
+        if str(request.url) == module.ASR_URL:
+            return httpx.Response(200, json={'output': {'text': CASES[next(cases)][0]}})
+        return original.handle_request(request)
+
+    engine.transport = httpx.MockTransport(transport)
+    with TestClient(create_app(engine, TOKEN, turn_executor=execute_qwen_turn)) as client, client.websocket_connect(
+            '/lab/voice', headers={'Authorization': 'Bearer ' + TOKEN}) as ws:
+        assert client.get('/lab/status', headers={'Authorization': 'Bearer ' + TOKEN}).json()['voice_test_metadata_version'] == 1
+        ws.receive_json()
+        for number, case in enumerate(CASES, start=1):
+            ws.send_json(command(turn=str(number) * 32))
+            ws.send_bytes(PCM)
+            event, audio = drain(ws)
+            assert event['test_case'] == case and event['end'] is (case == 'stop')
+            assert audio and CASES[case][0] not in json.dumps(event, ensure_ascii=False)
+        assert event['cloud_provider_calls'] == 11
+
+
 def test_real_service_protocol_multiturn_synthetic_history_and_redacted_diagnostics():
     engine, commands, requests, _ = make_engine()
     with (
@@ -134,6 +158,7 @@ def test_real_service_protocol_multiturn_synthetic_history_and_redacted_diagnost
             event, audio = drain(ws)
             assert event["kind"] == "complete" and event["turn"] == turn and audio == PCM * 2
             assert event["provider"] == provider_configuration() and not event["end"]
+            assert event['test_case'] == 'confirm'
             assert KEY not in json.dumps(event) and CASES["confirm"][0] not in json.dumps(event, ensure_ascii=False)
             assert "_history" not in event
         assert event["cloud_provider_calls"] == 6
@@ -433,6 +458,11 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, mo
             assert abs(unpack("<160h", frame.pcm_s16le)[0] - 2000) < 100
             summary = session.summary()
             assert summary["cloud_provider_calls"] == 1 and summary["provider"] == provider_configuration()
+            assert summary['reply_rtp_packets'] == 1
+            greeting = summary['turn_observations'][0]
+            assert greeting['kind'] == 'greeting' and greeting['test_case'] == 'greeting'
+            assert greeting['first_audio_received_ms'] is not None
+            assert greeting['first_reply_rtp_ms'] >= greeting['first_audio_received_ms']
             for _ in range(3):
                 session.process_audio(pack("<160h", *([1500] * 160)))
             assert voice.summary()["interruptions"] == 1 and voice.pop() is None
@@ -443,6 +473,8 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, mo
                 time.sleep(0.01)
             assert voice.completed == 2 and not voice.failed  # Past both former 65 s WebSocket deadlines.
             assert session.tick(program, clock())
+            assert session.summary()['turn_observations'][1]['test_case'] == 'confirm'
+            assert session.summary()['turn_observations'][1]['first_reply_rtp_ms'] is not None
             assert not session.tick(program, session.started + 180)
             assert session.summary()['end_reason'] == 'duration_limit'
     finally:

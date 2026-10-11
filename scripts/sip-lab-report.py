@@ -1,0 +1,256 @@
+"""Allowlisted, private phone-test reports. No transcript, audio, address or business writes."""
+
+import hashlib
+import json
+import math
+import os
+import re
+import stat
+import statistics
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+
+CASES = ('confirm', 'numbers_date', 'negation', 'stop')
+ATTESTATIONS = {'audible_reply': '全程能听清语音回复', 'numbers_date_correct': '测试数字1234及日期10月9日复述正确',
+                'negation_continued': '说“我不是要结束，请继续测试”后对话继续',
+                'barge_in_worked': '插话后旧播报停止，随后有新的回复',
+                'goodbye_completed': '说“结束测试”后结束语完整播完再挂断'}
+END_REASONS = {'duration_limit', 'turn_limit', 'dialogue_ended', 'voice_failed', 'channel_ended', 'service_stopped'}
+COUNTERS = ('received_packets', 'decoded_samples', 'sent_packets', 'reply_rtp_packets', 'invalid_packets',
+            'foreign_packets', 'queue_drops', 'local_turns_submitted', 'local_turns_completed', 'interruptions',
+            'cloud_provider_calls')
+SCOPE = 'vad_utterance_submission_to_first_reply_rtp_send_excludes_endpoint_wait_and_device_playback'
+
+
+class ReportError(ValueError):
+    pass
+
+
+def integer(value, maximum=2000000):
+    if type(value) is not int or not 0 <= value <= maximum:
+        raise ReportError('invalid_phone_report_metric')
+    return value
+
+
+def optional_ms(value):
+    return None if value is None else integer(value, 185000)
+
+
+def distribution(values):
+    values = sorted(value for value in values if value is not None)
+    if not values:
+        return {'samples': 0, 'min_ms': None, 'median_ms': None, 'p95_ms': None, 'max_ms': None}
+    return {'samples': len(values), 'min_ms': values[0], 'median_ms': statistics.median(values),
+            'p95_ms': values[math.ceil(len(values) * .95) - 1], 'max_ms': values[-1]}
+
+
+def make_report(event, attestations=None):
+    if not isinstance(event, dict) or event.get('event') != 'media_session_summary' or event.get('mode') != 'qwen_token_plan_voice_lab':
+        raise ReportError('not_qwen_phone_summary')
+    counters = {key: integer(event[key]) if key in event else None for key in COUNTERS}
+    for key, maximum in (('local_turns_submitted', 8), ('local_turns_completed', 8), ('cloud_provider_calls', 24)):
+        if counters[key] is not None:
+            integer(counters[key], maximum)
+    reason = event.get('end_reason')
+    if not isinstance(reason, str) or reason not in END_REASONS:
+        reason = None
+    limit = event.get('session_limit_seconds')
+    if type(limit) is not int or limit not in {60, 180}:
+        limit = None
+    observations = event.get('turn_observations', [])
+    metrics = event.get('turn_metrics', [])
+    if not isinstance(observations, list) or len(observations) > 8 or not isinstance(metrics, list) or len(metrics) > 8:
+        raise ReportError('invalid_phone_report_turns')
+    turns, seen = [], set()
+    for row in observations:
+        if not isinstance(row, dict):
+            raise ReportError('invalid_phone_report_turns')
+        number = integer(row.get('request_number'), 8)
+        if number < 1 or number in seen or row.get('kind') not in {'turn', 'greeting', 'probe'}:
+            raise ReportError('invalid_phone_report_turns')
+        seen.add(number)
+        if any(type(row.get(key)) is not bool for key in ('completed', 'interrupted')):
+            raise ReportError('invalid_phone_report_turns')
+        case = row.get('test_case')
+        if case is not None and (not isinstance(case, str) or case not in {*CASES, 'greeting', 'out_of_scope'}):
+            raise ReportError('invalid_phone_report_case')
+        end = row.get('end')
+        if end is not None and type(end) is not bool:
+            raise ReportError('invalid_phone_report_case')
+        turns.append({'request_number': number, 'kind': row['kind'], 'completed': row['completed'],
+                      'interrupted': row['interrupted'], 'test_case': case, 'end': end,
+                      'first_audio_received_ms': optional_ms(row.get('first_audio_received_ms')),
+                      'first_reply_rtp_ms': optional_ms(row.get('first_reply_rtp_ms'))})
+    safe_metrics, measured_numbers = [], set()
+    for row in metrics:
+        if not isinstance(row, dict):
+            raise ReportError('invalid_phone_report_turns')
+        # Older clients have no request numbers; do not invent timing/case associations.
+        if 'request_number' not in row:
+            continue
+        number = integer(row['request_number'], 8)
+        if number not in seen or number in measured_numbers:
+            raise ReportError('invalid_phone_report_turns')
+        measured_numbers.add(number)
+        stages = row.get('stage_ms', {})
+        if not isinstance(stages, dict) or set(stages) - {'source_tts', 'asr', 'llm', 'reply_tts'}:
+            raise ReportError('invalid_phone_report_timing')
+        safe_metrics.append({'request_number': number, 'host_elapsed_ms': optional_ms(row.get('elapsed_ms')),
+                             'host_first_audio_ms': optional_ms(row.get('first_audio_ms')),
+                             'stage_ms': {key: optional_ms(value) for key, value in stages.items()}})
+    attestations = {} if attestations is None else attestations
+    if (not isinstance(attestations, dict) or set(attestations) - set(ATTESTATIONS)
+            or any(type(value) is not bool and value is not None for value in attestations.values())):
+        raise ReportError('invalid_operator_attestation')
+    human = {key: ('operator_reported_pass' if attestations.get(key) is True else
+                   'operator_reported_fail' if attestations.get(key) is False else 'not_reviewed') for key in ATTESTATIONS}
+    actual_turns = [row for row in turns if row['kind'] == 'turn' and row['completed']]
+    covered = {case: any(row['test_case'] == case and row['end'] is (case == 'stop') for row in actual_turns) for case in CASES}
+    rtp_values = [row['first_reply_rtp_ms'] for row in actual_turns]
+    phone_numbers = {row['request_number']: row for row in actual_turns}
+    phone_metrics = [row for row in safe_metrics if row['request_number'] in phone_numbers]
+    stage_distributions = {stage: distribution([row['stage_ms'].get(stage) for row in phone_metrics
+                                               if stage != 'llm' or phone_numbers[row['request_number']]['test_case'] != 'stop'])
+                           for stage in ('asr', 'llm', 'reply_tts')}
+    media_checks = {'inbound_rtp_observed': (counters['received_packets'] or 0) > 0,
+                    'reply_rtp_sent': (counters['reply_rtp_packets'] or 0) > 0,
+                    'four_case_multiturn_observed': all(covered.values()),
+                    'interruption_detected': (counters['interruptions'] or 0) > 0,
+                    'normal_dialogue_end': reason == 'dialogue_ended',
+                    'no_voice_failure_reported': event.get('local_voice_failed') is False and event.get('voice_session_failed') is False,
+                    'provider_completed': event.get('provider_request_state') == 'completed' and event.get('provider_error') is None
+                                          and (counters['cloud_provider_calls'] or 0) > 0,
+                    'current_capture_consistent': type(event.get('voice_test_metadata_version')) is int
+                                                  and event['voice_test_metadata_version'] == 1
+                                                  and counters['local_turns_submitted'] == len(turns)
+                                                  and counters['local_turns_completed'] == sum(row['completed'] for row in turns),
+                    'phone_turn_timing_available': bool(actual_turns) and all(value is not None for value in rtp_values)}
+    if ('operator_reported_fail' in human.values() or reason == 'voice_failed'
+            or event.get('local_voice_failed') is True or event.get('voice_session_failed') is True
+            or event.get('provider_error') is not None):
+        assessment = 'issues_found'
+    elif not all(media_checks.values()):
+        assessment = 'needs_retest'
+    elif all(value == 'operator_reported_pass' for value in human.values()):
+        assessment = 'passed_with_operator_attestation'
+    else:
+        assessment = 'needs_operator_review'
+    provider = event.get('provider')
+    safe_provider = None
+    if isinstance(provider, dict) and provider.get('kind') == 'qwen_token_plan':
+        reviewed = {'asr': 'qwen-audio-3.0-asr-flash', 'llm': 'qwen3.8-flash', 'tts': 'qwen-audio-3.0-tts-plus'}
+        if provider.get('models') == reviewed and provider.get('voice') == 'longanhuan_v3.6' and provider.get('sample_rate') == 8000:
+            safe_provider = {'kind': 'qwen_token_plan', 'models': reviewed, 'voice': 'longanhuan_v3.6', 'sample_rate': 8000}
+    if safe_provider is None:
+        assessment = 'needs_retest' if assessment != 'issues_found' else assessment
+    return {'schema_version': 1, 'mode': 'personal_qwen_phone_verification', 'report_id': uuid.uuid4().hex,
+            'created_at': datetime.now(UTC).isoformat(), 'source': 'current_launcher_media_session_summary',
+            'assessment': assessment, 'provider': safe_provider, 'session_limit_seconds': limit,
+            'end_reason': reason, 'counters': counters, 'observed_cases': covered, 'measured_media_checks': media_checks,
+            'operator_attestations': human, 'turns': turns, 'host_timings': safe_metrics,
+            'latency': {'scope': SCOPE, 'first_reply_rtp': distribution(rtp_values),
+                        'host_stage_ms': stage_distributions, 'host_completed_response': distribution(
+                            [row['host_elapsed_ms'] for row in phone_metrics]),
+                        'completed_phone_turns_only': True, 'incomplete_phone_turns': sum(
+                            row['kind'] == 'turn' and not row['completed'] for row in turns),
+                        'excludes': ['vad_endpoint_wait', 'phone_network_after_media_send', 'device_playback',
+                                     'human_hearing', 'weight_loading']},
+            'phone_audio_verified': False, 'business_ready': False, 'billing_verified': False, 'pstn_enabled': False}
+
+
+def encode(report):
+    return json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+
+def private_directory(path, *, create=False):
+    path = Path(path)
+    if create:
+        path.mkdir(mode=0o700, exist_ok=True)
+    if path.is_symlink() or not path.is_dir() or stat.S_IMODE(path.stat().st_mode) != 0o700:
+        raise ReportError('invalid_private_report_directory')
+    return path
+
+
+def save_report(generated, report):
+    private_directory(generated)
+    directory = private_directory(Path(generated) / 'phone-reports', create=True)
+    if len(list(directory.iterdir())) >= 200:
+        raise ReportError('phone_report_storage_budget_exhausted')
+    if not re.fullmatch(r'[a-f0-9]{32}', report.get('report_id', '')):
+        raise ReportError('invalid_phone_report_id')
+    safe = dict(report, report_digest=hashlib.sha256(encode(report).encode()).hexdigest())
+    text = encode(safe)
+    if len(text.encode()) > 48000:
+        raise ReportError('phone_report_size_exceeded')
+    destination = directory / (report['report_id'] + '.json')
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+            output.write(text + '\n')
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return destination
+
+
+def latest_report(generated):
+    private_directory(generated)
+    directory = private_directory(Path(generated) / 'phone-reports')
+    names = list(directory.iterdir())
+    if len(names) > 200:
+        raise ReportError('phone_report_storage_budget_exhausted')
+    files = [path for path in names if re.fullmatch(r'[a-f0-9]{32}\.json', path.name)]
+    if not files:
+        raise ReportError('phone_report_missing_run_verify')
+    path = max(files, key=lambda item: item.lstat().st_mtime_ns)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'r', encoding='utf-8') as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 48000:
+            raise ReportError('invalid_private_phone_report')
+        report = json.loads(source.read(48001))
+    if not isinstance(report, dict) or 'report_digest' not in report:
+        raise ReportError('invalid_private_phone_report')
+    claimed = report.pop('report_digest')
+    actual = hashlib.sha256(encode(report).encode()).hexdigest()
+    if claimed != actual:
+        raise ReportError('phone_report_digest_mismatch')
+    if (type(report.get('schema_version')) is not int or report['schema_version'] != 1
+            or report.get('mode') != 'personal_qwen_phone_verification' or report.get('report_id') != path.stem
+            or not isinstance(report.get('assessment'), str) or report['assessment'] not in {
+                'needs_retest', 'needs_operator_review', 'issues_found', 'passed_with_operator_attestation'}
+            or any(report.get(key) is not False for key in ('phone_audio_verified', 'business_ready', 'billing_verified', 'pstn_enabled'))):
+        raise ReportError('invalid_private_phone_report')
+    latency = report.get('latency')
+    if not isinstance(latency, dict) or not isinstance(latency.get('host_stage_ms'), dict):
+        raise ReportError('invalid_private_phone_report')
+    for distribution_data in [latency.get('first_reply_rtp'), *latency['host_stage_ms'].values()]:
+        if not isinstance(distribution_data, dict):
+            raise ReportError('invalid_private_phone_report')
+        integer(distribution_data.get('samples'), 8)
+        for key in ('min_ms', 'median_ms', 'p95_ms', 'max_ms'):
+            value = distribution_data.get(key)
+            if value is not None and (type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 185000):
+                raise ReportError('invalid_private_phone_report')
+    report['report_digest'] = actual
+    return report
+
+
+def describe(report):
+    states = {'issues_found': '发现问题', 'needs_retest': '场景或测量不足，请重测',
+              'needs_operator_review': '程序检查完整，待听音确认',
+              'passed_with_operator_attestation': '电话测试通过（含操作者听音确认）'}
+    assessment = states.get(report.get('assessment'), '报告状态未知')
+    timing = report.get('latency', {}).get('first_reply_rtp', {})
+    median, p95 = timing.get('median_ms'), timing.get('p95_ms')
+    # Only bounded scalars enter terminal output, even when a local report was tampered with.
+    def show(value):
+        return str(value) if type(value) in {int, float} and 0 <= value <= 185000 else '未测得'
+    print('电话验收：' + assessment, flush=True)
+    print('句末提交→首个回复RTP：中位数 ' + show(median) + ' ms，P95 ' + show(p95) + ' ms。', flush=True)
+    stages = report.get('latency', {}).get('host_stage_ms', {})
+    print('宿主阶段中位数：ASR ' + show(stages.get('asr', {}).get('median_ms')) + ' ms，LLM '
+          + show(stages.get('llm', {}).get('median_ms')) + ' ms，TTS '
+          + show(stages.get('reply_tts', {}).get('median_ms')) + ' ms。', flush=True)
+    print('该时间不包含VAD句末等待和手机播放；听音结论为操作者反馈，业务就绪仍为否。', flush=True)

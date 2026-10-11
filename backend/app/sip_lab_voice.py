@@ -158,6 +158,9 @@ class LocalVoiceClient:
         self.completed = self.interruptions = self.submitted = 0
         self.active = False
         self.metrics = deque(maxlen=8)
+        self.observations = deque(maxlen=8)
+        self.current_observation = None
+        self.last_playback_epoch = None
 
     def start(self, kind='greeting'):
         self.submit(None, kind=kind)
@@ -177,10 +180,17 @@ class LocalVoiceClient:
             self.pending = (self.epoch, uuid.uuid4().hex, kind, pcm)
             self.submitted += 1
             self.active = True
+            self.current_observation = {'epoch': self.epoch, 'started': self.clock(),
+                                        'request_number': self.submitted, 'kind': kind, 'completed': False,
+                                        'interrupted': False, 'test_case': None, 'end': None,
+                                        'first_audio_received_ms': None, 'first_reply_rtp_ms': None}
+            self.observations.append(self.current_observation)
 
     def interrupt(self):
         with self.lock:
             if self.active or self.audio:
+                if self.current_observation is not None:
+                    self.current_observation['interrupted'] = True
                 self.epoch += 1  # Any in-flight result is now stale, including pending binary.
                 self.pending = None
                 self.audio.clear()
@@ -190,7 +200,16 @@ class LocalVoiceClient:
 
     def pop(self):
         with self.lock:
+            self.last_playback_epoch = self.epoch if self.audio else None
             return self.audio.popleft() if self.audio else None
+
+    def mark_rtp_sent(self):
+        """Called only after a generated audio packet was successfully sent by the media bridge."""
+        with self.lock:
+            observation = self.current_observation
+            if (observation is not None and self.last_playback_epoch == self.epoch
+                    and observation['first_reply_rtp_ms'] is None):
+                observation['first_reply_rtp_ms'] = observed_ms(observation['started'], self.clock())
 
     def finished(self):
         with self.lock:
@@ -212,6 +231,8 @@ class LocalVoiceClient:
                     'turn_metrics': list(self.metrics), 'configuration': self.configuration,
                     'local_voice_error': self.error_code}
             result['turn_limit'] = 8
+            result['turn_observations'] = [{key: value for key, value in row.items() if key not in {'epoch', 'started'}}
+                                           for row in self.observations]
             if self.expected_provider:
                 result.update(provider=self.provider, cloud_provider_calls=self.cloud_provider_calls,
                               provider_request_state=self.provider_request_state, provider_error=self.provider_error,
@@ -281,6 +302,9 @@ class LocalVoiceClient:
                             raise VoiceError('unexpected_voice_binary')
                         with self.lock:
                             if remote and binary['turn'] == remote[1] and remote[0] == self.epoch:
+                                observation = self.current_observation
+                                if observation is not None and observation['first_audio_received_ms'] is None:
+                                    observation['first_audio_received_ms'] = observed_ms(observation['started'], self.clock())
                                 for offset in range(0, len(raw), 320):
                                     if len(self.audio) >= 500:
                                         raise VoiceError('voice_playback_budget_exceeded')
@@ -325,10 +349,19 @@ class LocalVoiceClient:
                                 if type(event.get('end')) is not bool or not re.fullmatch(
                                         r'[a-f0-9]{64}', event.get('reply_digest', '')):
                                     raise VoiceError('invalid_voice_completion')
+                                case = event.get('test_case')
+                                if case is not None and (case not in {'greeting', 'confirm', 'numbers_date',
+                                                                      'negation', 'stop', 'out_of_scope'}
+                                                         or (self.expected_provider and event['end'] != (case == 'stop'))):
+                                    raise VoiceError('invalid_voice_completion')
                                 self.completed += 1
                                 self.ended = event['end']
                                 metrics = {'elapsed_ms': bounded_ms(event.get('elapsed_ms')),
-                                           'first_audio_ms': bounded_ms(event.get('first_audio_ms'))}
+                                           'first_audio_ms': bounded_ms(event.get('first_audio_ms')),
+                                           'request_number': self.submitted, 'kind': remote[2],
+                                           'test_case': case, 'end': event['end']}
+                                if self.current_observation is not None:
+                                    self.current_observation.update(completed=True, test_case=case, end=event['end'])
                                 stages = event.get('stage_ms')
                                 if stages is not None:
                                     if not isinstance(stages, dict) or set(stages) != {
@@ -367,6 +400,11 @@ class LocalVoiceClient:
                         self.error_code = 'qwen_host_handshake_rejected'
                     elif isinstance(exc, OSError):
                         self.error_code = 'qwen_host_network_failed'
+
+
+def observed_ms(start, now):
+    value = round((now - start) * 1000)
+    return value if 0 <= value <= 185000 else None
 
 
 def bounded_ms(value):

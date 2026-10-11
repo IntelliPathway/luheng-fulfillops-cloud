@@ -61,9 +61,11 @@ def read_environment(root):
 
 
 class Lab:
-    def __init__(self, root=ROOT, *, session_seconds=180):
+    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False):
         self.root = Path(root)
         self.session_seconds = session_seconds
+        self.verifying = verifying
+        self.verification_passed = False
         self.environment = None
         self.host = None
         self.media_started = False
@@ -184,6 +186,8 @@ class Lab:
         if report.get('host_ready') is True:
             if report.get('voice_session_limit_seconds', 60) < self.session_seconds:
                 raise LabError('现有宿主为旧 60 秒版本；请在原终端 Ctrl+C 停止后重新运行 start，或加 --session-seconds 60。')
+            if self.verifying and report.get('voice_test_metadata_version') != 1:
+                raise LabError('现有宿主缺少场景验收标记；请在原终端 Ctrl+C 退出后重新运行 verify。')
             print('复用已通过认证的 18092 宿主；退出时保留该进程。', flush=True)
             return
         with socket.socket() as connection:
@@ -270,7 +274,16 @@ class Lab:
         print('\n测试已就绪：Linphone 使用现有 1001 账号，服务器 ' + address + ':5060，拨打 1003。', flush=True)
         print('说：今天是语音链路测试。结束：结束测试。每通最多 '
               + str(self.session_seconds) + ' 秒 / 8 次请求 / 24 次云调用。', flush=True)
-        print('电话结束后启动器继续运行，可再次手动拨打；Ctrl+C 停止媒体桥和本次启动的宿主。', flush=True)
+        print(('验收本通结束后保存报告并退出；' if self.verifying else '电话结束后启动器继续运行，可再次手动拨打；')
+              + 'Ctrl+C 停止媒体桥和本次启动的宿主。', flush=True)
+        if self.verifying:
+            print('本次为单通验收；除第4步插话外，等待回复播完再说下一句：\n'
+                  '1. 今天是语音链路测试，请确认。\n'
+                  '2. 请复述测试数字1234和测试日期10月9日，不要结束。\n'
+                  '3. 我不是要结束，请继续测试。\n'
+                  '4. 再说：今天是语音链路测试，请确认；在这轮回复播放时插话：换一句测试短句。\n'
+                  '5. 结束测试。\n'
+                  '结束语播完后，本终端会收集听音确认并保存报告；不记录原始转写。', flush=True)
         self.logs = subprocess.Popen(self.compose_command_logs(), cwd=self.root, env=self.environment,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         pending = b''
@@ -284,10 +297,49 @@ class Lab:
                     while b'\n' in pending:
                         line, pending = pending.split(b'\n', 1)
                         for event in parse_events(line.decode('utf-8', errors='replace')):
-                            display_event(event)
+                            if self.handle_event(event):
+                                return
                     if len(pending) > 65536:
                         pending = b''
         raise LabError('媒体日志连接结束；请用 status 检查服务。')
+
+    def handle_event(self, event):
+        display_event(event)
+        if event.get('event') != 'media_session_summary' or event.get('mode') != 'qwen_token_plan_voice_lab':
+            return False
+        reporter = helper(self.root, 'sip-lab-report')
+        try:
+            # Validate measured data before asking for hearing feedback.
+            report = reporter.make_report(event)
+            path = reporter.save_report(self.root / 'deploy/sip-lab/generated', report)
+            if self.verifying:
+                print('程序测量已保存：' + str(path), flush=True)
+            if self.verifying:
+                answers = {}
+                for key, label in reporter.ATTESTATIONS.items():
+                    while True:
+                        if not sys.stdin.isatty():
+                            answers[key] = None
+                            break
+                        try:
+                            answer = input(label + '？[y=是 / n=否 / s=跳过]：').strip().lower()
+                        except EOFError:
+                            answers[key] = None
+                            break
+                        if answer in {'y', 'n', 's', ''}:
+                            answers[key] = {'y': True, 'n': False}.get(answer)
+                            break
+                        print('请输入 y、n 或 s；不会保存输入文本。', flush=True)
+                reviewed = reporter.make_report(event, answers)
+                reviewed['measurement_report_id'] = report['report_id']
+                report = reviewed
+                path = reporter.save_report(self.root / 'deploy/sip-lab/generated', report)
+            reporter.describe(report)
+            self.verification_passed = report['assessment'] == 'passed_with_operator_attestation'
+            print('本机脱敏报告：' + str(path), flush=True)
+        except (ValueError, OSError):
+            print('电话报告无法保存：数据或私有目录不符合要求；未输出原始事件。', file=sys.stderr)
+        return self.verifying
 
     def compose_command_logs(self):
         return ['docker', 'compose', '--env-file', str(self.root / 'deploy/sip-lab/generated/compose.env'),
@@ -360,21 +412,31 @@ def display_event(event):
 
 def main():
     parser = argparse.ArgumentParser(description='个人 Linphone/千问测试：一个终端启动，API Key 只存内存。')
-    parser.add_argument('action', choices=('start', 'setup', 'status', 'stop', 'probe', 'account'))
+    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account'))
     parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
     args = parser.parse_args()
-    lab = Lab(session_seconds=args.session_seconds)
+    lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify')
     try:
-        if args.host_address and args.action not in {'start', 'setup'}:
-            raise LabError('--host-address 仅用于 start/setup；status/stop/probe/account 不修改配置。')
-        if args.action in {'start', 'setup'}:
+        if args.host_address and args.action not in {'start', 'verify', 'setup'}:
+            raise LabError('--host-address 仅用于 start/verify/setup；诊断和报告不修改配置。')
+        if args.action in {'start', 'verify', 'setup'}:
             lab.configure(args.host_address, exclusive=True)
         else:
             lab.environment = read_environment(lab.root)
-        if args.action == 'start':
+        if args.action in {'start', 'verify'}:
             lab.start()
+            if lab.verifying:
+                return 0 if lab.verification_passed else 2
+        elif args.action == 'report':
+            reporter = helper(lab.root, 'sip-lab-report')
+            try:
+                reporter.describe(reporter.latest_report(lab.root / 'deploy/sip-lab/generated'))
+            except FileNotFoundError:
+                raise LabError('尚无电话报告；先运行 verify，或在新版 start 下完成一通电话。') from None
+            except reporter.ReportError:
+                raise LabError('报告缺失或权限/摘要/结构检查未通过；保留原文件，运行 verify 生成新报告。') from None
         elif args.action == 'setup':
             lab.dependencies(install=True)
             lab.images()
@@ -401,7 +463,7 @@ def main():
         return 0
     except KeyboardInterrupt:
         print('\n正在停止本次测试；保留账号、Asterisk 与历史 journal。', flush=True)
-        return 0
+        return 130 if lab.verifying else 0
     except LabError as error:
         print('未就绪：' + str(error), file=sys.stderr)
         return 2

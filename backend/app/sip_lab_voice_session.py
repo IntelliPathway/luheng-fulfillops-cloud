@@ -13,6 +13,7 @@ class VoiceMediaSession(MediaSession):
         self.voice = client or LocalVoiceClient(token)
         self.failed = False
         self.closed = False
+        self.reply_rtp_packets = 0
         self.voice.start()
 
     def process_audio(self, pcm):
@@ -33,12 +34,20 @@ class VoiceMediaSession(MediaSession):
         if self.closed or self.failed or self.voice.finished():
             self.mark_ended('voice_failed' if self.failed or getattr(self.voice, 'failed', False) else 'dialogue_ended')
             return False
+        audio = None
         if now >= self.next_send:
             audio = self.voice.pop()
             self.queue.clear()
             if audio:
                 self.queue.append(pcmu(audio))
-        return super().tick(udp, now)
+        sent_before = self.sent
+        continuing = super().tick(udp, now)
+        if audio and self.sent > sent_before:
+            self.reply_rtp_packets += 1
+            marker = getattr(self.voice, 'mark_rtp_sent', None)
+            if marker:
+                marker()
+        return continuing
 
     def close(self):
         if not self.closed:
@@ -52,4 +61,5 @@ class VoiceMediaSession(MediaSession):
         return {**super().summary(), 'cloud_provider_calls': 0, **self.voice.summary(),
                 'mode': 'qwen_token_plan_voice_lab' if cloud else 'local_voice_lab',
                 'voice_session_failed': self.failed,
+                'reply_rtp_packets': self.reply_rtp_packets, 'voice_test_metadata_version': 1,
                 'ai_dialogue_ready': False, 'business_ready': False}
