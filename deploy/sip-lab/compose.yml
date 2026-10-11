@@ -30,6 +30,7 @@ services:
       SIP_LAB_MEDIA_MODE: "${SIP_LAB_MEDIA_MODE:-echo}"
       SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED: "${SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED:-false}"
       SIP_LAB_QWEN_VOICE_ACKNOWLEDGED: "${SIP_LAB_QWEN_VOICE_ACKNOWLEDGED:-false}"
+      SIP_LAB_QWEN_SESSION_SECONDS: "${SIP_LAB_QWEN_SESSION_SECONDS:-60}"
     volumes:
       - ./generated:/run/sip-lab:ro
       - media-journal:/var/lib/media-lab

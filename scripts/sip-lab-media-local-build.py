@@ -55,7 +55,7 @@ def stage_context(root, destination):
     (destination / "Dockerfile").write_text(recipe)
 
 
-def build(root, *, runner=subprocess.run):
+def build(root, *, runner=subprocess.run, source_digest=None, environment=None):
     inspected = runner(
         ["docker", "image", "inspect", BASE, "--format", "{{.Id}}"],
         capture_output=True,
@@ -66,9 +66,14 @@ def build(root, *, runner=subprocess.run):
         raise ValueError("local_base_missing_or_docker_unavailable")
     with tempfile.TemporaryDirectory(prefix="sip-lab-media-build-") as temporary:
         stage_context(root, temporary)
-        environment = dict(os.environ, DOCKER_BUILDKIT="0")
+        environment = dict(os.environ if environment is None else environment, DOCKER_BUILDKIT="0")
+        command = ["docker", "build", "--pull=false", "--tag", IMAGE]
+        if source_digest is not None:
+            if len(source_digest) != 64 or any(letter not in '0123456789abcdef' for letter in source_digest):
+                raise ValueError('invalid_source_digest')
+            command.extend(['--label', 'org.repayguard.sip-lab.source=' + source_digest])
         result = runner(
-            ["docker", "build", "--pull=false", "--tag", IMAGE, temporary],
+            [*command, temporary],
             env=environment,
             check=False,
         )

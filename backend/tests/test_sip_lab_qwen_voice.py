@@ -358,7 +358,18 @@ def test_media_qwen_mode_uses_fixed_host_and_private_token_not_cloud_key(monkeyp
         sip_lab_bridge.voice_factory("qwen")
 
 
-def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys):
+def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, monkeypatch):
+    from types import SimpleNamespace
+
+    from app import sip_lab_local_voice
+
+    offset = [0]
+
+    def clock():
+        return time.monotonic() + offset[0]
+
+    # Advance only the host/client session clocks; real sockets and event-loop timers still run normally.
+    monkeypatch.setattr(sip_lab_local_voice, 'time', SimpleNamespace(monotonic=clock))
     engine, _, _, _ = make_engine()
     listener = module.reserve_host_socket()
     server = module.create_host_server(engine, TOKEN)
@@ -410,8 +421,8 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys):
         ):
             gateway.bind(("127.0.0.1", 0))
             gateway.settimeout(1)
-            voice = LocalVoiceClient(TOKEN, url=QWEN_HOST_URL, expected_provider="qwen_token_plan")
-            session = VoiceMediaSession(gateway.getsockname(), time.monotonic(), 42, TOKEN, client=voice)
+            voice = LocalVoiceClient(TOKEN, url=QWEN_HOST_URL, expected_provider="qwen_token_plan", clock=clock)
+            session = VoiceMediaSession(gateway.getsockname(), clock(), 42, TOKEN, client=voice, session_seconds=180)
             until = time.monotonic() + 3
             while not voice.completed and not voice.failed and time.monotonic() < until:
                 time.sleep(0.01)
@@ -425,6 +436,15 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys):
             for _ in range(3):
                 session.process_audio(pack("<160h", *([1500] * 160)))
             assert voice.summary()["interruptions"] == 1 and voice.pop() is None
+            offset[0] = 70
+            voice.submit(PCM)
+            until = time.monotonic() + 3
+            while voice.completed < 2 and not voice.failed and time.monotonic() < until:
+                time.sleep(0.01)
+            assert voice.completed == 2 and not voice.failed  # Past both former 65 s WebSocket deadlines.
+            assert session.tick(program, clock())
+            assert not session.tick(program, session.started + 180)
+            assert session.summary()['end_reason'] == 'duration_limit'
     finally:
         if session:
             session.close()

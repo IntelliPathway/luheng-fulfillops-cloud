@@ -37,6 +37,7 @@ SAFE_BRIDGE_ERRORS = frozenset({
     'invalid_rtp_destination', 'untrusted_rtp_destination', 'recovery_cleanup_unconfirmed',
     'invalid_lab_extension', 'setup_cleanup_unconfirmed', 'end_cleanup_unconfirmed',
     'timeout_cleanup_unconfirmed', 'invalid_media_mode', 'qwen_voice_acknowledgement_required',
+    'invalid_voice_session_limit',
     'local_voice_acknowledgement_required', 'invalid_voice_connection_config', 'event_stream_unavailable',
 })
 
@@ -143,7 +144,10 @@ class ResourceJournal:
 
 
 class MediaSession:
-    def __init__(self, peer, now, transmit_ssrc):
+    def __init__(self, peer, now, transmit_ssrc, *, session_seconds=60):
+        if type(session_seconds) is not int or session_seconds not in {60, 180}:
+            raise BridgeError('invalid_voice_session_limit')
+        self.session_seconds = session_seconds
         self.peer, self.started, self.next_send = peer, now, now
         self.stream = None
         self.queue = deque(maxlen=10)
@@ -151,6 +155,11 @@ class MediaSession:
         self.transmit_ssrc = transmit_ssrc
         self.sent = self.invalid = self.foreign = self.queue_drops = 0
         self.tone_index = 0
+        self.end_reason = None
+
+    def mark_ended(self, reason, now=None):
+        if self.end_reason is None:
+            self.end_reason = ('duration_limit' if now is not None and now - self.started >= self.session_seconds else reason)
 
     def receive(self, data, peer):
         if peer != self.peer:
@@ -160,7 +169,7 @@ class MediaSession:
             if self.stream is None:
                 source = unpack_from('!I', data, 8)[0] if len(data) >= 12 else -1
                 decode_packet(data, payload_type=0, ssrc=source)
-                stream = ReceiveStream(payload_type=0, ssrc=source)
+                stream = ReceiveStream(payload_type=0, ssrc=source, duration_seconds=self.session_seconds)
             else:
                 stream = self.stream
             frame = stream.consume(data)
@@ -183,7 +192,8 @@ class MediaSession:
         self.queue.clear()
 
     def tick(self, udp, now):
-        if now - self.started >= 60:
+        if now - self.started >= self.session_seconds:
+            self.mark_ended('duration_limit')
             return False
         if now < self.next_send:
             return True
@@ -208,7 +218,8 @@ class MediaSession:
         return {'event': 'media_session_summary', 'received_packets': received['packets_received'],
                 'decoded_samples': received['samples_received'], 'sent_packets': self.sent,
                 'invalid_packets': self.invalid, 'foreign_packets': self.foreign, 'queue_drops': self.queue_drops,
-                'audio_verified': False, 'ai_dialogue_ready': False, 'provider_calls': 0}
+                'audio_verified': False, 'ai_dialogue_ready': False, 'provider_calls': 0,
+                'end_reason': self.end_reason, 'session_limit_seconds': self.session_seconds}
 
 
 def request(client, method, path, *, params=None, identity=None):
@@ -323,6 +334,7 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1
                     channel = event.get('channel', {})
                     if isinstance(channel, dict) and channel.get('id') in {active_phone, owned_ids(journal.instance, active_phone)[0]}:
                         if session:
+                            session.mark_ended('channel_ended', time.monotonic())
                             print(json.dumps(session.summary()), flush=True)
                             session.close()
                         if not cleanup(client, journal, active_phone):
@@ -355,6 +367,7 @@ def run_loop(client, events, udp, journal, gateway_ip, stopping, *, extension='1
     finally:
         if active_phone:
             if session:
+                session.mark_ended('service_stopped')
                 print(json.dumps(session.summary()), flush=True)
                 session.close()
             if not cleanup(client, journal, active_phone):
@@ -394,6 +407,9 @@ def voice_factory(mode):
     from .sip_lab_voice import QWEN_CONTAINER_URL, TOKEN, LocalVoiceClient
     from .sip_lab_voice_session import VoiceMediaSession
     cloud = mode == 'qwen'
+    session_seconds = os.getenv('SIP_LAB_QWEN_SESSION_SECONDS', '60') if cloud else '60'
+    if session_seconds not in {'60', '180'}:
+        raise BridgeError('invalid_voice_session_limit')
     acknowledged = 'SIP_LAB_QWEN_VOICE_ACKNOWLEDGED' if cloud else 'SIP_LAB_LOCAL_VOICE_ACKNOWLEDGED'
     if os.getenv(acknowledged) != 'true':
         raise BridgeError('qwen_voice_acknowledgement_required' if cloud else 'local_voice_acknowledgement_required')
@@ -408,7 +424,7 @@ def voice_factory(mode):
 
     def factory(peer, now, source):
         client = LocalVoiceClient(token, url=QWEN_CONTAINER_URL, expected_provider='qwen_token_plan') if cloud else None
-        return VoiceMediaSession(peer, now, source, token, client=client)
+        return VoiceMediaSession(peer, now, source, token, client=client, session_seconds=int(session_seconds))
 
     return factory, '1003'
 

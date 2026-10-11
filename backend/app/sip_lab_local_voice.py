@@ -280,7 +280,8 @@ def create_app(engine, token, *, turn_executor=None):
         result = {'warmed': engine.warmed, 'busy': gate.locked(), 'draining': draining.is_set(),
                 'configuration': getattr(engine, 'configuration', None), 'business_ready': False}
         if hasattr(engine, 'lab_provider'):
-            result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False)
+            result.update(provider=engine.lab_provider, provider_verified=False, phone_audio_verified=False,
+                          voice_session_limit_seconds=180)
         return result
 
     @app.post('/lab/drain')
@@ -315,7 +316,7 @@ def create_app(engine, token, *, turn_executor=None):
         turns = 0
         receive = None
         history = deque(maxlen=8)
-        until = time.monotonic() + 65
+        until = time.monotonic() + (185 if hasattr(engine, 'lab_provider') else 65)
 
         def run(kind, pcm):
             turn_deadline = time.monotonic() + 20

@@ -70,8 +70,12 @@ def decode_packet(packet, *, payload_type, ssrc):
 
 class ReceiveStream:
     """No socket, persistence or jitter buffer; bounded one-stream decode and ordering."""
-    def __init__(self, *, payload_type, ssrc, max_samples=480000):
-        if type(max_samples) is not int or not 1 <= max_samples <= 480000:
+    def __init__(self, *, payload_type, ssrc, max_samples=None, duration_seconds=60):
+        if type(duration_seconds) is not int or duration_seconds not in {60, 180}:
+            raise MediaPacketError('invalid_sample_budget')
+        if max_samples is None:
+            max_samples = duration_seconds * 8000
+        if type(max_samples) is not int or not 1 <= max_samples <= duration_seconds * 8000:
             raise MediaPacketError('invalid_sample_budget')
         if type(payload_type) is not int or payload_type not in {0, 8}:
             raise MediaPacketError('unsupported_payload_type')

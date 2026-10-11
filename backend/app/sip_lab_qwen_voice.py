@@ -143,6 +143,10 @@ def doctor_host(token, *, transport=None):
         if any(type(data.get(name)) is not bool for name in ("busy", "draining", "warmed")):
             raise VoiceError("invalid_qwen_host_status")
         report.update(provider=provider, host_busy=data["busy"], host_draining=data["draining"])
+        limit = data.get('voice_session_limit_seconds', 60)  # Older hosts have a 65 s transport cap.
+        if type(limit) is not int or limit not in {60, 180}:
+            raise VoiceError('invalid_qwen_host_status')
+        report['voice_session_limit_seconds'] = limit
         if not report["websocket_no_redirect_api_available"]:
             raise VoiceError("websocket_dependency_incompatible")
         if data["busy"]:

@@ -211,6 +211,7 @@ class LocalVoiceClient:
                     'interruptions': self.interruptions, 'local_voice_failed': self.failed,
                     'turn_metrics': list(self.metrics), 'configuration': self.configuration,
                     'local_voice_error': self.error_code}
+            result['turn_limit'] = 8
             if self.expected_provider:
                 result.update(provider=self.provider, cloud_provider_calls=self.cloud_provider_calls,
                               provider_request_state=self.provider_request_state, provider_error=self.provider_error,
@@ -233,7 +234,7 @@ class LocalVoiceClient:
 
     def _run(self):
         default_connect = connect_without_redirects
-        deadline = self.clock() + 65
+        deadline = self.clock() + (185 if self.expected_provider == 'qwen_token_plan' else 65)
         remote = None
         binary = None
         cancelled = False
