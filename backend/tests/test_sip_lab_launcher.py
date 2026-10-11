@@ -399,3 +399,36 @@ def test_media_failure_never_announces_ready_and_cleans_owned_service(lab, monke
     assert stopped == ['media']
     output = capsys.readouterr().out
     assert 'ari_auth_failed' in output and '测试已就绪' not in output
+
+
+def test_voice_switch_refuses_to_take_over_existing_authenticated_host(lab, monkeypatch):
+    lab.speech_profile = 'warm_female'
+    monkeypatch.setattr(lab, 'doctor', lambda: {'host_ready': True, 'provider': {'speech_profile': 'clear_male'}})
+    monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *a, **kw: pytest.fail('must not restart old host'))
+    with pytest.raises(launcher.LabError, match='音色不同'):
+        lab.ensure_host()
+    assert lab.host is None
+
+
+def test_offline_dialogue_entry_needs_no_private_configuration_or_credentials(monkeypatch, capsys):
+    monkeypatch.setattr(launcher.sys, 'argv', ['sip-lab.py', 'dialogue'])
+    monkeypatch.setattr(launcher, 'read_environment', lambda *a: pytest.fail('must not read private config'))
+    monkeypatch.setattr(launcher, 'Lab', lambda **kw: pytest.fail('must not start lab'))
+    assert launcher.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['passed'] and len(report['scenarios']) == 12 and report['external_calls'] == report['writes'] == 0
+
+
+def test_phone_report_preserves_reviewed_voice_configuration_and_rejects_mixed_profile():
+    from app.sip_lab_qwen_voice import provider_configuration
+    reporter = launcher.helper(ROOT, 'sip-lab-report')
+    for name in ['baseline', 'warm_female', 'clear_male']:
+        provider = provider_configuration(name)
+        report = reporter.make_report({'event': 'media_session_summary', 'mode': 'qwen_token_plan_voice_lab',
+                                       'provider': provider, 'session_limit_seconds': 180})
+        assert report['provider']['voice'] == provider['voice']
+        assert report['provider'].get('rate') == provider.get('rate')
+        if name != 'baseline':
+            report = reporter.make_report({'event': 'media_session_summary', 'mode': 'qwen_token_plan_voice_lab',
+                                           'provider': provider | {'pitch': True}, 'session_limit_seconds': 180})
+            assert report['provider'] is None

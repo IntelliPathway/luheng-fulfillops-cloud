@@ -61,10 +61,13 @@ def read_environment(root):
 
 
 class Lab:
-    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False):
+    def __init__(self, root=ROOT, *, session_seconds=180, verifying=False, speech_profile="baseline"):
         self.root = Path(root)
         self.session_seconds = session_seconds
         self.verifying = verifying
+        if speech_profile not in {"baseline", "warm_female", "clear_male"}:
+            raise LabError("不支持该语音档。")
+        self.speech_profile = speech_profile
         self.verification_passed = False
         self.environment = None
         self.host = None
@@ -184,6 +187,8 @@ class Lab:
     def ensure_host(self):
         report = self.doctor()
         if report.get('host_ready') is True:
+            if report.get('provider', {}).get('speech_profile', 'baseline') != self.speech_profile:
+                raise LabError('现有宿主音色不同；先挂断，在原启动终端 Ctrl+C 退出，再用所选语音档启动。')
             if report.get('voice_session_limit_seconds', 60) < self.session_seconds:
                 raise LabError('现有宿主为旧 60 秒版本；请在原终端 Ctrl+C 停止后重新运行 start，或加 --session-seconds 60。')
             if self.verifying and report.get('voice_test_metadata_version') != 1:
@@ -197,8 +202,10 @@ class Lab:
             occupied = connection.connect_ex(('127.0.0.1', 18092)) == 0
         if occupied:
             raise LabError('18092 已占用但宿主未就绪；不接管现有服务。请检查其认证、忙碌或排空状态。')
+        print('语音档：' + self.speech_profile, flush=True)
         print('启动千问宿主；请在本终端输入 API Key（隐藏输入，仅存内存）…', flush=True)
-        self.host = subprocess.Popen([str(self.python), '-m', 'app.sip_lab_qwen_voice', 'serve', '--acknowledged'],
+        self.host = subprocess.Popen([str(self.python), '-m', 'app.sip_lab_qwen_voice', 'serve', '--acknowledged',
+                                     '--speech-profile', self.speech_profile],
                                      cwd=self.root / 'backend', env=self.environment)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
@@ -433,12 +440,21 @@ def display_event(event):
 
 def main():
     parser = argparse.ArgumentParser(description='个人 Linphone/千问测试：一个终端启动，API Key 只存内存。')
-    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account'))
+    parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue'))
     parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
+    parser.add_argument("--speech-profile", choices=("baseline", "warm_female", "clear_male"),
+                        default="baseline", help="原音色 / 温暖女声 / 清晰男声；切换前退出旧宿主")
     args = parser.parse_args()
-    lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify')
+    if args.speech_profile != "baseline" and args.action not in {"start", "verify"}:
+        parser.error("--speech-profile 仅用于 start/verify")
+    if args.action == "dialogue":
+        if args.host_address:
+            parser.error("dialogue 不需要 --host-address")
+        return helper(ROOT, "loan-dialogue-replay").main()
+    lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify',
+              **({'speech_profile': args.speech_profile} if args.speech_profile != 'baseline' else {}))
     try:
         if args.host_address and args.action not in {'start', 'verify', 'setup'}:
             raise LabError('--host-address 仅用于 start/verify/setup；诊断和报告不修改配置。')

@@ -238,3 +238,52 @@ def test_expired_session_replaced_without_renewing_old_idempotent_grant(client):
     assert replacement.json()["id"] != row["id"]
     with client.app.state.Session() as db:
         assert db.get(LoanSession, row["id"]).state == "paused"
+
+
+def test_synthetic_dialogue_confirmation_uses_existing_gated_idempotent_ptp_event(client):
+    from zoneinfo import ZoneInfo
+
+    from app.loan_dialogue import Proposal, SyntheticLoanDialogue
+    from app.loan_models import LoanSession
+
+    assert enroll(client).status_code == 200
+    row = start(client).json()
+    with client.app.state.Session() as db:
+        ledger_before = [(r.id, r.amount_cents) for r in db.scalars(select(RecoveryLedgerEntry).order_by(RecoveryLedgerEntry.id))]
+        status_before = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == 'TENANT_A', CaseRecord.case_id == 'C004')).status
+    d = SyntheticLoanDialogue(today=datetime.now(ZoneInfo('Asia/Shanghai')).date())
+    verification = d.verify_fixture(expected_version=d.version)
+    row = event(client, row, **verification['event_candidate']).json()
+    due = d.today.isoformat()
+    pending = d.advance(Proposal('offer_promise', amount_cents=5000, due_date=due), expected_version=d.version)
+    assert pending['event_candidate'] is None
+    with client.app.state.Session() as db:
+        assert db.get(LoanSession, row['id']).promise == {}
+    confirmed = d.advance(Proposal('confirm_promise'), expected_version=d.version)
+    recorded = event(client, row, **confirmed['event_candidate'])
+    assert recorded.status_code == 200 and recorded.json()['state'] == 'ptp_recorded'
+    duplicate = event(client, row, **confirmed['event_candidate'])
+    assert duplicate.status_code == 200 and len(duplicate.json()['events']) == len(recorded.json()['events'])
+    with client.app.state.Session() as db:
+        assert [(r.id, r.amount_cents) for r in db.scalars(select(RecoveryLedgerEntry).order_by(RecoveryLedgerEntry.id))] == ledger_before
+        case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == 'TENANT_A', CaseRecord.case_id == 'C004'))
+        assert case.status == status_before
+
+
+def test_confirmed_synthetic_candidate_cannot_bypass_fresh_business_gate(client):
+    from zoneinfo import ZoneInfo
+
+    from app.loan_dialogue import Proposal, SyntheticLoanDialogue
+
+    enroll(client)
+    row = start(client).json()
+    d = SyntheticLoanDialogue(today=datetime.now(ZoneInfo('Asia/Shanghai')).date())
+    row = event(client, row, **d.verify_fixture(expected_version=1)['event_candidate']).json()
+    d.advance(Proposal('offer_promise', amount_cents=5000, due_date=d.today.isoformat()), expected_version=d.version)
+    candidate = d.advance(Proposal('confirm_promise'), expected_version=d.version)['event_candidate']
+    with client.app.state.Session() as db:
+        case = db.scalar(select(CaseRecord).where(CaseRecord.tenant_id == 'TENANT_A', CaseRecord.case_id == 'C004'))
+        case.blocked = True
+        db.commit()
+    r = event(client, row, **candidate)
+    assert r.status_code == 200 and r.json()['state'] == 'paused' and not r.json()['promise']

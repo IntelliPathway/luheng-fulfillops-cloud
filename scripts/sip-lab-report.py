@@ -206,8 +206,20 @@ def make_report(event, attestations=None):
     safe_provider = None
     if isinstance(provider, dict) and provider.get('kind') == 'qwen_token_plan':
         reviewed = {'asr': 'qwen-audio-3.0-asr-flash', 'llm': 'qwen3.8-flash', 'tts': 'qwen-audio-3.0-tts-plus'}
-        if provider.get('models') == reviewed and provider.get('voice') == 'longanhuan_v3.6' and provider.get('sample_rate') == 8000:
-            safe_provider = {'kind': 'qwen_token_plan', 'models': reviewed, 'voice': 'longanhuan_v3.6', 'sample_rate': 8000}
+        profiles = {'baseline': ('longanhuan_v3.6', None),
+                    'warm_female': ('longanlingxin', 0.96), 'clear_male': ('longanlufeng', 1.0)}
+        name = provider.get('speech_profile', 'baseline')
+        if isinstance(name, str) and name in profiles:
+            voice, rate = profiles[name]
+            expected = {'kind': 'qwen_token_plan', 'models': reviewed, 'voice': voice,
+                        'sample_rate': 8000, 'protocol_version': 1}
+            if name != 'baseline':
+                expected.update(speech_profile=name, rate=rate, pitch=1.0)
+            types_ok = type(provider.get('sample_rate')) is int and type(provider.get('protocol_version')) is int
+            if name != 'baseline':
+                types_ok = types_ok and type(provider.get('rate')) is float and type(provider.get('pitch')) is float
+            if provider == expected and types_ok:
+                safe_provider = {k: v for k, v in expected.items() if k != 'protocol_version'}
     if safe_provider is None:
         assessment = 'needs_retest' if assessment != 'issues_found' else assessment
     return {'schema_version': 2, 'acceptance_rules_version': ACCEPTANCE_RULES_VERSION,
@@ -326,6 +338,11 @@ def latest_report(generated):
 
 
 def describe(report):
+    provider = report.get("provider") or {}
+    name = provider.get("speech_profile", "baseline") if isinstance(provider, dict) else None
+    labels = {"baseline": "原音色", "warm_female": "温暖女声", "clear_male": "清晰男声"}
+    label = labels.get(name, "未确认") if isinstance(name, str) else "未确认"
+    print("语音档：" + label)
     states = {'issues_found': '发现问题', 'needs_retest': '场景或测量不足，请重测',
               'needs_operator_review': '程序检查完整，待听音确认',
               'passed_with_operator_attestation': '电话测试通过（含操作者听音确认）'}

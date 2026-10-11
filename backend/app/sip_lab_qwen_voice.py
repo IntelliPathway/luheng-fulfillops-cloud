@@ -85,11 +85,11 @@ SAFE_ERRORS = frozenset(
         "qwen_host_inference_failed",
     }
 )
-GREETING = "这里是千问语音测试。结束测试需再说确认结束测试，才能挂断。"
-SCOPE_REPLY = "没有匹配到测试短句，请说复述1234和10月9日，或说结束测试。"
+GREETING = "您好，我是语音测试AI助手。想挂断时，先说结束测试，再说确认结束测试。"
+SCOPE_REPLY = "这句我没匹配上。试着说：复述1234和10月9日。"
 STOP_REPLY = "测试结束，再见。"
-STOP_PROMPT = "需要挂断，请说确认结束测试；否则说继续测试。"
-CONTINUE_REPLY = "好的，继续语音测试，不会挂断。"
+STOP_PROMPT = "要结束了吗？请说确认结束测试。想继续，就说继续测试。"
+CONTINUE_REPLY = "好，我们继续。"
 
 
 class HostProbeError(VoiceError):
@@ -180,21 +180,39 @@ def doctor_host(token, *, transport=None):
     return report
 
 
-def provider_configuration():
-    return {
+SPEECH_PROFILES = {
+    "baseline": {"voice": VOICE},
+    "warm_female": {"voice": "longanlingxin", "rate": 0.96, "pitch": 1.0},
+    "clear_male": {"voice": "longanlufeng", "rate": 1.0, "pitch": 1.0},
+}
+
+
+def provider_configuration(speech_profile="baseline"):
+    if not isinstance(speech_profile, str) or speech_profile not in SPEECH_PROFILES:
+        raise VoiceError("qwen_voice_profile_invalid")
+    profile = SPEECH_PROFILES[speech_profile]
+    data = {
         "kind": "qwen_token_plan",
         "models": {"asr": ASR, "llm": MODELS[0], "tts": TTS},
-        "voice": VOICE,
+        "voice": profile["voice"],
         "sample_rate": RATE,
         "protocol_version": 1,
     }
+    if speech_profile != "baseline":
+        data.update(speech_profile=speech_profile, rate=profile["rate"], pitch=profile["pitch"])
+    return data
 
 
 def validate_provider(data):
-    if not isinstance(data, dict) or data != provider_configuration():
+    if not isinstance(data, dict):
+        raise VoiceError("qwen_voice_provider_mismatch")
+    profile = data.get("speech_profile", "baseline")
+    if not isinstance(profile, str) or profile not in SPEECH_PROFILES or data != provider_configuration(profile):
         raise VoiceError("qwen_voice_provider_mismatch")
     # Dict equality treats booleans as integers; wire types must still be exact.
     if type(data["sample_rate"]) is not int or type(data["protocol_version"]) is not int:
+        raise VoiceError("qwen_voice_provider_mismatch")
+    if profile != "baseline" and any(type(data[k]) is not float for k in ("rate", "pitch")):
         raise VoiceError("qwen_voice_provider_mismatch")
     return data
 
@@ -258,7 +276,7 @@ def test_case(text):
 
 
 class TokenVoiceEngine:
-    def __init__(self, key, *, transport=None, ws_factory=websocket, clock=time.monotonic):
+    def __init__(self, key, *, transport=None, ws_factory=websocket, clock=time.monotonic, speech_profile="baseline"):
         if os.getenv("APP_ENV") == "production":
             raise VoiceError("production_probe_disabled")
         try:
@@ -266,7 +284,7 @@ class TokenVoiceEngine:
         except QwenProbeError as exc:
             raise VoiceError(str(exc)) from None
         self.transport, self.ws_factory, self.clock = transport, ws_factory, clock
-        self.lab_provider = provider_configuration()
+        self.lab_provider = provider_configuration(speech_profile)
         self.warmed = True  # Host protocol readiness only; never an inference verification.
         self.begin_session()
 
@@ -477,7 +495,9 @@ class TokenVoiceEngine:
                             "model": TTS,
                             "parameters": {
                                 "text_type": "PlainText",
-                                "voice": VOICE,
+                                "voice": self.lab_provider["voice"],
+                                **({k: self.lab_provider[k] for k in ("rate", "pitch")}
+                                   if "speech_profile" in self.lab_provider else {}),
                                 "format": "pcm",
                                 "sample_rate": RATE,
                             },
@@ -728,6 +748,7 @@ def main():
     parser = argparse.ArgumentParser(description="本机千问套餐电话测试宿主；固定18092端口、短句与合成对话。")
     parser.add_argument("action", choices=["status", "doctor", "serve", "probe"])
     parser.add_argument("--acknowledged", action="store_true")
+    parser.add_argument("--speech-profile", choices=tuple(SPEECH_PROFILES), default="baseline")
     args = parser.parse_args()
     stage = "configuration"
     listener = None
@@ -737,7 +758,7 @@ def main():
                 json.dumps(
                     {
                         "mode": "qwen_voice_configuration",
-                        "provider": provider_configuration(),
+                        "provider": provider_configuration(args.speech_profile),
                         "host": QWEN_HOST_URL,
                         "external_calls": 0,
                         **websocket_dependencies(),
@@ -767,7 +788,8 @@ def main():
         stage = "credential"
         key = read_host_key()
         stage = "host_start"
-        engine = TokenVoiceEngine(key)
+        engine = (TokenVoiceEngine(key) if args.speech_profile == "baseline"
+                  else TokenVoiceEngine(key, speech_profile=args.speech_profile))
         server = create_host_server(engine, token)
         server.run(sockets=[listener])
         if not server.started:

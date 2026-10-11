@@ -2,6 +2,39 @@
 
 更新：2026-10-11。操作者已反馈新版误挂断短测验证通过：否定结束后继续、结束请求先提示且保持接通、明确确认后才挂断。完整多轮、数字日期、插话及延迟报告仍待独立验收；本次反馈不代表通用ASR准确率或业务对话已通过。本开发环境没有Docker/OrbStack/Linphone。
 
+## 快速试听新音色与离线业务对话（2026-10-11）
+
+先挂断当前电话，在原启动终端 Ctrl+C 退出宿主，再从仓库根目录执行：
+
+```bash
+git pull
+python3 scripts/sip-lab.py start --speech-profile warm_female
+```
+
+仍在启动终端隐藏输入 Key，手机拨1003。音色切换不修改已有账号、私有配置或租户活动。音色不同的已运行宿主会被明确拒绝复用，必须在其原终端退出；启动器不接管它。新档的本机协议/媒体回归已验证，Token Plan 实际音色权限、服务接受和手机自然度尚未独立验证；不支持时报告失败，不自动换音色或计费渠道。
+
+| 语音档 | 音色 | 语速 / 音调 | 用途 |
+| --- | --- | --- | --- |
+| `baseline`（默认） | `longanhuan_v3.6` | 原默认值 | 保留操作者已跑通的基线 |
+| `warm_female` | `longanlingxin` | 0.96 / 1.0 | 温暖女声候选，轻微放慢 |
+| `clear_male` | `longanlufeng` | 1.0 / 1.0 | 清晰男声候选 |
+
+男声使用 `python3 scripts/sip-lab.py start --speech-profile clear_male`；对照基线使用 `python3 scripts/sip-lab.py start`。每次切换都先退出旧宿主，再拨同样的测试短句。问候、没匹配上的提示、继续和结束确认改为简短口语，并保留 AI 身份说明。仍使用8kHz电话PCM，流式音频发送、插话取消、两步结束和原预算不变；换音色不能证明ASR或网络延迟已改善。
+
+完整测量使用 `python3 scripts/sip-lab.py verify --speech-profile warm_female`（其他档同理），随后 `python3 scripts/sip-lab.py report`。报告冻结实际 Provider、音色及新档的 rate/pitch，并显示受限档名；独立测试需要人工比较听感，当前没有自动评分或“更像人”的验收结论。WebSocket 参数使用官方 `rate` / `pitch`，不是 SDK 构造器名称。模型仍为 Plus；官方音色表把原 `longanhuan_v3.6` 列在 Flash，而 Plus 列出两种新音色，所以保留原已跑通配置作为对照，不能推断所有套餐均支持新档。
+
+官方依据：[千问音色表](https://platform.qianwenai.com/docs/developer-guides/speech/voice-list/qwen-audio-tts)、[TTS客户端事件与参数](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-client-events)。
+
+业务多轮可先离线快速验证，不需要 Key、Docker、虚拟环境或电话：
+
+```bash
+python3 scripts/sip-lab.py dialogue
+```
+
+该命令执行12个结构化意图回放：未核验不披露、金额日期分轮补齐、复述后明确确认、修改/取消与过期确认、模糊意图、非法金额日期、上下文变化、声称已付款，以及找错人/异议/投诉/困难/人工请求。合成案件固定为 FIXTURE-LOAN-001、100元，日期固定以2026-10-11回放；JSON的 passed 来自实际不变量检查，external_calls=0、writes=0，Python -O 也不跳过检查。
+
+这不是新电话话术入口：1003继续验证固定语音场景。结构化 Proposal 是后续意图适配器的合同，目前没有自由语音ASR到业务意图的模型接入。`verify_fixture` 只表示合成沙箱断言，“我是本人”不会核验身份。金额/日期齐全仅生成候选；明确确认才输出事件候选，重复/旧版本不重复提交。当前对话器不写业务数据；内存数据库联测通过既有事件接口验证承诺写入的幂等、政策门禁和账本分离。正式运行仍必须重查租户、授权、核验和案件状态，不能把离线版本当数据库版本。连续三次未澄清或超过12轮会暂停；称已还款只进入核对，不产生到账记录。
+
 ## 已通过：误挂断短测（操作者反馈）
 
 2026-10-11操作者在上述三步短测安排后反馈“好的，验证通过”。记录为操作者设备反馈；未取得本次程序报告或延迟数据，不补造测量结果。以下步骤保留供后续回归，无需重复本轮已通过的短测。

@@ -63,7 +63,7 @@ class SpeechSocket:
         return self.events.popleft()
 
 
-def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=None, chunks=None, failure=None):
+def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=None, chunks=None, failure=None, speech_profile="baseline"):
     commands, requests, closed = [], [], []
 
     @contextmanager
@@ -97,7 +97,7 @@ def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=Non
             )
         )
 
-    engine = TokenVoiceEngine(KEY, transport=httpx.MockTransport(handle), ws_factory=ws)
+    engine = TokenVoiceEngine(KEY, transport=httpx.MockTransport(handle), ws_factory=ws, speech_profile=speech_profile)
     return engine, commands, requests, closed
 
 
@@ -562,7 +562,8 @@ def test_media_qwen_mode_uses_fixed_host_and_private_token_not_cloud_key(monkeyp
         sip_lab_bridge.voice_factory("qwen")
 
 
-def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, monkeypatch):
+@pytest.mark.parametrize("speech_profile", ["baseline", "warm_female", "clear_male"])
+def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, monkeypatch, speech_profile):
     from types import SimpleNamespace
 
     from app import sip_lab_local_voice
@@ -574,7 +575,7 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, mo
 
     # Advance only the host/client session clocks; real sockets and event-loop timers still run normally.
     monkeypatch.setattr(sip_lab_local_voice, 'time', SimpleNamespace(monotonic=clock))
-    engine, _, _, _ = make_engine()
+    engine, _, _, _ = make_engine(speech_profile=speech_profile)
     listener = module.reserve_host_socket()
     server = module.create_host_server(engine, TOKEN)
     assert capsys.readouterr().out == ""  # Binding/configuring isn't readiness.
@@ -636,7 +637,7 @@ def test_real_loopback_host_to_udp_pcmu_with_synthetic_cloud_protocol(capsys, mo
             frame = decode_packet(data, payload_type=0, ssrc=42)
             assert abs(unpack("<160h", frame.pcm_s16le)[0] - 2000) < 100
             summary = session.summary()
-            assert summary["cloud_provider_calls"] == 1 and summary["provider"] == provider_configuration()
+            assert summary["cloud_provider_calls"] == 1 and summary["provider"] == provider_configuration(speech_profile)
             assert summary['reply_rtp_packets'] == 1
             greeting = summary['turn_observations'][0]
             assert greeting['kind'] == 'greeting' and greeting['test_case'] == 'greeting'
@@ -988,3 +989,25 @@ def test_server_start_failure_closes_reserved_port_and_never_reports_ready(monke
     assert captured[0].fileno() == -1 and KEY not in json.dumps(result)
     with module.reserve_host_socket():
         pass  # Startup failure cannot leak the port reservation.
+
+
+@pytest.mark.parametrize('name,voice,rate', [('warm_female', 'longanlingxin', 0.96),
+                                           ('clear_male', 'longanlufeng', 1.0)])
+def test_speech_profile_wires_voice_rate_pitch_without_altering_pcm_or_model(name, voice, rate):
+    engine, commands, requests, closed = make_engine(speech_profile=name)
+    assert b''.join(engine.tts('语音测试确认。', no_cancel)) == PCM + PCM
+    task = commands[0]['payload']
+    assert task['model'] == module.TTS
+    assert task['parameters'] == {'text_type': 'PlainText', 'voice': voice, 'rate': rate,
+                                   'pitch': 1.0, 'format': 'pcm', 'sample_rate': 8000}
+    assert not requests and closed == [True] and engine.external_calls == 1
+    assert module.validate_provider(engine.lab_provider) == engine.lab_provider
+
+
+def test_profile_contract_rejects_arbitrary_or_inexact_voice_parameters():
+    for change in [{'rate': True}, {'pitch': 1}, {'voice': 'unreviewed_voice'},
+                   {'rate': 0.95}, {'speech_profile': []}, {'extra': 'ignored'}]:
+        with pytest.raises(VoiceError, match='qwen_voice_provider_mismatch'):
+            module.validate_provider(provider_configuration('warm_female') | change)
+    with pytest.raises(VoiceError, match='qwen_voice_profile_invalid'):
+        TokenVoiceEngine(KEY, speech_profile='unknown')
