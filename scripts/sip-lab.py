@@ -404,7 +404,7 @@ class Lab:
                 reviewed['measurement_report_id'] = report['report_id']
                 report = reviewed
                 path = reporter.save_report(self.root / 'deploy/sip-lab/generated', report)
-            reporter.describe(report)
+            reporter.describe(report, **({'synthetic_dialogue': True} if self.synthetic_dialogue else {}))
             self.verification_passed = report['assessment'] == 'passed_with_operator_attestation'
             print('本机脱敏报告：' + str(path), flush=True)
         except (ValueError, OSError):

@@ -627,3 +627,16 @@ def test_dialogue_result_export_keeps_token_out_of_arguments_and_file(lab, monke
     assert path.stat().st_mode & 0o777 == 0o600
     assert lab.environment["SIP_LAB_QWEN_VOICE_TOKEN"] not in path.read_text()
     assert len(calls) == 1
+
+def test_synthetic_report_display_does_not_claim_short_phrase_acceptance(capsys):
+    from app.sip_lab_qwen_voice import provider_configuration
+    reporter = launcher.helper(ROOT, 'sip-lab-report')
+    report = reporter.make_report({'event': 'media_session_summary', 'mode': 'qwen_token_plan_voice_lab',
+                                  'provider': provider_configuration(),
+                                  'session_limit_seconds': 180})
+    reporter.describe(report, synthetic_dialogue=True)
+    output = capsys.readouterr().out
+    assert '合成案件电话测量' in output
+    assert '四类固定场景完成' not in output and '数字日期缺失' not in output
+    assert '电话测试通过' not in output
+    assert '草案确认' in output

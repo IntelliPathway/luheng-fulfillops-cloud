@@ -494,7 +494,15 @@ class TokenVoiceEngine:
             raise VoiceError("invalid_speech_event") from None
 
     def tts(self, text, check):
-        validate_reply({"reply": text, "end": False})
+        synthetic_confirmation = False
+        if self.dialogue_mode == 'synthetic_loan':
+            from .loan_dialogue import PROMISE_CONFIRMATION_REPLY
+
+            # Only this exact controlled template is exempt from the short-phrase
+            # debt-word filter. Arbitrary ASR/model/customer text stays forbidden.
+            synthetic_confirmation = text == PROMISE_CONFIRMATION_REPLY
+        if not synthetic_confirmation:
+            validate_reply({"reply": text, "end": False})
         self.begin("tts", check)
         task = str(uuid.uuid4())
         total, pending = 0, b""
@@ -859,7 +867,11 @@ def main():
         if not server.started:
             raise VoiceError("qwen_host_start_failed")
         return 0
-    except (Exception, KeyboardInterrupt) as exc:
+    except KeyboardInterrupt:
+        print(json.dumps({'event': 'qwen_voice_stopped', 'reason': 'operator_interrupt',
+                          'phone_audio_verified': False, 'business_ready': False}), flush=True)
+        return 130
+    except Exception as exc:
         print(
             json.dumps(
                 {

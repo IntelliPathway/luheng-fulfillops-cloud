@@ -337,7 +337,10 @@ def latest_report(generated):
     return report
 
 
-def describe(report):
+def describe(report, *, synthetic_dialogue=False):
+    synthetic_dialogue = synthetic_dialogue or any(
+        isinstance(row, dict) and row.get('test_case') == 'loan_dialogue'
+        for row in report.get('turns', []))
     provider = report.get("provider") or {}
     name = provider.get("speech_profile", "baseline") if isinstance(provider, dict) else None
     labels = {"baseline": "原音色", "warm_female": "温暖女声", "clear_male": "清晰男声"}
@@ -355,10 +358,14 @@ def describe(report):
 
     def count(value):
         return str(value) if type(value) is int and 0 <= value <= 8 else '未测得'
-    print('电话验收：' + assessment, flush=True)
+    if synthetic_dialogue:
+        print('合成案件电话测量：' + ('语音服务失败' if report.get('end_reason') == 'voice_failed' else '已保存，待核对实际听音及草案'), flush=True)
+    else:
+        print('电话验收：' + assessment, flush=True)
     checks = report.get('measured_media_checks', {})
     if isinstance(checks, dict):
-        missing = [label for key, label in CHECK_LABELS.items() if checks.get(key) is not True]
+        missing = [label for key, label in CHECK_LABELS.items() if checks.get(key) is not True
+                   and not (synthetic_dialogue and key == 'four_case_multiturn_observed')]
         if missing:
             print('未通过的程序检查：' + '；'.join(missing) + '。', flush=True)
     human = report.get('operator_attestations', {})
@@ -367,14 +374,20 @@ def describe(report):
         if failed:
             print('操作者报告的问题：' + '；'.join(failed) + '。', flush=True)
     coverage = report.get('observed_cases', {})
-    print('完成场景：' + '，'.join(label + ('已完成' if coverage.get(case) is True else '缺失')
-                               for case, label in (('confirm', '确认'), ('numbers_date', '数字日期'),
-                                                   ('negation', '否定结束'), ('stop', '正常结束'))), flush=True)
+    if synthetic_dialogue:
+        completed = sum(row.get('completed') is True and row.get('test_case') == 'loan_dialogue'
+                        for row in report.get('turns', []) if isinstance(row, dict))
+        print('合成对话完成请求：' + count(completed) + '；草案确认需另行导出核对，本报告不证明承诺成立。', flush=True)
+    else:
+        print('完成场景：' + '，'.join(label + ('已完成' if coverage.get(case) is True else '缺失')
+                                   for case, label in (('confirm', '确认'), ('numbers_date', '数字日期'),
+                                                       ('negation', '否定结束'), ('stop', '正常结束'))), flush=True)
     unmatched = sum(row.get('kind') == 'turn' and row.get('completed') is True
                     and row.get('test_case') == 'out_of_scope'
                     for row in report.get('turns', []) if isinstance(row, dict))
     if unmatched:
-        print('存在未匹配短句；请用“复述1234和10月9日”重测，单句控制在6秒内。', flush=True)
+        print('存在未匹配控制指令；请按合成案件提示重测，单句控制在6秒内。' if synthetic_dialogue
+              else '存在未匹配短句；请用“复述1234和10月9日”重测，单句控制在6秒内。', flush=True)
     print('句末提交→首个回复RTP：中位数 ' + show(median) + ' ms，P95 ' + show(p95) + ' ms。', flush=True)
     print('首回复RTP样本：' + count(timing.get('samples')) + '；未完成电话请求：'
           + count(report.get('latency', {}).get('incomplete_phone_turns')) + '。', flush=True)

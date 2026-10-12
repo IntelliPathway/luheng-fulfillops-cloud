@@ -63,7 +63,7 @@ class SpeechSocket:
         return self.events.popleft()
 
 
-def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=None, chunks=None, failure=None, speech_profile="baseline"):
+def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=None, chunks=None, failure=None, speech_profile="baseline", synthetic_dialogue=False):
     commands, requests, closed = [], [], []
 
     @contextmanager
@@ -97,8 +97,37 @@ def make_engine(text=CASES["confirm"][0], *, asr_response=None, llm_response=Non
             )
         )
 
-    engine = TokenVoiceEngine(KEY, transport=httpx.MockTransport(handle), ws_factory=ws, speech_profile=speech_profile)
+    engine = TokenVoiceEngine(KEY, transport=httpx.MockTransport(handle), ws_factory=ws, speech_profile=speech_profile, synthetic_dialogue=synthetic_dialogue)
     return engine, commands, requests, closed
+
+
+def test_synthetic_promise_confirmation_passes_actual_tts_boundary_and_exports_only_after_audio():
+    engine, commands, requests, closed = make_engine(text='确认', synthetic_dialogue=True)
+    engine.dialogue.advance('明天还50元')
+    audio = []
+    result = execute_qwen_turn(engine, 'turn', PCM, [], threading.Event(), audio.append)
+    assert result['test_case'] == 'loan_dialogue'
+    assert audio == [PCM, PCM]
+    assert engine.dialogue.result()['candidate']['amount_cents'] == 5000
+    assert engine.external_calls == 2 and len(requests) == 1
+    texts = [row['payload']['input']['text'] for row in commands if row['header']['action'] == 'continue-task']
+    assert texts == ['好的，这次记录的是还款承诺，到账后再核对。']
+    assert closed == [True]
+
+
+@pytest.mark.parametrize('synthetic', [False, True])
+def test_tts_still_blocks_arbitrary_debt_text_before_provider_call(synthetic):
+    engine, commands, requests, closed = make_engine(synthetic_dialogue=synthetic)
+    with pytest.raises(VoiceError, match='off_scope_reply'):
+        list(engine.tts('请提供账户余额和还款合同。', no_cancel))
+    assert engine.external_calls == 0 and commands == []
+
+
+def test_short_phrase_tts_keeps_rejecting_business_confirmation_template():
+    engine, commands, requests, closed = make_engine()
+    with pytest.raises(VoiceError, match='off_scope_reply'):
+        list(engine.tts('好的，这次记录的是还款承诺，到账后再核对。', no_cancel))
+    assert engine.external_calls == 0 and commands == []
 
 
 def no_cancel():
@@ -989,6 +1018,32 @@ def test_server_start_failure_closes_reserved_port_and_never_reports_ready(monke
     assert captured[0].fileno() == -1 and KEY not in json.dumps(result)
     with module.reserve_host_socket():
         pass  # Startup failure cannot leak the port reservation.
+
+
+def test_ctrl_c_during_host_service_reports_stop_instead_of_startup_failure(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from app.sip_lab import LabConfig
+
+    closed = []
+    listener = SimpleNamespace(close=lambda: closed.append(True))
+
+    class InterruptedServer:
+        started = True
+
+        def run(self, **kwargs):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(LabConfig, 'from_environment', lambda: None)
+    monkeypatch.setenv(module.TOKEN_ENV, TOKEN)
+    monkeypatch.setenv(KEY_ENV, KEY)
+    monkeypatch.setattr(module.sys, 'argv', ['host', 'serve', '--acknowledged'])
+    monkeypatch.setattr(module, 'reserve_host_socket', lambda: listener)
+    monkeypatch.setattr(module, 'create_host_server', lambda *args: InterruptedServer())
+    assert module.main() == 130
+    event = json.loads(capsys.readouterr().out)
+    assert event['event'] == 'qwen_voice_stopped'
+    assert closed == [True] and KEY not in json.dumps(event)
 
 
 @pytest.mark.parametrize('name,voice,rate', [('warm_female', 'longanlingxin', 0.96),

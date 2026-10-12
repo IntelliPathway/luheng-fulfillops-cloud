@@ -17,6 +17,7 @@ INTENTS = EXCEPTIONS | {
     "unclear",
     "end",
 }
+PROMISE_CONFIRMATION_REPLY = "好的，这次记录的是还款承诺，到账后再核对。"
 
 
 class DialogueError(ValueError):
@@ -146,7 +147,7 @@ class SyntheticLoanDialogue:
             self.stage = "ptp_confirmed"
             return self.output(
                 "propose_record_promise",
-                "好的，这次记录的是还款承诺，到账后再核对。",
+                PROMISE_CONFIRMATION_REPLY,
                 {"intent": "promise", "confirmed": True, "amount_cents": self.amount, "due_date": self.due},
             )
         if proposal.intent not in {"offer_promise", "confirm_promise"}:
