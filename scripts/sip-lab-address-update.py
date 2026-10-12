@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -19,6 +21,32 @@ NETWORKS = tuple(
 
 class UpdateError(ValueError):
     pass
+
+
+def detect_host_address():
+    """Read the default physical Mac interface without probing any remote host."""
+    if sys.platform != 'darwin':
+        raise UpdateError('auto_address_requires_mac')
+
+    def output(arguments):
+        try:
+            result = subprocess.run(arguments, capture_output=True, text=True,
+                                    timeout=3, check=False)
+        except (OSError, subprocess.SubprocessError):
+            raise UpdateError('auto_address_tool_failed') from None
+        if result.returncode or len(result.stdout) > 4096:
+            raise UpdateError('auto_address_tool_failed')
+        return result.stdout
+
+    route = output(['/sbin/route', '-n', 'get', 'default'])
+    interfaces = re.findall(r'^\s*interface:\s*(\S+)\s*$', route, re.MULTILINE)
+    if len(interfaces) != 1 or not re.fullmatch(r'en[0-9]+', interfaces[0]):
+        raise UpdateError('auto_address_no_physical_interface')
+    value = output(['/usr/sbin/ipconfig', 'getifaddr', interfaces[0]]).strip()
+    address = address_value(value)
+    if ipaddress.ip_address(address).is_loopback:
+        raise UpdateError('auto_address_not_lan')
+    return address
 
 
 def address_value(value):

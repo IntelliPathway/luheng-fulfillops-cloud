@@ -502,7 +502,7 @@ def main():
     parser = argparse.ArgumentParser(description='个人 Linphone/千问测试：一个终端启动，API Key 只存内存。')
     parser.add_argument('action', choices=('start', 'verify', 'report', 'setup', 'status', 'stop', 'probe', 'account', 'dialogue', 'speech-check', 'dialogue-result'))
     parser.add_argument('--synthetic-dialogue', action='store_true', help='100元合成案件对话，显式模拟核验；仅用于 start')
-    parser.add_argument('--host-address', help='首次生成或明确更新 Mac 的局域网 IPv4；保留已有凭据')
+    parser.add_argument('--host-address', help='Mac局域网IPv4，或auto自动读取默认网络接口；保留已有凭据')
     parser.add_argument('--session-seconds', type=int, choices=(60, 180), default=180,
                         help='每通电话时长上限：默认 180 秒；仍保留 8 次请求 / 24 次云调用上限')
     speech = parser.add_mutually_exclusive_group()
@@ -537,14 +537,21 @@ def main():
         return helper(ROOT, "loan-dialogue-replay").main()
     lab = None
     try:
+        if args.host_address and args.action not in {'start', 'verify', 'setup'}:
+            raise LabError('--host-address 仅用于 start/verify/setup；诊断和报告不修改配置。')
+        address = args.host_address
+        if address == 'auto':
+            try:
+                address = helper(ROOT, 'sip-lab-address-update').detect_host_address()
+            except ValueError:
+                raise LabError('无法自动确定Mac局域网IPv4；检查网络或VPN，或使用 --host-address <实际IPv4>。未修改配置。') from None
+            print('检测到 Mac 局域网地址：' + address, flush=True)
         lab = Lab(session_seconds=args.session_seconds, verifying=args.action == 'verify',
                   **({'synthetic_dialogue': True} if args.synthetic_dialogue else {}),
                   **({'speech_profile': args.speech_profile} if args.speech_profile is not None else {}),
                   **({'speech_config': args.speech_config} if args.speech_config is not None else {}))
-        if args.host_address and args.action not in {'start', 'verify', 'setup'}:
-            raise LabError('--host-address 仅用于 start/verify/setup；诊断和报告不修改配置。')
         if args.action in {'start', 'verify', 'setup'}:
-            lab.configure(args.host_address, exclusive=True)
+            lab.configure(address, exclusive=True)
         else:
             lab.environment = read_environment(lab.root)
         if args.action in {'start', 'verify'}:
